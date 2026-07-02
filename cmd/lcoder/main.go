@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/agentsetup"
+	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/config"
 	contextloader "github.com/lcoder/lcoder/pkg/context"
 	"github.com/lcoder/lcoder/pkg/events"
@@ -230,6 +232,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		fmt.Fprintf(os.Stderr, "warning: 未能自动获取模型 %q 的上下文窗口,回退默认 %d\n", cfg.Model, budget.MaxTotal)
 	}
 	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.ActiveMessages())
+	chkStore := checkpoint.NewFileStore(filepath.Join(session.DefaultDir(), "checkpoints"))
 	ag, err := agent.NewBuilder().
 		WithConfig(agent.Config{
 			SystemPrompt:      "",
@@ -249,12 +252,24 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		WithEventBus(bus).
 		WithObservability(obsCollector).
 		WithReminderProducer(agent.UnresolvedTodosReminder).
+		WithSessionID(sess.ID).
+		WithCheckpointStore(chkStore).
 		Build()
 	if err != nil {
 		mcpRegistry.Close()
 		return nil, fmt.Errorf("build agent: %w", err)
 	}
-	ag.SetMessages(sess.ActiveMessages())
+
+	// Prefer the latest checkpoint for this session; fall back to the session's
+	// message history if no checkpoint exists or restore fails.
+	if cp, err := chkStore.Load(sess.ID); err == nil {
+		if err := ag.Restore(cp); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to restore checkpoint: %v; using session messages\n", err)
+			ag.SetMessages(sess.ActiveMessages())
+		}
+	} else {
+		ag.SetMessages(sess.ActiveMessages())
+	}
 
 	return &agentSetup{
 		ag:          ag,

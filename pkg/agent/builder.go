@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 
+	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/llm"
@@ -142,6 +143,19 @@ func (b *Builder) WithEventBus(bus *events.Bus) *Builder {
 // WithObservability sets the observability collector.
 func (b *Builder) WithObservability(c *observability.Collector) *Builder {
 	b.obsCollector = c
+	return b
+}
+
+// WithSessionID identifies the session the agent belongs to. Used as the
+// default key for automatic checkpoints.
+func (b *Builder) WithSessionID(id string) *Builder {
+	b.cfg.SessionID = id
+	return b
+}
+
+// WithCheckpointStore enables automatic checkpoints between turns.
+func (b *Builder) WithCheckpointStore(store checkpoint.Store) *Builder {
+	b.cfg.CheckpointStore = store
 	return b
 }
 

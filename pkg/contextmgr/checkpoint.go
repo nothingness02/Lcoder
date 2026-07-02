@@ -14,6 +14,7 @@ type ManagerState struct {
 	EphemeralReminders []string
 	LastUsage          *RealUsage
 	CachePolicy        string
+	MinRecent          int
 }
 
 // BlockState is a serializable mirror of Block.
@@ -38,6 +39,7 @@ func (m *Manager) Snapshot() (*ManagerState, error) {
 		CachePolicy:        string(m.cachePolicy),
 		EphemeralReminders: append([]string(nil), m.ephemeralReminders...),
 		Blocks:             make([]BlockState, 0, len(m.blocks)),
+		MinRecent:          m.keepRecent,
 	}
 
 	if m.hasUsage {
@@ -81,6 +83,9 @@ func (m *Manager) Restore(state *ManagerState) error {
 	m.budget = state.Budget
 	m.cachePolicy = ParseCacheHintPolicy(state.CachePolicy)
 	m.ephemeralReminders = append([]string(nil), state.EphemeralReminders...)
+	if state.MinRecent > 0 {
+		m.keepRecent = state.MinRecent
+	}
 
 	if state.LastUsage != nil {
 		m.lastUsage = *state.LastUsage

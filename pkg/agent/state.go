@@ -13,6 +13,8 @@ import (
 type stateHolder struct {
 	mu            sync.Mutex
 	state         State
+	turn          int
+	resuming      bool
 	steeringQueue []models.AgentMessage
 	followUpQueue []models.AgentMessage
 
@@ -26,6 +28,49 @@ type stateHolder struct {
 
 func newStateHolder() *stateHolder {
 	return &stateHolder{abortCh: make(chan struct{})}
+}
+
+// Turn returns the current turn counter.
+func (s *stateHolder) Turn() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.turn
+}
+
+// SetTurn sets the turn counter.
+func (s *stateHolder) SetTurn(t int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turn = t
+}
+
+// IncrTurn advances the turn counter by one.
+func (s *stateHolder) IncrTurn() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turn++
+}
+
+// StartRun returns the turn at which a new run should begin. If the holder is
+// marked as resuming (e.g., after checkpoint restore), it returns the saved turn
+// and clears the flag; otherwise it resets to 0.
+func (s *stateHolder) StartRun() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.resuming {
+		s.resuming = false
+		return s.turn
+	}
+	s.turn = 0
+	return 0
+}
+
+// SetResuming marks the holder so that the next run continues from the saved
+// turn counter instead of resetting to 0.
+func (s *stateHolder) SetResuming(v bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resuming = v
 }
 
 // State returns the current agent state.

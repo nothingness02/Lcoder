@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/llm"
@@ -47,6 +48,14 @@ type Config struct {
 	// engine returns Ask, the agent calls Confirm and blocks the tool call until
 	// the user responds. CLI and TUI provide their own implementations.
 	UserConfirm UserConfirmation
+
+	// SessionID identifies the session this agent belongs to. It is used as the
+	// default checkpoint key when auto-saving state.
+	SessionID string
+
+	// CheckpointStore persists automatic checkpoints between turns. If nil,
+	// no automatic checkpoints are written.
+	CheckpointStore checkpoint.Store
 
 	// DeferredTools, when true, ships only CoreTools with full schemas plus
 	// the tool_search meta-tool; every other registered tool is sent as a
@@ -287,7 +296,7 @@ func (a *Agent) WithMode(mode string) Runner {
 	if err != nil {
 		panic(fmt.Sprintf("WithMode: checkpoint failed: %v", err))
 	}
-	cp.Mode = mode
+	cp.Agent.Mode = mode
 
 	cfg := a.cfg
 	cfg.Mode = mode
@@ -328,7 +337,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 	a.loopState.SetState(StateStreaming)
 	a.loopState.ResetAbort()
 
-	turn := 0
+	turn := a.loopState.StartRun()
 	for _, msg := range initialPrompts {
 		a.appendMessage(msg)
 	}
@@ -383,6 +392,11 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		})
 
 		turn++
+		a.loopState.SetTurn(turn)
+
+		// Persist an automatic checkpoint at the completed-turn boundary.
+		// This is the only place where the run is in a known-safe state.
+		a.maybeCheckpoint(ctx, turn, checkpoint.ReasonAuto)
 
 		if a.maxTurnsReached(turn) {
 			break
@@ -409,6 +423,28 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 	})
 	a.loopState.SetState(StateIdle)
 	return nil
+}
+
+// maybeCheckpoint writes an automatic checkpoint when a store and session id are
+// configured. Errors are emitted as events but never stop the run.
+func (a *Agent) maybeCheckpoint(ctx context.Context, turn int, reason string) {
+	if a.cfg.CheckpointStore == nil || a.cfg.SessionID == "" {
+		return
+	}
+	cp, err := a.CheckpointWithReason(reason)
+	if err != nil {
+		a.emit(ctx, events.ErrorEvent{
+			Base:    events.Base{Type: events.Error, Turn: turn},
+			Message: "checkpoint: " + err.Error(),
+		})
+		return
+	}
+	if err := a.cfg.CheckpointStore.Save(a.cfg.SessionID, cp); err != nil {
+		a.emit(ctx, events.ErrorEvent{
+			Base:    events.Base{Type: events.Error, Turn: turn},
+			Message: "checkpoint save: " + err.Error(),
+		})
+	}
 }
 
 // refreshEphemeralReminders runs every producer over the current conversation

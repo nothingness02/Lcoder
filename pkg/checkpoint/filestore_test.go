@@ -14,7 +14,7 @@ func TestFileStoreRoundTrip(t *testing.T) {
 
 	id := "test-id"
 	cp := &Checkpoint{
-		Mode: "test-mode",
+		Agent: &AgentSnapshot{Mode: "test-mode"},
 	}
 
 	if err := fs.Save(id, cp); err != nil {
@@ -36,8 +36,8 @@ func TestFileStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
-	if loaded.Mode != cp.Mode {
-		t.Errorf("Mode = %q, want %q", loaded.Mode, cp.Mode)
+	if loaded.Agent.Mode != cp.Agent.Mode {
+		t.Errorf("Mode = %q, want %q", loaded.Agent.Mode, cp.Agent.Mode)
 	}
 	if loaded.Version != CurrentVersion {
 		t.Errorf("Version = %d, want %d", loaded.Version, CurrentVersion)

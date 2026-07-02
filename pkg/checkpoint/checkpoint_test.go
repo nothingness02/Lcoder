@@ -14,10 +14,16 @@ import (
 
 func TestCheckpointRoundTrip(t *testing.T) {
 	cp := &checkpoint.Checkpoint{
-		Mode: "test",
-		Model: models.ModelRef{
-			Provider: "anthropic",
-			ID:       "claude-test",
+		Session: &checkpoint.SessionSnapshot{
+			SessionID: "session-1",
+			Reason:    checkpoint.ReasonManual,
+		},
+		Agent: &checkpoint.AgentSnapshot{
+			Mode: "test",
+			Model: models.ModelRef{
+				Provider: "anthropic",
+				ID:       "claude-test",
+			},
 		},
 		Context: &checkpoint.ContextSnapshot{
 			Budget: contextmgr.TokenBudget{
@@ -58,8 +64,10 @@ func TestCheckpointRoundTrip(t *testing.T) {
 
 	require.Equal(t, checkpoint.CurrentVersion, got.Version)
 	require.False(t, got.CreatedAt.IsZero())
-	require.Equal(t, cp.Mode, got.Mode)
-	require.Equal(t, cp.Model, got.Model)
+	require.Equal(t, cp.Session.SessionID, got.Session.SessionID)
+	require.Equal(t, cp.Session.Reason, got.Session.Reason)
+	require.Equal(t, cp.Agent.Mode, got.Agent.Mode)
+	require.Equal(t, cp.Agent.Model, got.Agent.Model)
 	require.Equal(t, cp.Context.Budget, got.Context.Budget)
 	require.Len(t, got.Context.Blocks, 1)
 	require.Equal(t, string(contextmgr.BlockRecent), got.Context.Blocks[0].Kind)
@@ -83,7 +91,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 }
 
 func TestCheckpointVersionMismatch(t *testing.T) {
-	cp := &checkpoint.Checkpoint{Mode: "test"}
+	cp := &checkpoint.Checkpoint{Agent: &checkpoint.AgentSnapshot{Mode: "test"}}
 	data, err := json.Marshal(cp)
 	require.NoError(t, err)
 
@@ -102,17 +110,17 @@ func TestCheckpointVersionMismatch(t *testing.T) {
 
 func TestCheckpointZeroVersionRejected(t *testing.T) {
 	var got checkpoint.Checkpoint
-	err := json.Unmarshal([]byte(`{"mode":"test"}`), &got)
+	err := json.Unmarshal([]byte(`{"agent":{"mode":"test"}}`), &got)
 	require.True(t, errors.Is(err, checkpoint.ErrVersionMismatch))
 }
 
 func TestCheckpointMinimalRoundTrip(t *testing.T) {
-	cp := &checkpoint.Checkpoint{Mode: "minimal"}
+	cp := &checkpoint.Checkpoint{Agent: &checkpoint.AgentSnapshot{Mode: "minimal"}}
 
 	data, err := json.Marshal(cp)
 	require.NoError(t, err)
 
 	var got checkpoint.Checkpoint
 	require.NoError(t, json.Unmarshal(data, &got))
-	require.Equal(t, cp.Mode, got.Mode)
+	require.Equal(t, cp.Agent.Mode, got.Agent.Mode)
 }

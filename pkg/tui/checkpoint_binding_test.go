@@ -79,14 +79,14 @@ func (f *fakeCheckpointAgent) Checkpoint() (*checkpoint.Checkpoint, error) {
 	if f.checkpointErr != nil {
 		return nil, f.checkpointErr
 	}
-	return &checkpoint.Checkpoint{Mode: f.mode}, nil
+	return &checkpoint.Checkpoint{Agent: &checkpoint.AgentSnapshot{Mode: f.mode}}, nil
 }
 
 func (f *fakeCheckpointAgent) Restore(cp *checkpoint.Checkpoint) error {
 	if f.restoreErr != nil {
 		return f.restoreErr
 	}
-	f.mode = cp.Mode
+	f.mode = cp.Agent.Mode
 	return nil
 }
 
@@ -113,8 +113,8 @@ func TestTUISaveCheckpoint(t *testing.T) {
 	if chkStore.saved[0].id != "abc123" {
 		t.Fatalf("expected session id abc123, got %s", chkStore.saved[0].id)
 	}
-	if chkStore.saved[0].cp.Mode != "code" {
-		t.Fatalf("expected checkpoint mode code, got %s", chkStore.saved[0].cp.Mode)
+	if chkStore.saved[0].cp.Agent.Mode != "code" {
+		t.Fatalf("expected checkpoint mode code, got %s", chkStore.saved[0].cp.Agent.Mode)
 	}
 	if !m.cmdPanel.visible || !strings.Contains(m.cmdPanel.text, "checkpoint saved") {
 		t.Fatalf("expected success panel, got %+v", m.cmdPanel)
@@ -125,7 +125,7 @@ func TestTUIRestoreCheckpoint(t *testing.T) {
 	ag := &fakeCheckpointAgent{fakeAgent: &fakeAgent{mode: "code"}}
 	chkStore := &fakeCheckpointStore{
 		checkpoints: map[string]*checkpoint.Checkpoint{
-			"abc123": {Mode: "review"},
+			"abc123": {Agent: &checkpoint.AgentSnapshot{Mode: "review"}},
 		},
 	}
 	m := newCheckpointTestModel(ag, chkStore)
@@ -143,8 +143,8 @@ func TestTUIRestoreCheckpoint(t *testing.T) {
 func TestTUIListCheckpoints(t *testing.T) {
 	chkStore := &fakeCheckpointStore{
 		checkpoints: map[string]*checkpoint.Checkpoint{
-			"abc123": {},
-			"other":  {},
+			"abc123": {Agent: &checkpoint.AgentSnapshot{}},
+			"other":  {Agent: &checkpoint.AgentSnapshot{}},
 		},
 	}
 	m := newCheckpointTestModel(&fakeCheckpointAgent{fakeAgent: &fakeAgent{}}, chkStore)

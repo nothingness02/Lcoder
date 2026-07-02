@@ -14,14 +14,41 @@ import (
 // CurrentVersion is the only checkpoint format version accepted by UnmarshalJSON.
 const CurrentVersion = 1
 
+// Checkpoint reasons.
+const (
+	ReasonManual = "manual"
+	ReasonAuto   = "auto"
+	ReasonCrash  = "crash"
+)
+
 // Checkpoint is a portable, serializable snapshot of an agent session.
 type Checkpoint struct {
 	Version   int               `json:"version"`
 	CreatedAt time.Time         `json:"created_at"`
-	Mode      string            `json:"mode"`
-	Model     models.ModelRef   `json:"model"`
+	Session   *SessionSnapshot  `json:"session"`
+	Agent     *AgentSnapshot    `json:"agent"`
 	Context   *ContextSnapshot  `json:"context"`
 	Runtime   *RuntimeSnapshot  `json:"runtime"`
+}
+
+// SessionSnapshot identifies the session and checkpoint lineage.
+type SessionSnapshot struct {
+	SessionID        string `json:"session_id"`
+	CheckpointID     string `json:"checkpoint_id"`
+	ParentCheckpoint string `json:"parent_checkpoint,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	ConfigHash       string `json:"config_hash,omitempty"`
+}
+
+// AgentSnapshot captures the runtime configuration that affects agent behavior
+// and cannot be derived from the context manager alone.
+type AgentSnapshot struct {
+	Mode              string             `json:"mode"`
+	Model             models.ModelRef    `json:"model"`
+	MaxTurns          int                `json:"max_turns,omitempty"`
+	ToolExecutionMode models.ExecutionMode `json:"tool_execution_mode,omitempty"`
+	DeferredTools     bool               `json:"deferred_tools,omitempty"`
+	CoreTools         []string           `json:"core_tools,omitempty"`
 }
 
 // MarshalJSON sets default Version and CreatedAt before serialization.
@@ -56,6 +83,7 @@ type ContextSnapshot struct {
 	EphemeralReminders []string                `json:"ephemeral_reminders,omitempty"`
 	LastUsage          *contextmgr.RealUsage   `json:"last_usage,omitempty"`
 	CachePolicy        string                  `json:"cache_policy,omitempty"`
+	MinRecent          int                     `json:"min_recent,omitempty"`
 }
 
 // BlockSnapshot mirrors contextmgr.Block with serializable fields.
@@ -72,10 +100,12 @@ type BlockSnapshot struct {
 
 // RuntimeSnapshot captures the agent runtime state.
 type RuntimeSnapshot struct {
-	State          int                   `json:"state"`
-	SteeringQueue  []models.AgentMessage `json:"steering_queue,omitempty"`
-	FollowUpQueue  []models.AgentMessage `json:"follow_up_queue,omitempty"`
-	ActiveDeferred map[string]bool       `json:"active_deferred,omitempty"`
+	State            int               `json:"state"`
+	Turn             int               `json:"turn,omitempty"`
+	IsAtTurnBoundary bool              `json:"is_at_turn_boundary,omitempty"`
+	SteeringQueue    []models.AgentMessage `json:"steering_queue,omitempty"`
+	FollowUpQueue    []models.AgentMessage `json:"follow_up_queue,omitempty"`
+	ActiveDeferred   map[string]bool       `json:"active_deferred,omitempty"`
 }
 
 // Source produces a Checkpoint representing the current state.
