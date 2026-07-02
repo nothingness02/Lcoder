@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -108,15 +109,16 @@ func loadConfig() (config.Config, error) {
 }
 
 type agentSetup struct {
-	ag          *agent.Agent
-	sess        *session.Session
-	store       *session.Store
-	bus         *events.Bus
-	mcpRegistry *mcp.Registry
-	cfg         agentConfig
-	cwd         string
-	llmClient   *llm.Client
-	cleanup     func()
+	ag             *agent.Agent
+	sess           *session.Session
+	store          *session.Store
+	bus            *events.Bus
+	mcpRegistry    *mcp.Registry
+	cfg            agentConfig
+	cwd            string
+	llmClient      *llm.Client
+	checkpointStore checkpoint.Store
+	cleanup        func()
 }
 
 type agentConfig struct {
@@ -271,14 +273,15 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 
 	return &agentSetup{
-		ag:          ag,
-		sess:        sess,
-		store:       sessStore,
-		bus:         bus,
-		mcpRegistry: mcpRegistry,
-		cfg:         agentConfig{Config: cfg, loadedSkills: loadedSkills},
-		cwd:         cwd,
-		llmClient:   llmClient,
+		ag:              ag,
+		sess:            sess,
+		store:           sessStore,
+		bus:             bus,
+		mcpRegistry:     mcpRegistry,
+		cfg:             agentConfig{Config: cfg, loadedSkills: loadedSkills},
+		cwd:             cwd,
+		llmClient:       llmClient,
+		checkpointStore: chkStore,
 		cleanup: func() {
 			obsCollector.Close()
 			mcpRegistry.Close()
@@ -306,15 +309,41 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 
 	jsonMode, _ := cmd.Flags().GetBool("json")
+
+	ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals...)
+	defer stop()
+
+	var runErr error
 	if jsonMode {
-		return runJSONMode(cmd.Context(), setup, promptText)
+		runErr = runJSONMode(ctx, setup, promptText)
+	} else if promptText != "" {
+		runErr = runOneShot(ctx, setup, promptText)
+	} else {
+		runErr = runTUI(ctx, setup)
 	}
 
-	if promptText != "" {
-		return runOneShot(cmd.Context(), setup, promptText)
+	if ctx.Err() != nil {
+		writeCrashCheckpoint(setup)
 	}
+	return runErr
+}
 
-	return runTUI(cmd.Context(), setup)
+// writeCrashCheckpoint captures the current agent state as a crash checkpoint
+// when the process is interrupted. It is best-effort: if the agent is mid-turn,
+// the checkpoint may reflect a partial turn, but it still preserves more state
+// than losing everything since the last auto-checkpoint.
+func writeCrashCheckpoint(setup *agentSetup) {
+	if setup.checkpointStore == nil || setup.sess == nil {
+		return
+	}
+	cp, err := setup.ag.CheckpointWithReason(checkpoint.ReasonCrash)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to capture crash checkpoint: %v\n", err)
+		return
+	}
+	if err := setup.checkpointStore.Save(setup.sess.ID, cp); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to save crash checkpoint: %v\n", err)
+	}
 }
 
 func runJSONMode(ctx context.Context, setup *agentSetup, prompt string) error {
