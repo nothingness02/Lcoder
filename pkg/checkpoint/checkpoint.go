@@ -86,13 +86,13 @@ type ContextSnapshot struct {
 	MinRecent          int                     `json:"min_recent,omitempty"`
 }
 
-// BlockSnapshot mirrors contextmgr.Block with serializable fields.
+// BlockSnapshot captures block-level runtime metadata without messages.
+// Messages are owned by the session store and loaded separately on startup.
 type BlockSnapshot struct {
 	Kind             string                `json:"kind"`
 	Name             string                `json:"name"`
 	Priority         int                   `json:"priority"`
 	Stability        string                `json:"stability"`
-	Messages         []models.AgentMessage `json:"messages,omitempty"`
 	Metadata         map[string]any        `json:"metadata,omitempty"`
 	CacheHint        string                `json:"cache_hint,omitempty"`
 	LastModifiedTurn int                   `json:"last_modified_turn,omitempty"`

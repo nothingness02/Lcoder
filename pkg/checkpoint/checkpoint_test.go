@@ -36,7 +36,6 @@ func TestCheckpointRoundTrip(t *testing.T) {
 					Name:      "recent",
 					Priority:  100,
 					Stability: string(contextmgr.StabilityDynamic),
-					Messages:  []models.AgentMessage{models.UserMessage("hello")},
 					CacheHint: string(contextmgr.CacheHintBreakpoint),
 				},
 			},
@@ -77,7 +76,6 @@ func TestCheckpointRoundTrip(t *testing.T) {
 	require.Equal(t, cp.Context.Blocks[0].Metadata, got.Context.Blocks[0].Metadata)
 	require.Equal(t, cp.Context.Blocks[0].CacheHint, got.Context.Blocks[0].CacheHint)
 	require.Equal(t, cp.Context.Blocks[0].LastModifiedTurn, got.Context.Blocks[0].LastModifiedTurn)
-	require.Equal(t, "hello", got.Context.Blocks[0].Messages[0].Text())
 	require.Equal(t, []string{"reminder"}, got.Context.EphemeralReminders)
 	require.NotNil(t, got.Context.LastUsage)
 	require.Equal(t, 60, got.Context.LastUsage.PromptTokens())

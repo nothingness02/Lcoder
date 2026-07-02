@@ -20,7 +20,7 @@ func (a *Agent) Checkpoint() (*checkpoint.Checkpoint, error) {
 // CheckpointWithReason captures the agent state and records why the checkpoint
 // was taken (e.g. manual slash command or automatic turn boundary).
 func (a *Agent) CheckpointWithReason(reason string) (*checkpoint.Checkpoint, error) {
-	mgrState, err := a.mgr.Snapshot()
+	mgrState, err := a.mgr.SnapshotRuntime()
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,6 @@ func (a *Agent) CheckpointWithReason(reason string) (*checkpoint.Checkpoint, err
 			Name:             b.Name,
 			Priority:         b.Priority,
 			Stability:        string(b.Stability),
-			Messages:         b.Messages,
 			Metadata:         b.Metadata,
 			CacheHint:        string(b.CacheHint),
 			LastModifiedTurn: b.LastModifiedTurn,
@@ -137,7 +136,6 @@ func (a *Agent) Restore(cp *checkpoint.Checkpoint) error {
 			Name:             b.Name,
 			Priority:         b.Priority,
 			Stability:        contextmgr.Stability(b.Stability),
-			Messages:         b.Messages,
 			Metadata:         b.Metadata,
 			CacheHint:        contextmgr.CacheHint(b.CacheHint),
 			LastModifiedTurn: b.LastModifiedTurn,

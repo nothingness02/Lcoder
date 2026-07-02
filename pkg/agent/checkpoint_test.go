@@ -103,7 +103,14 @@ func TestAgentCheckpointRoundTrip(t *testing.T) {
 
 	if b, ok := restored.mgr.GetBlock(contextmgr.BlockSystem, "system"); !ok {
 		t.Error("restored manager missing system block")
-	} else if b.Text() != "original prompt" {
-		t.Errorf("system prompt = %q, want %q", b.Text(), "original prompt")
+	} else if b.Text() != "fresh prompt" {
+		t.Errorf("system prompt = %q, want %q (checkpoint must not overwrite session messages)", b.Text(), "fresh prompt")
+	}
+
+	// Verify that block metadata (priority/cache hint) is restored.
+	if b, ok := restored.mgr.GetBlock(contextmgr.BlockSystem, "system"); ok {
+		if b.Priority != 100 {
+			t.Errorf("system block priority = %d, want 100", b.Priority)
+		}
 	}
 }

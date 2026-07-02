@@ -289,25 +289,12 @@ func (a *Agent) Mode() string {
 }
 
 // WithMode returns a copy of the agent with a different mode set.
-// It snapshots the current agent state via Checkpoint/Restore so that mode-specific
-// system prompts are applied consistently and not repeatedly appended.
+// It clones the current context manager and runtime state so that the new agent
+// continues the same conversation under the new mode.
 func (a *Agent) WithMode(mode string) Runner {
-	cp, err := a.Checkpoint()
-	if err != nil {
-		panic(fmt.Sprintf("WithMode: checkpoint failed: %v", err))
-	}
-	cp.Agent.Mode = mode
-
 	cfg := a.cfg
 	cfg.Mode = mode
-
-	freshMgr := contextmgr.NewManager(
-		cp.Context.Budget,
-		contextmgr.WithEstimator(a.mgr.Estimator()),
-		contextmgr.WithSummarizer(a.mgr.Summarizer()),
-		contextmgr.WithWindowPolicy(a.mgr.WindowPolicy()),
-	)
-	cfg.ContextManager = freshMgr
+	cfg.ContextManager = a.mgr.Clone()
 
 	emitter := a.emitter
 	if emitter == nil {
@@ -316,20 +303,20 @@ func (a *Agent) WithMode(mode string) Runner {
 
 	fresh := &Agent{
 		cfg:          cfg,
-		mgr:          freshMgr,
+		mgr:          cfg.ContextManager,
 		llm:          a.llm,
 		registry:     a.registry,
 		bus:          a.bus,
 		obsCollector: a.obsCollector,
 		emitter:      emitter,
 		loopState:    newStateHolder(),
-		streamer:     &streamer{cfg: &cfg, llm: a.llm, mgr: freshMgr, obs: a.obsCollector, emitter: emitter},
-		executor:     newExecutor(&cfg, freshMgr, a.registry, a.executor.permissions, emitter),
+		streamer:     &streamer{cfg: &cfg, llm: a.llm, mgr: cfg.ContextManager, obs: a.obsCollector, emitter: emitter},
+		executor:     newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter),
 	}
 
-	if err := fresh.Restore(cp); err != nil {
-		panic(fmt.Sprintf("WithMode: restore failed: %v", err))
-	}
+	fresh.loopState.restore(a.loopState.snapshot())
+	fresh.loopState.SetResuming(true)
+	fresh.executor.restore(a.executor.snapshot())
 	return fresh
 }
 

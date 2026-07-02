@@ -67,7 +67,46 @@ func (m *Manager) Snapshot() (*ManagerState, error) {
 	return state, nil
 }
 
-// Restore replaces the manager's state with the provided snapshot.
+// SnapshotRuntime returns the manager's runtime state without copying block
+// messages. It is intended for frequent, lightweight checkpoints where message
+// history is persisted separately (e.g. by the session store).
+func (m *Manager) SnapshotRuntime() (*ManagerState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state := &ManagerState{
+		Budget:             m.budget,
+		CachePolicy:        string(m.cachePolicy),
+		EphemeralReminders: append([]string(nil), m.ephemeralReminders...),
+		Blocks:             make([]BlockState, 0, len(m.blocks)),
+		MinRecent:          m.keepRecent,
+	}
+
+	if m.hasUsage {
+		usage := m.lastUsage
+		state.LastUsage = &usage
+	}
+
+	for _, b := range m.blocks {
+		state.Blocks = append(state.Blocks, BlockState{
+			Kind:             b.Kind,
+			Name:             b.Name,
+			Priority:         b.Priority,
+			Stability:        b.Stability,
+			Metadata:         copyMetadata(b.Metadata),
+			CacheHint:        b.CacheHint,
+			LastModifiedTurn: b.LastModifiedTurn,
+		})
+	}
+
+	return state, nil
+}
+
+// Restore replaces the manager's state with the provided snapshot. If a block
+// state does not carry messages, the existing block's messages are preserved and
+// only metadata (priority, cache hint, last modified turn) is updated. This lets
+// a lightweight runtime checkpoint be applied after session messages have been
+// loaded separately.
 func (m *Manager) Restore(state *ManagerState) error {
 	if state == nil {
 		return fmt.Errorf("contextmgr: cannot restore: nil state")
@@ -95,19 +134,39 @@ func (m *Manager) Restore(state *ManagerState) error {
 		m.hasUsage = false
 	}
 
-	blocks := make([]*Block, 0, len(state.Blocks))
+	type blockKey struct {
+		kind BlockKind
+		name string
+	}
+	existing := make(map[blockKey]*Block, len(m.blocks))
+	for _, b := range m.blocks {
+		existing[blockKey{b.Kind, b.Name}] = b
+	}
+
 	for _, bs := range state.Blocks {
-		b := NewBlock(bs.Kind, bs.Name, bs.Stability, bs.Priority)
-		b.Messages = append([]models.AgentMessage(nil), bs.Messages...)
-		for i := range b.Messages {
-			b.Messages[i].Metadata = copyMetadata(b.Messages[i].Metadata)
+		key := blockKey{bs.Kind, bs.Name}
+		b, ok := existing[key]
+		if !ok {
+			// Metadata-only snapshots should not create empty blocks.
+			if len(bs.Messages) == 0 {
+				continue
+			}
+			b = NewBlock(bs.Kind, bs.Name, bs.Stability, bs.Priority)
+			existing[key] = b
+			m.blocks = append(m.blocks, b)
+		}
+		if len(bs.Messages) > 0 {
+			b.Messages = append([]models.AgentMessage(nil), bs.Messages...)
+			for i := range b.Messages {
+				b.Messages[i].Metadata = copyMetadata(b.Messages[i].Metadata)
+			}
 		}
 		b.Metadata = copyMetadata(bs.Metadata)
 		b.CacheHint = bs.CacheHint
 		b.LastModifiedTurn = bs.LastModifiedTurn
-		blocks = append(blocks, b)
+		b.Priority = bs.Priority
+		b.Stability = bs.Stability
 	}
-	m.blocks = blocks
 
 	return nil
 }

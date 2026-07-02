@@ -260,15 +260,14 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		return nil, fmt.Errorf("build agent: %w", err)
 	}
 
-	// Prefer the latest checkpoint for this session; fall back to the session's
-	// message history if no checkpoint exists or restore fails.
+	// The session store owns the message history; load it first. The checkpoint
+	// only carries runtime state, so it is applied afterwards without overwriting
+	// the conversation.
+	ag.SetMessages(sess.ActiveMessages())
 	if cp, err := chkStore.Load(sess.ID); err == nil {
 		if err := ag.Restore(cp); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to restore checkpoint: %v; using session messages\n", err)
-			ag.SetMessages(sess.ActiveMessages())
+			fmt.Fprintf(os.Stderr, "warning: failed to restore checkpoint: %v; continuing with session messages only\n", err)
 		}
-	} else {
-		ag.SetMessages(sess.ActiveMessages())
 	}
 
 	return &agentSetup{
