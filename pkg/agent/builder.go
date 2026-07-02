@@ -167,6 +167,8 @@ func (b *Builder) Build() (*Agent, error) {
 	ag := New(b.cfg, b.llmClient, b.registry, b.permissions, b.bus)
 	if b.obsCollector != nil {
 		ag.obsCollector = b.obsCollector
+		ag.emitter.obs = b.obsCollector
+		ag.streamer.obs = b.obsCollector
 	}
 	return ag, nil
 }

@@ -152,7 +152,9 @@ func (s *streamer) stream(ctx context.Context, turn int, modelRef models.ModelRe
 			if usage, ok := ev.Usage(); ok {
 				usage.Provider = s.cfg.Model.Provider
 				usage.Model = s.cfg.Model.ID
-				_ = s.obs.RecordLLMUsage(usage)
+				if s.obs != nil {
+					_ = s.obs.RecordLLMUsage(usage)
+				}
 				// Feed the provider's real prompt-token accounting back to the
 				// context manager so budget decisions use real counts.
 				s.mgr.RecordRealUsage(usage)

@@ -23,7 +23,6 @@ context:
   max_output: 16384
   static_ratio: 60
   min_recent: 10
-  auto_compact: true
   compact_threshold: 0.9
   cache_hint_policy: default
 

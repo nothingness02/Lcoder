@@ -332,7 +332,8 @@ func TestAgentRealRun(t *testing.T) {
 	// 4. Resolve the context budget from the discovered model window.
 	ctx := context.Background()
 	window, _ := client.ModelWindow(ctx, provider, model)
-	cfgBudget, source := cfg.ResolveContextBudget(window, 0)
+	maxOutput, _ := client.ModelMaxOutput(ctx, provider, model)
+	cfgBudget, source := cfg.ResolveContextBudget(window, maxOutput)
 	budget := contextmgr.TokenBudget{
 		MaxTotal:         cfgBudget.MaxTotal,
 		TargetTotal:      cfgBudget.TargetTotal,

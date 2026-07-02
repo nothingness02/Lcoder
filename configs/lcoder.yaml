@@ -52,7 +52,6 @@ context:
   # reserve_output: 8192   # leave empty = default 8192
   static_ratio: 60         # target percentage for static/stable blocks
   min_recent: 10           # minimum recent messages to keep
-  auto_compact: true       # enable automatic compaction
   compact_threshold: 0.9   # compact when usage reaches this ratio of target_tokens
   cache_hint_policy: default  # default | aggressive | none
 

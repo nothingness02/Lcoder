@@ -46,22 +46,15 @@ func BuildSystemPrompt() string {
 }
 
 // NewContextManager builds the token-budgeted context manager with the system,
-// project-docs, skills, and recent blocks, attaching an LLM summarizer (behind
-// a circuit breaker) only when automatic compaction is enabled.
+// project-docs, skills, and recent blocks. A summarizer is always attached so
+// that checkpoint restore has a wired manager and compaction can run when the
+// budget policy asks for it.
 func NewContextManager(cfg config.Config, budget config.TokenBudget, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage) *contextmgr.Manager {
 	opts := []contextmgr.Option{
 		contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(cfg.Context.MinRecent)),
 		contextmgr.WithMinRecent(cfg.Context.MinRecent),
 		contextmgr.WithCacheHintPolicy(contextmgr.ParseCacheHintPolicy(cfg.Context.CacheHintPolicy)),
-	}
-	// Attach a real LLM summarizer (guarded by a circuit breaker) only when
-	// automatic compaction is enabled. Otherwise the window policy degrades to
-	// truncation. The breaker trips after repeated failures so a flaky provider
-	// never crashes the turn.
-	if cfg.Context.AutoCompact && cfg.Context.Mode == "auto" {
-		breaker := compaction.NewCircuitBreaker(0)
-		summarizer := compaction.NewLLMSummarizer(llmClient, models.ModelRef{Provider: cfg.Provider, ID: cfg.Model})
-		opts = append(opts, contextmgr.WithSummarizer(contextmgr.SummarizeFunc(breaker.Wrap(summarizer))))
+		contextmgr.WithSummarizer(contextmgr.SummarizeFunc(compaction.NewCircuitBreaker(0).Wrap(compaction.NewLLMSummarizer(llmClient, models.ModelRef{Provider: cfg.Provider, ID: cfg.Model})))),
 	}
 
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{

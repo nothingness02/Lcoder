@@ -256,7 +256,7 @@ func TestAgentWithModeSnapshot(t *testing.T) {
 	ag.FollowUp(followUpMsg)
 	ag.executor.activateDeferredTool("edit")
 
-	reviewAg := ag.WithMode("review")
+	reviewAg := ag.WithMode("review").(*Agent)
 	if reviewAg.cfg.Mode != "review" {
 		t.Fatalf("expected review mode, got %s", reviewAg.cfg.Mode)
 	}

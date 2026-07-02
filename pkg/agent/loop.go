@@ -93,6 +93,13 @@ func (a *Agent) emit(ctx context.Context, ev events.Event) {
 	a.emitter.emit(ctx, ev)
 }
 
+// Compile-time assertions that Agent exposes the UI-facing Runner surface and
+// can be used as a ModeSwitcher.
+var (
+	_ Runner       = (*Agent)(nil)
+	_ ModeSwitcher = (*Agent)(nil)
+)
+
 // Agent runs the LLM tool loop. It delegates streaming, tool execution, and
 // state management to internal components while remaining the public API surface.
 type Agent struct {
@@ -275,7 +282,7 @@ func (a *Agent) Mode() string {
 // WithMode returns a copy of the agent with a different mode set.
 // It snapshots the current agent state via Checkpoint/Restore so that mode-specific
 // system prompts are applied consistently and not repeatedly appended.
-func (a *Agent) WithMode(mode string) *Agent {
+func (a *Agent) WithMode(mode string) Runner {
 	cp, err := a.Checkpoint()
 	if err != nil {
 		panic(fmt.Sprintf("WithMode: checkpoint failed: %v", err))

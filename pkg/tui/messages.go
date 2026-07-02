@@ -6,7 +6,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
-	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 )
@@ -61,25 +60,17 @@ func waitForEventCmd(ch <-chan events.Event) tea.Cmd {
 	}
 }
 
-// AgentRunner abstracts the agent for TUI interaction.
-type AgentRunner interface {
-	Prompt(ctx context.Context, msg models.AgentMessage) error
-	Continue(ctx context.Context) error
-	AllMessages() []models.AgentMessage
-	SetMessages(msgs []models.AgentMessage)
-	SetUserConfirm(uc agent.UserConfirmation)
-	Stats() map[string]int
-	Mode() string
-	Steer(msg models.AgentMessage) // follow-up while processing
-	Abort()                        // esc-to-interrupt
-	SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget)
-}
+// AgentRunner is the UI-facing agent interface. It is an alias to the agent
+// package's Runner so the concrete *agent.Agent can satisfy ModeSwitcher without
+// an extra indirection.
+type AgentRunner = agent.Runner
 
 // ModeSwitcher extends AgentRunner with mode switching capabilities.
-type ModeSwitcher interface {
-	AgentRunner
-	WithMode(mode string) AgentRunner
-}
+type ModeSwitcher = agent.ModeSwitcher
+
+// Compile-time assertion that the production *agent.Agent can be used through
+// the TUI's ModeSwitcher alias.
+var _ ModeSwitcher = (*agent.Agent)(nil)
 
 // SessionWriter abstracts session persistence.
 type SessionWriter interface {
