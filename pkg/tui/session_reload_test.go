@@ -15,6 +15,11 @@ import (
 func newStartupModel(prior []models.AgentMessage) *Model {
 	bus := events.New()
 	ag := &fakeAgent{msgs: prior}
+	// Simulate the agent's TaskManager being restored from checkpoint/session.
+	if tasks := tasksFromMessages(prior); len(tasks) > 0 {
+		ag.taskMgr = task.NewManager()
+		_, _, _ = ag.taskMgr.ReplaceAll(tasks)
+	}
 	sess := &fakeSession{id: "sess1"}
 	store := &fakeSessionStore{}
 	m := NewModel(bus, ag, sess, store, ".", "sess1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)

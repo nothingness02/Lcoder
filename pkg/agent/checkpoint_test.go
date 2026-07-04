@@ -10,6 +10,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
@@ -51,6 +52,10 @@ func TestAgentCheckpointRoundTrip(t *testing.T) {
 	}
 
 	original.cfg.Mode = "review"
+	_, _, _ = original.taskMgr.ReplaceAll([]task.Task{
+		{Text: "step one", Status: task.StatusDone},
+		{Text: "step two", Status: task.StatusInProgress},
+	})
 	steerMsg := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "steer me"})
 	original.Steer(steerMsg)
 	followUpMsg := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "follow up"})
@@ -99,6 +104,11 @@ func TestAgentCheckpointRoundTrip(t *testing.T) {
 
 	if !reflect.DeepEqual(restored.executor.activeDeferred, map[string]bool{"read": true}) {
 		t.Errorf("active deferred = %+v, want %+v", restored.executor.activeDeferred, map[string]bool{"read": true})
+	}
+
+	// Verify task manager state is restored.
+	if len(restored.taskMgr.List()) != 2 {
+		t.Errorf("restored tasks = %+v, want 2 tasks", restored.taskMgr.List())
 	}
 
 	if b, ok := restored.mgr.GetBlock(contextmgr.BlockSystem, "system"); !ok {

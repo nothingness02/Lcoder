@@ -19,6 +19,7 @@ type fakeAgent struct {
 	prompts []models.AgentMessage
 	msgs    []models.AgentMessage
 	mode    string
+	taskMgr *task.Manager
 
 	switchedModel  models.ModelRef
 	switchedBudget contextmgr.TokenBudget
@@ -46,7 +47,12 @@ func (f *fakeAgent) SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudg
 	f.switchedModel = ref
 	f.switchedBudget = budget
 }
-func (f *fakeAgent) TaskManager() *task.Manager { return nil }
+func (f *fakeAgent) TaskManager() *task.Manager {
+	if f.taskMgr == nil {
+		return nil
+	}
+	return f.taskMgr
+}
 func (f *fakeAgent) WithMode(mode string) AgentRunner {
 	f.mode = mode
 	return f

@@ -100,21 +100,20 @@ func TestRenderTaskSidebar(t *testing.T) {
 	}
 }
 
-func TestHandleEventTodoWriteUpdatesTasksNoBlock(t *testing.T) {
+func TestHandleEventTaskListUpdatedUpdatesTasksNoBlock(t *testing.T) {
 	m := &Model{width: 100, input: NewInputModel(), agent: &fakeAgent{}}
 	before := len(m.blocks)
-	m.handleEvent(events.ToolExecutionStartEvent{
-		ToolCallID: "c1",
-		ToolName:   task.ToolName,
-		Args: map[string]any{"todos": []any{
-			map[string]any{"text": "a", "status": "in_progress"},
-		}},
+	m.handleEvent(events.TaskListUpdatedEvent{
+		Base: events.Base{Type: events.TaskListUpdated, Turn: 1},
+		Tasks: []task.Task{
+			{Text: "a", Status: task.StatusInProgress},
+		},
 	})
 	if len(m.tasks) != 1 || m.tasks[0].Status != task.StatusInProgress {
-		t.Fatalf("todo_write event should populate tasks, got %+v", m.tasks)
+		t.Fatalf("TaskListUpdatedEvent should populate tasks, got %+v", m.tasks)
 	}
 	if len(m.blocks) != before {
-		t.Fatalf("todo_write must NOT append a conversation block, blocks grew by %d", len(m.blocks)-before)
+		t.Fatalf("task update must NOT append a conversation block, blocks grew by %d", len(m.blocks)-before)
 	}
 }
 
