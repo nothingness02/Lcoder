@@ -9,6 +9,7 @@ import (
 
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/task"
 )
 
 // CurrentVersion is the only checkpoint format version accepted by UnmarshalJSON.
@@ -106,6 +107,7 @@ type RuntimeSnapshot struct {
 	SteeringQueue    []models.AgentMessage `json:"steering_queue,omitempty"`
 	FollowUpQueue    []models.AgentMessage `json:"follow_up_queue,omitempty"`
 	ActiveDeferred   map[string]bool       `json:"active_deferred,omitempty"`
+	TaskManagerState *task.ManagerState    `json:"task_manager_state,omitempty"`
 }
 
 // Source produces a Checkpoint representing the current state.
