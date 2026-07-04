@@ -1,7 +1,11 @@
 // pkg/llm/provider/event.go
 package provider
 
-import "github.com/lcoder/lcoder/pkg/models"
+import (
+	"fmt"
+
+	"github.com/lcoder/lcoder/pkg/models"
+)
 
 // EventKind enumerates the normalized streaming events every adapter emits,
 // independent of the provider's native wire format.
@@ -63,4 +67,12 @@ type EventError struct {
 	Code          string         // bad_request | auth | rate_limit | internal
 	Message       string         //
 	ProviderError map[string]any //
+}
+
+// Error implements the error interface so KindError events can be returned directly.
+func (e *EventError) Error() string {
+	if e == nil {
+		return "unknown provider error"
+	}
+	return fmt.Sprintf("provider error %s: %s", e.Code, e.Message)
 }

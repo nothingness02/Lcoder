@@ -10,7 +10,7 @@ import (
 )
 
 // fakeAdapter serves in-package client tests. The first errUntil Stream calls
-// fail with a GatewayError carrying errCode (default "internal"); subsequent
+// fail with a provider.EventError carrying errCode (default "internal"); subsequent
 // calls replay events. calls counts every Stream invocation.
 type fakeAdapter struct {
 	events   []provider.Event
@@ -26,7 +26,7 @@ func (f *fakeAdapter) Stream(ctx context.Context, conn provider.Conn, req models
 		if code == "" {
 			code = "internal"
 		}
-		return nil, GatewayError{Code: code, Message: "injected"}
+		return nil, &provider.EventError{Code: code, Message: "injected"}
 	}
 	ch := make(chan provider.Event, len(f.events))
 	for _, e := range f.events {

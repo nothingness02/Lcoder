@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -95,6 +96,7 @@ type Manager struct {
 	summarizer SummarizeFunc
 	policy     WindowPolicy
 	keepRecent int
+	modePromptPriority config.ModePromptPriority
 
 	// ephemeralReminders are injected into the next BuildTurnRequest only and
 	// never persisted to a block — see ephemeral.go.
@@ -142,6 +144,18 @@ func WithMinRecent(n int) Option {
 // WithCacheHintPolicy sets the cache breakpoint policy for BuildTurnRequest.
 func WithCacheHintPolicy(p CacheHintPolicy) Option {
 	return func(m *Manager) { m.cachePolicy = p }
+}
+
+// WithModePromptPriority sets how the mode system prompt is combined with the
+// base system prompt.
+func WithModePromptPriority(p config.ModePromptPriority) Option {
+	return func(m *Manager) { m.modePromptPriority = p }
+}
+
+// ModePromptPriority returns how the mode system prompt is combined with the
+// base system prompt.
+func (m *Manager) ModePromptPriority() config.ModePromptPriority {
+	return m.modePromptPriority
 }
 
 // NewManager creates a context manager with the given budget.
@@ -221,6 +235,16 @@ func (m *Manager) AppendRecent(msg models.AgentMessage) {
 func (m *Manager) SetBlockWithTurn(block *Block, turn int) {
 	block.LastModifiedTurn = turn
 	m.SetBlock(block)
+}
+
+// RemoveBlock removes the first block matching kind and name.
+func (m *Manager) RemoveBlock(kind BlockKind, name string) {
+	for i, b := range m.blocks {
+		if b.Kind == kind && b.Name == name {
+			m.blocks = append(m.blocks[:i], m.blocks[i+1:]...)
+			return
+		}
+	}
 }
 
 // Blocks returns blocks in canonical order.
@@ -467,7 +491,7 @@ func isCompactedSummary(msg models.AgentMessage) bool {
 
 // Clone returns a deep copy of the manager with independent blocks.
 func (m *Manager) Clone() *Manager {
-	other := NewManager(m.budget, WithEstimator(m.estimator), WithSummarizer(m.summarizer), WithWindowPolicy(m.policy))
+	other := NewManager(m.budget, WithEstimator(m.estimator), WithSummarizer(m.summarizer), WithWindowPolicy(m.policy), WithModePromptPriority(m.modePromptPriority))
 	for _, b := range m.blocks {
 		copied := NewBlock(b.Kind, b.Name, b.Stability, b.Priority)
 		copied.Messages = append([]models.AgentMessage(nil), b.Messages...)

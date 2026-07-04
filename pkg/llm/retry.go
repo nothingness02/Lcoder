@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/lcoder/lcoder/pkg/llm/provider"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -28,9 +29,9 @@ func IsRetryable(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
-	var ge GatewayError
-	if errors.As(err, &ge) {
-		return retryableCode[ge.Code]
+	var pe *provider.EventError
+	if errors.As(err, &pe) {
+		return retryableCode[pe.Code]
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
@@ -56,7 +57,7 @@ func DefaultRetryConfig() RetryConfig {
 // StreamTurnRetry establishes a turn stream, retrying transient failures with
 // exponential backoff. It only retries the establishment call (before any
 // content has streamed), so a successful return yields a fresh, unread stream.
-func (c *Client) StreamTurnRetry(ctx context.Context, req models.TurnRequest, rc RetryConfig) (*TurnStream, error) {
+func (c *Client) StreamTurnRetry(ctx context.Context, req models.TurnRequest, rc RetryConfig) (<-chan provider.Event, error) {
 	if rc.MaxAttempts < 1 {
 		rc.MaxAttempts = 1
 	}

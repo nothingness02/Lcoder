@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -374,13 +375,17 @@ func TestAgentRealRun(t *testing.T) {
 		turns       []turnSnapshot
 		pendingCall = map[string]*toolCallRecord{}
 		turnCalls   []toolCallRecord
+		callMu      sync.Mutex
 	)
 	bus.Subscribe(func(_ context.Context, ev events.Event) error {
 		switch e := ev.(type) {
 		case events.ToolExecutionStartEvent:
+			callMu.Lock()
 			rec := &toolCallRecord{ToolCallID: e.ToolCallID, Name: e.ToolName, Args: e.Args}
 			pendingCall[e.ToolCallID] = rec
+			callMu.Unlock()
 		case events.ToolExecutionEndEvent:
+			callMu.Lock()
 			rec := pendingCall[e.ToolCallID]
 			if rec == nil {
 				rec = &toolCallRecord{ToolCallID: e.ToolCallID, Name: e.ToolName}
@@ -396,7 +401,9 @@ func TestAgentRealRun(t *testing.T) {
 			}
 			turnCalls = append(turnCalls, *rec)
 			delete(pendingCall, e.ToolCallID)
+			callMu.Unlock()
 		case events.TurnEndEvent:
+			callMu.Lock()
 			snap := turnSnapshot{
 				Turn:         e.Turn,
 				Assistant:    e.Message,
@@ -406,6 +413,7 @@ func TestAgentRealRun(t *testing.T) {
 			}
 			turns = append(turns, snap)
 			turnCalls = nil
+			callMu.Unlock()
 		}
 		return nil
 	})

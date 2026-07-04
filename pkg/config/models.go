@@ -144,3 +144,13 @@ func (c Config) ModelLacksTools() bool {
 	}
 	return !meta.HasCapability("tools")
 }
+
+// ModePromptPriority controls how a mode's system prompt is combined with the
+// base system prompt.
+type ModePromptPriority int
+
+const (
+	ModePromptAppend ModePromptPriority = iota
+	ModePromptPrepend
+	ModePromptReplace
+)

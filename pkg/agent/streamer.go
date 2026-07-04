@@ -65,106 +65,99 @@ func (s *streamer) stream(ctx context.Context, turn int, modelRef models.ModelRe
 	if err != nil {
 		return models.AgentMessage{}, err
 	}
-	defer stream.Close()
 
 	var partial models.AgentMessage
 	started := false
 	ttftRecorded := false
 
+loop:
 	for {
 		select {
 		case <-streamCtx.Done():
 			return partial, streamCtx.Err()
-		default:
-		}
+		case ev, ok := <-stream:
+			if !ok {
+				break loop
+			}
 
-		ev, ok, err := stream.Next(streamCtx)
-		if err != nil {
-			return partial, err
-		}
-		if !ok {
-			break
-		}
-
-		switch ev.Kind {
-		case provider.KindStart:
-			partial = models.NewAgentMessage(models.RoleAssistant)
-			if !started {
-				started = true
-				s.emitter.emit(streamCtx, events.MessageStartEvent{
-					Base:    events.Base{Type: events.MessageStart, Turn: turn},
-					Message: partial,
-				})
-			}
-		case provider.KindTextDelta, provider.KindThinkingDelta:
-			if !started {
-				started = true
+			switch ev.Kind {
+			case provider.KindStart:
 				partial = models.NewAgentMessage(models.RoleAssistant)
-				s.emitter.emit(streamCtx, events.MessageStartEvent{
-					Base:    events.Base{Type: events.MessageStart, Turn: turn},
+				if !started {
+					started = true
+					s.emitter.emit(streamCtx, events.MessageStartEvent{
+						Base:    events.Base{Type: events.MessageStart, Turn: turn},
+						Message: partial,
+					})
+				}
+			case provider.KindTextDelta, provider.KindThinkingDelta:
+				if !started {
+					started = true
+					partial = models.NewAgentMessage(models.RoleAssistant)
+					s.emitter.emit(streamCtx, events.MessageStartEvent{
+						Base:    events.Base{Type: events.MessageStart, Turn: turn},
+						Message: partial,
+					})
+				}
+				if !ttftRecorded && s.obs != nil {
+					ttftRecorded = true
+					_ = s.obs.RecordTTFT(turn, time.Since(turnStartTime).Milliseconds())
+				}
+				delta := ev.Delta
+				if ev.Kind == provider.KindTextDelta {
+					partial = updateText(partial, delta)
+				} else {
+					partial = updateThinking(partial, delta)
+				}
+				s.emitter.emit(streamCtx, events.MessageUpdateEvent{
+					Base:    events.Base{Type: events.MessageUpdate, Turn: turn},
+					Delta:   delta,
 					Message: partial,
 				})
-			}
-			if !ttftRecorded && s.obs != nil {
-				ttftRecorded = true
-				_ = s.obs.RecordTTFT(turn, time.Since(turnStartTime).Milliseconds())
-			}
-			delta := ev.Delta
-			if ev.Kind == provider.KindTextDelta {
-				partial = updateText(partial, delta)
-			} else {
-				partial = updateThinking(partial, delta)
-			}
-			s.emitter.emit(streamCtx, events.MessageUpdateEvent{
-				Base:    events.Base{Type: events.MessageUpdate, Turn: turn},
-				Delta:   delta,
-				Message: partial,
-			})
-		case provider.KindToolCallDelta:
-			if !started {
-				started = true
-				partial = models.NewAgentMessage(models.RoleAssistant)
-				s.emitter.emit(streamCtx, events.MessageStartEvent{
-					Base:    events.Base{Type: events.MessageStart, Turn: turn},
+			case provider.KindToolCallDelta:
+				if !started {
+					started = true
+					partial = models.NewAgentMessage(models.RoleAssistant)
+					s.emitter.emit(streamCtx, events.MessageStartEvent{
+						Base:    events.Base{Type: events.MessageStart, Turn: turn},
+						Message: partial,
+					})
+				}
+				s.emitter.emit(streamCtx, events.MessageUpdateEvent{
+					Base:    events.Base{Type: events.MessageUpdate, Turn: turn},
+					Delta:   ev.ArgumentsJSON,
 					Message: partial,
 				})
-			}
-			s.emitter.emit(streamCtx, events.MessageUpdateEvent{
-				Base:    events.Base{Type: events.MessageUpdate, Turn: turn},
-				Delta:   ev.ArgumentsJSON,
-				Message: partial,
-			})
-		case provider.KindDone:
-			msg, err := ev.FinalMessage()
-			if err != nil {
-				return partial, err
-			}
-			if !started {
-				s.emitter.emit(streamCtx, events.MessageStartEvent{
-					Base:    events.Base{Type: events.MessageStart, Turn: turn},
+			case provider.KindDone:
+				msg := ev.Message
+				if !started {
+					s.emitter.emit(streamCtx, events.MessageStartEvent{
+						Base:    events.Base{Type: events.MessageStart, Turn: turn},
+						Message: msg,
+					})
+				}
+				s.emitter.emit(streamCtx, events.MessageEndEvent{
+					Base:    events.Base{Type: events.MessageEnd, Turn: turn},
 					Message: msg,
 				})
-			}
-			s.emitter.emit(streamCtx, events.MessageEndEvent{
-				Base:    events.Base{Type: events.MessageEnd, Turn: turn},
-				Message: msg,
-			})
-			if usage, ok := ev.Usage(); ok {
-				usage.Provider = s.cfg.Model.Provider
-				usage.Model = s.cfg.Model.ID
-				if s.obs != nil {
-					_ = s.obs.RecordLLMUsage(usage)
+				if ev.Usage != nil {
+					usage := *ev.Usage
+					usage.Provider = s.cfg.Model.Provider
+					usage.Model = s.cfg.Model.ID
+					if s.obs != nil {
+						_ = s.obs.RecordLLMUsage(usage)
+					}
+					// Feed the provider's real prompt-token accounting back to the
+					// context manager so budget decisions use real counts.
+					s.mgr.RecordRealUsage(usage)
 				}
-				// Feed the provider's real prompt-token accounting back to the
-				// context manager so budget decisions use real counts.
-				s.mgr.RecordRealUsage(usage)
+				return msg, nil
+			case provider.KindError:
+				if ev.Err != nil {
+					return models.AgentMessage{}, ev.Err
+				}
+				return models.AgentMessage{}, fmt.Errorf("unknown engine error")
 			}
-			return msg, nil
-		case provider.KindError:
-			if ge, ok := ev.Error(); ok {
-				return models.AgentMessage{}, ge
-			}
-			return models.AgentMessage{}, fmt.Errorf("unknown engine error")
 		}
 	}
 

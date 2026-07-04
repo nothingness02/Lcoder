@@ -29,7 +29,9 @@ func TestRegisterProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StreamTurn after register: %v", err)
 	}
-	defer stream.Close()
+	// Drain the channel.
+	for range stream {
+	}
 	if adapter.calls != 1 {
 		t.Fatalf("expected adapter to be invoked once, got %d", adapter.calls)
 	}

@@ -180,7 +180,7 @@ func TestCompactionMechanisms(t *testing.T) {
 
 	// 3. Eager compaction committed via MaybeCompact with a (deterministic) summarizer.
 	t.Run("MaybeCompact_EagerCompaction_SimpleSummarizer", func(t *testing.T) {
-		budget := contextmgr.TokenBudget{MaxTotal: 4000, TargetTotal: 150, ReserveOutput: 50}
+		budget := contextmgr.TokenBudget{MaxTotal: 1200, TargetTotal: 150, ReserveOutput: 50}
 		mgr := contextmgr.NewManager(budget,
 			contextmgr.WithSummarizer(contextmgr.SummarizeFunc(compaction.SimpleSummarize)),
 			contextmgr.WithMinRecent(2))
@@ -333,7 +333,7 @@ func TestCompactionMechanisms(t *testing.T) {
 			t.Skip("no provider with an API key configured; skipping real-LLM summarizer sub-case")
 		}
 
-		budget := contextmgr.TokenBudget{MaxTotal: 4000, TargetTotal: 250, ReserveOutput: 100}
+		budget := contextmgr.TokenBudget{MaxTotal: 500, TargetTotal: 250, ReserveOutput: 50}
 		breaker := compaction.NewCircuitBreaker(0)
 		summarizer := compaction.NewLLMSummarizer(client, models.ModelRef{Provider: provider, ID: model})
 		mgr := contextmgr.NewManager(budget,

@@ -19,10 +19,10 @@ func TestIsRetryable(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, false},
-		{"rate-limit", GatewayError{Code: "rate_limit"}, true},
-		{"internal", GatewayError{Code: "internal"}, true},
-		{"auth", GatewayError{Code: "auth"}, false},
-		{"bad-request", GatewayError{Code: "bad_request"}, false},
+		{"rate-limit", &provider.EventError{Code: "rate_limit"}, true},
+		{"internal", &provider.EventError{Code: "internal"}, true},
+		{"auth", &provider.EventError{Code: "auth"}, false},
+		{"bad-request", &provider.EventError{Code: "bad_request"}, false},
 		{"ctx-canceled", context.Canceled, false},
 		{"ctx-deadline", context.DeadlineExceeded, false},
 		{"eof", io.EOF, true},
@@ -59,7 +59,9 @@ func TestStreamTurnRetryRecoversAfterTransient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success after transient failures, got %v", err)
 	}
-	defer stream.Close()
+	// Drain the channel so the test doesn't leave it unread.
+	for range stream {
+	}
 	if adapter.calls != 3 {
 		t.Fatalf("expected 3 attempts, got %d", adapter.calls)
 	}
@@ -72,9 +74,9 @@ func TestStreamTurnRetryGivesUpOnNonRetryable(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-retryable code")
 	}
-	var ge GatewayError
-	if !errors.As(err, &ge) || ge.Code != "bad_request" {
-		t.Fatalf("expected GatewayError bad_request, got %v", err)
+	var pe *provider.EventError
+	if !errors.As(err, &pe) || pe.Code != "bad_request" {
+		t.Fatalf("expected provider.EventError bad_request, got %v", err)
 	}
 	if adapter.calls != 1 {
 		t.Fatalf("expected 1 attempt (no retry), got %d", adapter.calls)

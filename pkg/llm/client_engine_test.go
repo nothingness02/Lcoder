@@ -32,26 +32,17 @@ func TestClientStreamMapsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stream.Close()
 
 	var gotText string
 	var sawDone bool
-	for {
-		ev, ok, err := stream.Next(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !ok {
-			break
-		}
-		switch ev.Type() {
-		case "text_delta":
+	for ev := range stream {
+		switch ev.Kind {
+		case provider.KindTextDelta:
 			gotText += ev.Delta
-		case "done":
+		case provider.KindDone:
 			sawDone = true
-			msg, err := ev.FinalMessage()
-			if err != nil || msg.Text() != "hello" {
-				t.Fatalf("final message wrong: %v / %q", err, msg.Text())
+			if ev.Message.Text() != "hello" {
+				t.Fatalf("final message wrong: %q", ev.Message.Text())
 			}
 		}
 	}

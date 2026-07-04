@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lcoder/lcoder/pkg/llm"
+	"github.com/lcoder/lcoder/pkg/llm/provider"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -64,31 +65,28 @@ func NewLLMSummarizer(client *llm.Client, model models.ModelRef) SummarizeFunc {
 		if err != nil {
 			return "", fmt.Errorf("llm summarizer: stream turn: %w", err)
 		}
-		defer stream.Close()
 
 		var final models.AgentMessage
 		var gotFinal bool
+	loop:
 		for {
-			ev, ok, err := stream.Next(ctx)
-			if err != nil {
-				return "", fmt.Errorf("llm summarizer: read stream: %w", err)
-			}
-			if !ok {
-				break
-			}
-			switch ev.Type() {
-			case "done":
-				msg, err := ev.FinalMessage()
-				if err != nil {
-					return "", fmt.Errorf("llm summarizer: final message: %w", err)
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("llm summarizer: read stream: %w", ctx.Err())
+			case ev, ok := <-stream:
+				if !ok {
+					break loop
 				}
-				final = msg
-				gotFinal = true
-			case "error":
-				if ge, ok := ev.Error(); ok {
-					return "", fmt.Errorf("llm summarizer: engine error: %w", ge)
+				switch ev.Kind {
+				case provider.KindDone:
+					final = ev.Message
+					gotFinal = true
+				case provider.KindError:
+					if ev.Err != nil {
+						return "", fmt.Errorf("llm summarizer: engine error: %w", ev.Err)
+					}
+					return "", fmt.Errorf("llm summarizer: engine error")
 				}
-				return "", fmt.Errorf("llm summarizer: engine error")
 			}
 		}
 

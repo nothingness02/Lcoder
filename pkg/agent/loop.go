@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/checkpoint"
+	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/llm"
@@ -33,6 +34,7 @@ type UserConfirmation interface {
 // Config controls agent behavior.
 type Config struct {
 	SystemPrompt      string
+	BaseSystemPrompt  string
 	Model             models.ModelRef
 	MaxTurns          int
 	ToolExecutionMode models.ExecutionMode
@@ -519,13 +521,42 @@ func (a *Agent) applyMode() (string, []models.ToolDefinition, models.ModelRef, m
 	}
 
 	mode := a.cfg.ModeManager.Get(a.cfg.Mode)
+	modeText := ""
 	if mode.SystemPrompt != "" {
-		modeBlock := contextmgr.NewBlock(contextmgr.BlockMode, "mode", contextmgr.StabilityStable, 90,
-			models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: "# Mode: " + mode.Name + "\n\n" + mode.SystemPrompt}))
-		a.mgr.SetBlock(modeBlock)
+		modeText = "# Mode: " + mode.Name + "\n\n" + mode.SystemPrompt
 	}
-	if mode.SystemPrompt != "" {
-		systemParts = append(systemParts, "# Mode: "+mode.Name+"\n\n"+mode.SystemPrompt)
+
+	switch a.mgr.ModePromptPriority() {
+	case config.ModePromptPrepend:
+		if modeText != "" {
+			if len(systemParts) > 0 && systemParts[0] != "" {
+				a.mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system", contextmgr.StabilityStatic, 100,
+					models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: modeText + "\n\n" + strings.Join(systemParts, "\n\n")})))
+			} else {
+				a.mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system", contextmgr.StabilityStatic, 100,
+					models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: modeText})))
+			}
+			a.mgr.RemoveBlock(contextmgr.BlockMode, "mode")
+			if b, ok := a.mgr.GetBlock(contextmgr.BlockSystem, "system"); ok {
+				systemParts = []string{b.Text()}
+			} else {
+				systemParts = nil
+			}
+		}
+	case config.ModePromptReplace:
+		if modeText != "" {
+			a.mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system", contextmgr.StabilityStatic, 100,
+				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: modeText})))
+			a.mgr.RemoveBlock(contextmgr.BlockMode, "mode")
+			systemParts = []string{modeText}
+		}
+	default: // Append (including zero value)
+		if modeText != "" {
+			modeBlock := contextmgr.NewBlock(contextmgr.BlockMode, "mode", contextmgr.StabilityStable, 90,
+				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: modeText}))
+			a.mgr.SetBlock(modeBlock)
+			systemParts = append(systemParts, modeText)
+		}
 	}
 	if len(mode.AllowedTools) > 0 {
 		allowed := make(map[string]bool)
