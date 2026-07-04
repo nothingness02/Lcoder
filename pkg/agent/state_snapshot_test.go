@@ -14,7 +14,7 @@ func TestRuntimeSnapshotRoundTrip(t *testing.T) {
 	original.Steer(models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "steer"}))
 	original.FollowUp(models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "follow-up"}))
 
-	ex1 := newExecutor(nil, nil, nil, nil, nil)
+	ex1 := newExecutor(nil, nil, nil, nil, nil, nil)
 	ex1.activateDeferredTool("read")
 	ex1.activateDeferredTool("bash")
 
@@ -24,7 +24,7 @@ func TestRuntimeSnapshotRoundTrip(t *testing.T) {
 	restored := newStateHolder()
 	restored.restore(rsState)
 
-	ex2 := newExecutor(nil, nil, nil, nil, nil)
+	ex2 := newExecutor(nil, nil, nil, nil, nil, nil)
 	ex2.restore(rsExec)
 
 	if restored.State() != StateExecutingTools {

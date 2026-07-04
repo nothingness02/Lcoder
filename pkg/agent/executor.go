@@ -10,6 +10,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
@@ -24,10 +25,11 @@ type executor struct {
 
 	mu             sync.Mutex
 	activeDeferred map[string]bool
+	taskMgr        *task.Manager
 }
 
 // newExecutor creates an executor with an initialized activeDeferred map.
-func newExecutor(cfg *Config, mgr *contextmgr.Manager, registry *tools.Registry, permissions *permissions.Engine, emitter *eventEmitter) *executor {
+func newExecutor(cfg *Config, mgr *contextmgr.Manager, registry *tools.Registry, permissions *permissions.Engine, emitter *eventEmitter, taskMgr *task.Manager) *executor {
 	return &executor{
 		cfg:            cfg,
 		mgr:            mgr,
@@ -35,6 +37,7 @@ func newExecutor(cfg *Config, mgr *contextmgr.Manager, registry *tools.Registry,
 		permissions:    permissions,
 		emitter:        emitter,
 		activeDeferred: make(map[string]bool),
+		taskMgr:        taskMgr,
 	}
 }
 
@@ -193,6 +196,20 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		}
 	}
 
+	// Reconcile task list when the model updates its plan.
+	if call.Name == task.ToolName && e.taskMgr != nil && !isError {
+		if raw, ok := call.Arguments["todos"]; ok {
+			if parsed, parseErr := task.Parse(raw); parseErr == nil {
+				reconciled, warnings, _ := e.taskMgr.ReplaceAll(parsed)
+				result = appendWarnings(result, warnings)
+				e.emitter.emit(ctx, events.TaskListUpdatedEvent{
+					Base:  events.Base{Type: events.TaskListUpdated, Turn: turn},
+					Tasks: reconciled,
+				})
+			}
+		}
+	}
+
 	e.emitter.emit(ctx, events.ToolExecutionEndEvent{
 		Base:       events.Base{Type: events.ToolExecutionEnd, Turn: turn},
 		ToolCallID: call.ID,
@@ -227,6 +244,30 @@ func (e *executor) makeToolResultMessage(call models.ToolCallContent, result mod
 		IsError:    isError,
 		Details:    details,
 	})
+}
+
+// appendWarnings appends warning lines to the text content of a tool execution result.
+func appendWarnings(result models.ToolExecutionResult, warnings []string) models.ToolExecutionResult {
+	if len(warnings) == 0 {
+		return result
+	}
+	var sb strings.Builder
+	for _, part := range result.Content {
+		if t, ok := part.(models.TextContent); ok {
+			sb.WriteString(t.Text)
+		}
+	}
+	if sb.Len() > 0 {
+		sb.WriteString("\n\n")
+	}
+	sb.WriteString("Warnings:\n")
+	for _, w := range warnings {
+		sb.WriteString("- ")
+		sb.WriteString(w)
+		sb.WriteString("\n")
+	}
+	result.Content = []models.ContentPart{models.TextContent{Text: sb.String()}}
+	return result
 }
 
 func isToolResultTerminate(msg models.AgentMessage) bool {

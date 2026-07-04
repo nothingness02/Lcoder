@@ -215,7 +215,7 @@ func New(cfg Config, llmClient *llm.Client, registry *tools.Registry, perms *per
 	ag.loopState = newStateHolder()
 	ag.taskMgr = task.NewManager()
 	ag.streamer = &streamer{cfg: &ag.cfg, llm: ag.llm, mgr: ag.mgr, emitter: ag.emitter}
-	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter}
+	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter, taskMgr: ag.taskMgr}
 	return ag
 }
 
@@ -321,7 +321,8 @@ func (a *Agent) WithMode(mode string) Runner {
 		emitter:      emitter,
 		loopState:    newStateHolder(),
 		streamer:     &streamer{cfg: &cfg, llm: a.llm, mgr: cfg.ContextManager, obs: a.obsCollector, emitter: emitter},
-		executor:     newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter),
+		executor:     newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter, a.taskMgr),
+		taskMgr:      a.taskMgr,
 	}
 
 	fresh.loopState.restore(a.loopState.snapshot())
