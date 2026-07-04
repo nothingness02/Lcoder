@@ -27,6 +27,7 @@ func (a *Agent) CheckpointWithReason(reason string) (*checkpoint.Checkpoint, err
 
 	stateSnap := a.loopState.snapshot()
 	execSnap := a.executor.snapshot()
+	tmState := a.taskMgr.Snapshot()
 
 	cp := &checkpoint.Checkpoint{
 		Version: 0, // MarshalJSON will set CurrentVersion.
@@ -59,6 +60,7 @@ func (a *Agent) CheckpointWithReason(reason string) (*checkpoint.Checkpoint, err
 			SteeringQueue:    stateSnap.SteeringQueue,
 			FollowUpQueue:    stateSnap.FollowUpQueue,
 			ActiveDeferred:   execSnap.ActiveDeferred,
+			TaskManagerState: &tmState,
 		},
 	}
 
@@ -160,6 +162,17 @@ func (a *Agent) Restore(cp *checkpoint.Checkpoint) error {
 	a.executor.restore(RuntimeState{
 		ActiveDeferred: cp.Runtime.ActiveDeferred,
 	})
+
+	if cp.Runtime.TaskManagerState != nil {
+		if err := a.taskMgr.Restore(*cp.Runtime.TaskManagerState); err != nil {
+			return fmt.Errorf("agent: restore task manager: %w", err)
+		}
+	} else {
+		// Fallback: rebuild from message history for backwards compatibility.
+		if tasks := latestTodos(a.mgr.AllMessages()); len(tasks) > 0 {
+			_, _, _ = a.taskMgr.ReplaceAll(tasks)
+		}
+	}
 
 	return nil
 }

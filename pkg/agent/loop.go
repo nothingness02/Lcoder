@@ -14,6 +14,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
@@ -125,6 +126,7 @@ type Agent struct {
 	loopState *stateHolder
 	streamer  *streamer
 	executor  *executor
+	taskMgr   *task.Manager
 }
 
 // State describes the agent runtime state.
@@ -211,6 +213,7 @@ func New(cfg Config, llmClient *llm.Client, registry *tools.Registry, perms *per
 	}
 	ag.emitter = &eventEmitter{bus: bus}
 	ag.loopState = newStateHolder()
+	ag.taskMgr = task.NewManager()
 	ag.streamer = &streamer{cfg: &ag.cfg, llm: ag.llm, mgr: ag.mgr, emitter: ag.emitter}
 	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter}
 	return ag
@@ -268,6 +271,11 @@ func (a *Agent) SetMessages(msgs []models.AgentMessage) {
 // AllMessages returns the full conversation from the context manager.
 func (a *Agent) AllMessages() []models.AgentMessage {
 	return a.mgr.AllMessages()
+}
+
+// TaskManager returns the agent's task manager.
+func (a *Agent) TaskManager() *task.Manager {
+	return a.taskMgr
 }
 
 // SetUserConfirm injects the interactive confirmation handler.
