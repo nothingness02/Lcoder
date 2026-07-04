@@ -152,7 +152,9 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 	// sidebar), matching what /sessions does via loadSession.
 	if msgs := ag.AllMessages(); len(msgs) > 0 {
 		m.blocks = blocksFromMessages(msgs)
-		m.tasks = tasksFromMessages(msgs)
+	}
+	if ag.TaskManager() != nil {
+		m.tasks = ag.TaskManager().List()
 	}
 	m.unsubscribe = bus.Subscribe(m.onEvent)
 	if needsProviderSetup {

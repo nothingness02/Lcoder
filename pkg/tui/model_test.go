@@ -12,6 +12,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/session"
+	"github.com/lcoder/lcoder/pkg/task"
 )
 
 type fakeAgent struct {
@@ -45,6 +46,7 @@ func (f *fakeAgent) SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudg
 	f.switchedModel = ref
 	f.switchedBudget = budget
 }
+func (f *fakeAgent) TaskManager() *task.Manager { return nil }
 func (f *fakeAgent) WithMode(mode string) AgentRunner {
 	f.mode = mode
 	return f

@@ -5,6 +5,7 @@ import (
 
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/task"
 )
 
 // Runner abstracts the agent for UI interaction. It is defined in the agent
@@ -21,6 +22,7 @@ type Runner interface {
 	Steer(msg models.AgentMessage)
 	Abort()
 	SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget)
+	TaskManager() *task.Manager
 }
 
 // ModeSwitcher extends Runner with the ability to create a new agent instance
