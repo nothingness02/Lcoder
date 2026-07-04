@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
+	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/task"
 )
 
 // Checkpoint captures the agent's current mode, model, context manager state,
@@ -174,5 +176,21 @@ func (a *Agent) Restore(cp *checkpoint.Checkpoint) error {
 		}
 	}
 
+	return nil
+}
+
+// latestTodos scans messages for the most recent todo_write tool call.
+// It is kept as an internal fallback for restoring task state from old checkpoints
+// that did not include TaskManagerState.
+func latestTodos(messages []models.AgentMessage) []task.Task {
+	for i := len(messages) - 1; i >= 0; i-- {
+		for _, tc := range messages[i].ToolCalls() {
+			if tc.Name == task.ToolName {
+				if ts, err := task.Parse(tc.Arguments["todos"]); err == nil {
+					return ts
+				}
+			}
+		}
+	}
 	return nil
 }

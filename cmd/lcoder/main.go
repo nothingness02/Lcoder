@@ -253,7 +253,6 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		WithPermissions(permEngine).
 		WithEventBus(bus).
 		WithObservability(obsCollector).
-		WithReminderProducer(agent.UnresolvedTodosReminder).
 		WithSessionID(sess.ID).
 		WithCheckpointStore(chkStore).
 		Build()

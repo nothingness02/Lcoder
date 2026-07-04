@@ -445,19 +445,27 @@ func (a *Agent) maybeCheckpoint(ctx context.Context, turn int, reason string) {
 	}
 }
 
-// refreshEphemeralReminders runs every producer over the current conversation
-// and stages the results on the context manager for this turn only.
+// refreshEphemeralReminders stages reminders for the upcoming turn.
+// It always includes any unfinished task reminder from the TaskManager, then runs
+// any configured ReminderProducers over the current conversation.
 func (a *Agent) refreshEphemeralReminders() {
 	a.mgr.ClearEphemeralReminders()
-	if len(a.cfg.ReminderProducers) == 0 {
-		return
+
+	var reminders []string
+	if r := a.taskMgr.FormatReminder(); r != "" {
+		reminders = append(reminders, r)
 	}
-	msgs := a.mgr.AllMessages()
-	var all []string
-	for _, p := range a.cfg.ReminderProducers {
-		all = append(all, p(msgs)...)
+
+	if len(a.cfg.ReminderProducers) > 0 {
+		msgs := a.mgr.AllMessages()
+		for _, p := range a.cfg.ReminderProducers {
+			reminders = append(reminders, p(msgs)...)
+		}
 	}
-	a.mgr.SetEphemeralReminders(all)
+
+	if len(reminders) > 0 {
+		a.mgr.SetEphemeralReminders(reminders)
+	}
 }
 
 func (a *Agent) appendMessage(msg models.AgentMessage) {
