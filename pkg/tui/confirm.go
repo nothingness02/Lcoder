@@ -27,7 +27,7 @@ type confirmRequestMsg struct {
 	req confirmRequest
 }
 
-// confirmResponseMsg carries the user's y/n decision back into the loop.
+// confirmResponseMsg carries the user's decision back into the loop.
 type confirmResponseMsg struct {
 	allow bool
 }
@@ -54,41 +54,92 @@ func (c *tuiConfirm) Confirm(ctx context.Context, info agent.ToolCallInfo) (bool
 	}
 }
 
-// confirmPanel renders an interactive permission prompt.
+// confirmPanel renders an interactive permission prompt as a bottom strip.
 type confirmPanel struct {
-	visible bool
-	info    agent.ToolCallInfo
-	resp    chan confirmResult
+	visible  bool
+	selected int // 0 = Allow, 1 = Deny
+	info     agent.ToolCallInfo
+	resp     chan confirmResult
 }
 
 func (p *confirmPanel) show(info agent.ToolCallInfo, resp chan confirmResult) {
 	p.visible = true
+	p.selected = 0
 	p.info = info
 	p.resp = resp
 }
 
 func (p *confirmPanel) hide() {
 	p.visible = false
+	p.selected = 0
 	p.info = agent.ToolCallInfo{}
 	p.resp = nil
 }
 
-func (p *confirmPanel) View(width, height int) string {
+func (p *confirmPanel) next() {
+	if !p.visible {
+		return
+	}
+	p.selected = (p.selected + 1) % 2
+}
+
+func (p *confirmPanel) prev() {
+	if !p.visible {
+		return
+	}
+	p.selected = (p.selected - 1 + 2) % 2
+}
+
+func (p *confirmPanel) confirm() bool {
+	return p.selected == 0
+}
+
+func (p *confirmPanel) View(width int) string {
 	if !p.visible {
 		return ""
 	}
+	if width <= 0 {
+		width = 80
+	}
+
 	prompt := fmt.Sprintf("Permission request: %s", p.info.ToolCall.Name)
 	if args := formatArgs(p.info.Args); args != "" {
-		prompt += fmt.Sprintf("(%s)", args)
+		prompt += " " + args
 	}
-	prompt += "\n\nAllow? [y/N]"
+
+	allowStyle := optionStyle(p.selected == 0)
+	denyStyle := optionStyle(p.selected == 1)
+	options := lipgloss.JoinHorizontal(lipgloss.Left,
+		allowStyle.Render("Allow"),
+		"  ",
+		denyStyle.Render("Deny"),
+	)
+
+	hint := styleDim().Render("← → select · Enter confirm · Esc cancel")
+	line := lipgloss.JoinHorizontal(lipgloss.Left, options, "    ", hint)
 
 	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderTop(true).
 		BorderForeground(colorError).
-		Padding(1, 2).
-		Width(60)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box.Render(prompt))
+		Padding(0, 1).
+		Width(width)
+
+	return box.Render(lipgloss.JoinVertical(lipgloss.Left, prompt, line))
+}
+
+func optionStyle(selected bool) lipgloss.Style {
+	if selected {
+		return lipgloss.NewStyle().
+			Background(colorError).
+			Foreground(lipgloss.Color("#ffffff")).
+			Padding(0, 1).
+			Bold(true)
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorDim).
+		Padding(0, 1)
 }
 
 func formatArgs(args map[string]any) string {

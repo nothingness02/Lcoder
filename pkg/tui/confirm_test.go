@@ -71,6 +71,37 @@ func TestTuiConfirmBlocksUntilResponse(t *testing.T) {
 	}
 }
 
+func TestConfirmPanelSelectionAndDecision(t *testing.T) {
+	p := &confirmPanel{}
+	p.show(agent.ToolCallInfo{
+		ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "ls"}},
+	}, make(chan confirmResult, 1))
+
+	if !p.visible {
+		t.Fatal("panel should be visible")
+	}
+	if p.selected != 0 {
+		t.Fatalf("default selection should be Allow(0), got %d", p.selected)
+	}
+
+	p.next()
+	if p.selected != 1 {
+		t.Fatalf("next should move to Deny(1), got %d", p.selected)
+	}
+	p.prev()
+	if p.selected != 0 {
+		t.Fatalf("prev should move back to Allow(0), got %d", p.selected)
+	}
+
+	if !p.confirm() {
+		t.Fatal("confirm on Allow should return true")
+	}
+	p.next()
+	if p.confirm() {
+		t.Fatal("confirm on Deny should return false")
+	}
+}
+
 func TestConfirmPanelStateTransitions(t *testing.T) {
 	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
 

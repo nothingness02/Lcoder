@@ -112,7 +112,7 @@ func (m Model) View() string {
 
 // confirmView renders a centered permission modal.
 func (m Model) confirmView() string {
-	return m.confirm.View(m.width, m.height)
+	return m.confirm.View(m.width)
 }
 
 // startupView renders the animated logo + header over an empty body.
