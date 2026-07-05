@@ -8,6 +8,35 @@ import (
 	"github.com/lcoder/lcoder/pkg/sandbox"
 )
 
+func TestBashReturnsStructuredDetails(t *testing.T) {
+	b := NewBash("/tmp").(*Bash)
+	fake := sandbox.NewFakeSandbox()
+	fake.Result = sandbox.ExecResult{
+		Stdout:   "hello",
+		Stderr:   "warn",
+		ExitCode: 42,
+	}
+	b.UseSandbox(fake)
+
+	res, err := b.Execute(context.Background(), "c1", map[string]any{"command": "echo hello"})
+	if err == nil {
+		t.Fatal("expected error for non-zero exit")
+	}
+
+	if got := res.Details["stdout"]; got != "hello" {
+		t.Fatalf("stdout detail = %q, want hello", got)
+	}
+	if got := res.Details["stderr"]; got != "warn" {
+		t.Fatalf("stderr detail = %q, want warn", got)
+	}
+	if got := res.Details["exit_code"]; got != 42 {
+		t.Fatalf("exit_code detail = %v, want 42", got)
+	}
+	if got := res.Details["timed_out"]; got != false {
+		t.Fatalf("timed_out detail = %v, want false", got)
+	}
+}
+
 func TestBashUsesSandboxExec(t *testing.T) {
 	b := NewBash("/tmp").(*Bash)
 	fake := sandbox.NewFakeSandbox()

@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -87,7 +88,14 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 		}
 		res := models.ToolExecutionResult{
 			Content: []models.ContentPart{models.TextContent{Text: strings.TrimSpace(output)}},
-			Details: map[string]any{"command": command, "cwd": cwd},
+			Details: map[string]any{
+				"command":   command,
+				"cwd":       cwd,
+				"stdout":    result.Stdout,
+				"stderr":    result.Stderr,
+				"exit_code": result.ExitCode,
+				"timed_out": result.TimedOut,
+			},
 		}
 		if execErr != nil {
 			return res, fmt.Errorf("command failed: %w", execErr)
@@ -108,22 +116,51 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 	cmd.Dir = cwd
 	cmd.Env = os.Environ()
 
-	out, err := cmd.CombinedOutput()
-	output := string(out)
-	if err != nil {
-		if cmdCtx.Err() == context.DeadlineExceeded {
-			output += "\n[command timed out]"
-		}
-		return models.ToolExecutionResult{
-			Content: []models.ContentPart{models.TextContent{Text: strings.TrimSpace(output)}},
-			Details: map[string]any{"command": command, "cwd": cwd},
-		}, fmt.Errorf("command failed: %w", err)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	err := cmd.Run()
+	stdout := stdoutBuf.String()
+	stderr := stderrBuf.String()
+	output := mergeOutput(stdout, stderr)
+
+	timedOut := cmdCtx.Err() == context.DeadlineExceeded
+	if timedOut {
+		output += "\n[command timed out]"
 	}
 
-	return models.ToolExecutionResult{
+	exitCode := 0
+	if cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
+	}
+
+	res := models.ToolExecutionResult{
 		Content: []models.ContentPart{models.TextContent{Text: strings.TrimSpace(output)}},
-		Details: map[string]any{"command": command, "cwd": cwd},
-	}, nil
+		Details: map[string]any{
+			"command":   command,
+			"cwd":       cwd,
+			"stdout":    stdout,
+			"stderr":    stderr,
+			"exit_code": exitCode,
+			"timed_out": timedOut,
+		},
+	}
+	if err != nil {
+		return res, fmt.Errorf("command failed: %w", err)
+	}
+	return res, nil
+}
+
+func mergeOutput(stdout, stderr string) string {
+	switch {
+	case stderr == "":
+		return stdout
+	case stdout == "":
+		return stderr
+	default:
+		return stdout + "\n" + stderr
+	}
 }
 
 var _ tools.Executable = (*Bash)(nil)
