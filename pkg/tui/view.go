@@ -37,6 +37,11 @@ func (m *Model) bottomHeight() int {
 func (m *Model) bottomRegion() string {
 	var sections []string
 
+	if m.state == stateConfirm {
+		sections = append(sections, m.confirm.View(m.mainWidth))
+		return strings.Join(sections, "\n")
+	}
+
 	if m.menuVisible {
 		matches := menuMatches(m.input.Value())
 		sections = append(sections, renderMenu(matches, m.menuSelected, m.mainWidth))
@@ -97,8 +102,6 @@ func (m Model) View() string {
 		return m.extPanel.View(m.width, m.height)
 	case stateProvider:
 		return m.renderProviderPanel()
-	case stateConfirm:
-		return m.confirmView()
 	}
 
 	top := m.viewport.View()
@@ -108,11 +111,6 @@ func (m Model) View() string {
 		return lipgloss.JoinHorizontal(lipgloss.Top, main, renderTaskSidebar(m.tasks, m.height))
 	}
 	return main
-}
-
-// confirmView renders a centered permission modal.
-func (m Model) confirmView() string {
-	return m.confirm.View(m.width)
 }
 
 // startupView renders the animated logo + header over an empty body.

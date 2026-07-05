@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,6 +100,38 @@ func TestConfirmPanelSelectionAndDecision(t *testing.T) {
 	p.next()
 	if p.confirm() {
 		t.Fatal("confirm on Deny should return false")
+	}
+}
+
+func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
+	m.width = 80
+	m.height = 24
+	m.blocks = append(m.blocks, block{kind: blockUser, raw: "hello"})
+	m.updateSizes()
+
+	resp := make(chan confirmResult, 1)
+	m2, _ := m.Update(confirmRequestMsg{req: confirmRequest{
+		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "ls"}}},
+		resp: resp,
+	}})
+	mm := m2.(*Model)
+
+	view := mm.View()
+	if !strings.Contains(view, "hello") {
+		t.Fatalf("view should still show log content, missing 'hello':\n%s", view)
+	}
+	if !strings.Contains(view, "Permission request: bash") {
+		t.Fatalf("view missing permission prompt:\n%s", view)
+	}
+	if !strings.Contains(view, "Allow") {
+		t.Fatalf("view missing Allow option:\n%s", view)
+	}
+	if !strings.Contains(view, "Deny") {
+		t.Fatalf("view missing Deny option:\n%s", view)
+	}
+	if strings.Contains(view, "Type a message") {
+		t.Fatalf("input box should be hidden while confirming:\n%s", view)
 	}
 }
 

@@ -56,6 +56,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case confirmRequestMsg:
 		m.confirm.show(msg.req.info, msg.req.resp)
 		m.state = stateConfirm
+		m.updateSizes()
 		return m, nil
 
 	case confirmResponseMsg:
@@ -64,6 +65,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.confirm.hide()
 		m.state = stateProcessing
+		m.updateSizes()
 		return m, nil
 
 	case tea.MouseMsg:
