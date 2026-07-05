@@ -352,27 +352,34 @@ func (m *Model) handleProcessingKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 	return m, cmd
 }
 
-// handleConfirmKey handles y/n/enter/esc while a permission prompt is active.
+// handleConfirmKey handles selection, confirmation, and log scrolling while a
+// permission prompt is active.
 func (m *Model) handleConfirmKey(k tea.KeyMsg) (*Model, tea.Cmd) {
-	allow := false
 	switch k.Type {
+	case tea.KeyLeft:
+		m.confirm.prev()
+		return m, nil
+	case tea.KeyRight:
+		m.confirm.next()
+		return m, nil
 	case tea.KeyEnter:
-		allow = false
+		return m, func() tea.Msg { return confirmResponseMsg{allow: m.confirm.confirm()} }
 	case tea.KeyEsc:
-		allow = false
+		return m, func() tea.Msg { return confirmResponseMsg{allow: false} }
 	case tea.KeyRunes:
 		switch strings.ToLower(string(k.Runes)) {
 		case "y":
-			allow = true
+			return m, func() tea.Msg { return confirmResponseMsg{allow: true} }
 		case "n":
-			allow = false
-		default:
-			return m, nil
+			return m, func() tea.Msg { return confirmResponseMsg{allow: false} }
 		}
-	default:
-		return m, nil
 	}
-	return m, func() tea.Msg { return confirmResponseMsg{allow: allow} }
+
+	// Let the viewport handle scroll keys (PgUp/PgDn/Up/Down/Home/End) so the
+	// user can review logs while the prompt is waiting.
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(k)
+	return m, cmd
 }
 
 // submit dispatches a user submission: skill trigger, slash command, or prompt.

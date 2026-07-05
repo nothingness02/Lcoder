@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -132,6 +133,82 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 	}
 	if strings.Contains(view, "Type a message") {
 		t.Fatalf("input box should be hidden while confirming:\n%s", view)
+	}
+}
+
+func TestConfirmPanelArrowSelection(t *testing.T) {
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
+	resp := make(chan confirmResult, 1)
+	m.Update(confirmRequestMsg{req: confirmRequest{
+		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
+		resp: resp,
+	}})
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	mm := m2.(*Model)
+	if mm.confirm.selected != 1 {
+		t.Fatalf("right arrow should select Deny, got %d", mm.confirm.selected)
+	}
+
+	m3, _ := mm.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	mm = m3.(*Model)
+	if mm.confirm.selected != 0 {
+		t.Fatalf("left arrow should select Allow, got %d", mm.confirm.selected)
+	}
+}
+
+func TestConfirmPanelEnterDecision(t *testing.T) {
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
+	resp := make(chan confirmResult, 1)
+	m.Update(confirmRequestMsg{req: confirmRequest{
+		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
+		resp: resp,
+	}})
+
+	// Move to Deny and confirm.
+	m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected a command to send confirmResponseMsg")
+	}
+
+	msg := cmd()
+	m3, _ := m2.Update(msg)
+	mm := m3.(*Model)
+	if mm.state != stateProcessing {
+		t.Fatalf("expected stateProcessing after Enter, got %v", mm.state)
+	}
+	cmsg, ok := msg.(confirmResponseMsg)
+	if !ok {
+		t.Fatalf("expected confirmResponseMsg, got %T", msg)
+	}
+	if cmsg.allow {
+		t.Fatal("Deny selection should produce allow=false")
+	}
+}
+
+func TestConfirmPanelCanScrollLog(t *testing.T) {
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
+	m.width = 80
+	m.height = 10
+	m.updateSizes()
+
+	// Fill the viewport with enough content to scroll.
+	for i := 0; i < 50; i++ {
+		m.blocks = append(m.blocks, block{kind: blockUser, raw: fmt.Sprintf("line %d", i)})
+	}
+	m.rebuildViewport()
+
+	m.Update(confirmRequestMsg{req: confirmRequest{
+		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
+		resp: make(chan confirmResult, 1),
+	}})
+
+	before := m.viewport.YOffset
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	mm := m2.(*Model)
+	if mm.viewport.YOffset == before {
+		t.Fatal("expected viewport to scroll up while confirming")
 	}
 }
 
