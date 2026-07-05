@@ -1,7 +1,11 @@
 .worktrees/
 *.exe
-docs/
-reference/
+docs/*
+!docs/*-report.md
+!docs/superpowers/
+!docs/superpowers/**
+reference/*
+!reference/REFERENCE_LINKS.md
 .claude/
 .superpowers/
 /lcoder
