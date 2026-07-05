@@ -19,6 +19,36 @@ func catalogFor(model string, window, target, reserve int) Config {
 
 // With no user config, no catalog, and no discovered window, resolution falls
 // back to the hard defaults and reports source "default".
+func TestDefaultBashPermissionRules(t *testing.T) {
+	cfg := DefaultConfig()
+	bashRules := cfg.Permissions.Rules["bash"]
+
+	cases := []struct {
+		pattern  string
+		decision string
+	}{
+		{"*", "ask"},
+		{"ls *", "allow"},
+		{"cat *", "allow"},
+		{"grep *", "allow"},
+		{"git status", "allow"},
+		{"git log", "allow"},
+		{"git diff", "allow"},
+		{"go test *", "allow"},
+		{"go vet *", "allow"},
+		{"rm -rf /", "deny"},
+		{"rm -rf /*", "deny"},
+		{"sudo *", "deny"},
+		{"mkfs.*", "deny"},
+		{"dd *", "deny"},
+	}
+	for _, c := range cases {
+		if got := bashRules[c.pattern]; got != c.decision {
+			t.Errorf("bash rule %q: got %q, want %q", c.pattern, got, c.decision)
+		}
+	}
+}
+
 func TestResolveContextBudgetDefaultFallback(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Model = "mystery-model"
