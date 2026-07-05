@@ -118,6 +118,7 @@ type agentSetup struct {
 	cwd            string
 	llmClient      *llm.Client
 	checkpointStore checkpoint.Store
+	obsWatcher     *observability.ConfigWatcher
 	cleanup        func()
 }
 
@@ -207,18 +208,34 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 
 	bus := events.New()
-	obsExporter, err := observability.NewFileExporter(observability.DefaultPath(sess.ID))
+	obsCfg, err := config.LoadObservabilityConfig("")
+	if err != nil {
+		mcpRegistry.Close()
+		return nil, fmt.Errorf("load observability config: %w", err)
+	}
+	obsExporter, obsSampler, err := observability.NewExporterFromConfig(obsCfg, sess.ID)
 	if err != nil {
 		mcpRegistry.Close()
 		return nil, fmt.Errorf("observability exporter: %w", err)
 	}
-	auditLogger, err := observability.NewFileAuditLogger(observability.DefaultAuditPath(sess.ID))
+	auditLogger, err := observability.NewAuditLoggerFromConfig(obsCfg, sess.ID)
 	if err != nil {
 		mcpRegistry.Close()
 		return nil, fmt.Errorf("audit logger: %w", err)
 	}
 	obsCollector := observability.NewCollectorWithAudit(obsExporter, sess.ID, auditLogger)
 	obsCollector.Subscribe(bus)
+
+	obsWatcher, err := observability.NewConfigWatcherFromConfig(config.DefaultObservabilityPath(), obsCfg, obsSampler)
+	if err != nil {
+		mcpRegistry.Close()
+		return nil, fmt.Errorf("observability watcher: %w", err)
+	}
+	if obsWatcher != nil {
+		if err := obsWatcher.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to watch observability config: %v\n", err)
+		}
+	}
 
 	modeManager := agent.NewModeManager()
 	modeDirs := append(agent.DefaultModeDirs(cwd), extMgr.AgentDirs()...)
@@ -238,6 +255,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	ag, err := agent.NewBuilder().
 		WithConfig(agent.Config{
 			SystemPrompt:      "",
+			BaseSystemPrompt:  agentsetup.BuildSystemPrompt(),
 			Model:             models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
 			MaxTurns:          agentsetup.DefaultMaxTurns,
 			ToolExecutionMode: models.ExecutionParallel,
@@ -281,7 +299,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		cwd:             cwd,
 		llmClient:       llmClient,
 		checkpointStore: chkStore,
+		obsWatcher:      obsWatcher,
 		cleanup: func() {
+			if obsWatcher != nil {
+				_ = obsWatcher.Close()
+			}
 			obsCollector.Close()
 			mcpRegistry.Close()
 		},

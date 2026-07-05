@@ -1,0 +1,21 @@
+# Observability configuration for Lcoder.
+# Copy to ~/.lcoder/observability.yaml and edit to tune per-session telemetry.
+
+exporter:
+  # Built-in exporters: file, sqlite, html, prometheus.
+  type: file
+  # Output path. When empty, defaults to ~/.lcoder/observability/sessions/<session_id>.jsonl
+  output: ""
+  # Exporter-specific options passed through to the factory.
+  options: {}
+
+audit:
+  enabled: true
+  # When empty, defaults to ~/.lcoder/audit/<session_id>.jsonl
+  path: ""
+
+sampling:
+  # Wrap the exporter in a SamplingExporter so the rate can be changed at runtime.
+  enabled: true
+  # Probability that any observability record is exported (0 = drop all, 1 = keep all).
+  rate: 1.0
