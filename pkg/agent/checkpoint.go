@@ -42,7 +42,6 @@ func (a *Agent) CheckpointWithReason(reason string) (*checkpoint.Checkpoint, err
 		Agent: &checkpoint.AgentSnapshot{
 			Mode:              a.cfg.Mode,
 			Model:             a.cfg.Model,
-			MaxTurns:          a.cfg.MaxTurns,
 			ToolExecutionMode: a.cfg.ToolExecutionMode,
 			DeferredTools:     a.cfg.DeferredTools,
 			CoreTools:         append([]string(nil), a.cfg.CoreTools...),
@@ -87,7 +86,6 @@ func (a *Agent) agentConfigHash() string {
 	snap := checkpoint.AgentSnapshot{
 		Mode:              a.cfg.Mode,
 		Model:             a.cfg.Model,
-		MaxTurns:          a.cfg.MaxTurns,
 		ToolExecutionMode: a.cfg.ToolExecutionMode,
 		DeferredTools:     a.cfg.DeferredTools,
 		CoreTools:         a.cfg.CoreTools,
@@ -120,7 +118,6 @@ func (a *Agent) Restore(cp *checkpoint.Checkpoint) error {
 
 	a.cfg.Mode = cp.Agent.Mode
 	a.cfg.Model = cp.Agent.Model
-	a.cfg.MaxTurns = cp.Agent.MaxTurns
 	a.cfg.ToolExecutionMode = cp.Agent.ToolExecutionMode
 	a.cfg.DeferredTools = cp.Agent.DeferredTools
 	a.cfg.CoreTools = append([]string(nil), cp.Agent.CoreTools...)

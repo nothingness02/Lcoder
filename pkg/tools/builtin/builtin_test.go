@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,5 +161,128 @@ func TestBash(t *testing.T) {
 	text := result.Content[0].(models.TextContent).Text
 	if !strings.HasPrefix(text, "go version") {
 		t.Fatalf("expected go version output, got %q", text)
+	}
+}
+
+func TestReadDefaultLimitTruncates(t *testing.T) {
+	dir := tempDir(t)
+	path := filepath.Join(dir, "big.txt")
+	var sb strings.Builder
+	for i := 0; i < defaultReadLines+50; i++ {
+		sb.WriteString(fmt.Sprintf("line %d\n", i+1))
+	}
+	if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	read := NewRead(dir)
+	result, err := read.Execute(context.Background(), "call_1", map[string]any{
+		"path": "big.txt",
+	})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	text := result.Content[0].(models.TextContent).Text
+	if !strings.Contains(text, "line 1") {
+		t.Fatal("expected first line in truncated output")
+	}
+	if strings.Contains(text, fmt.Sprintf("line %d", defaultReadLines+50)) {
+		t.Fatal("expected output to be truncated before the last line")
+	}
+	if !strings.Contains(text, "[truncated:") {
+		t.Fatal("expected truncation warning")
+	}
+}
+
+func TestReadRejectsOversizedFile(t *testing.T) {
+	dir := tempDir(t)
+	path := filepath.Join(dir, "huge.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", maxReadFileSizeBytes+1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	read := NewRead(dir)
+	_, err := read.Execute(context.Background(), "call_1", map[string]any{
+		"path": "huge.txt",
+	})
+	if err == nil {
+		t.Fatal("expected error for oversized file")
+	}
+}
+
+func TestGrepLimitsMatches(t *testing.T) {
+	dir := tempDir(t)
+	for i := 0; i < 10; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("f%d.txt", i))
+		var sb strings.Builder
+		for j := 0; j < 100; j++ {
+			sb.WriteString("needle here\n")
+		}
+		if err := os.WriteFile(path, []byte(sb.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	grep := NewGrep(dir)
+	result, err := grep.Execute(context.Background(), "call_1", map[string]any{
+		"pattern": "needle",
+	})
+	if err != nil {
+		t.Fatalf("grep: %v", err)
+	}
+	text := result.Content[0].(models.TextContent).Text
+	if !strings.Contains(text, "[truncated:") {
+		t.Fatal("expected truncation warning")
+	}
+	if result.Details["matches"] != maxGrepMatches {
+		t.Fatalf("expected %d matches, got %v", maxGrepMatches, result.Details["matches"])
+	}
+}
+
+func TestFindLimitsMatches(t *testing.T) {
+	dir := tempDir(t)
+	for i := 0; i < maxFindMatches+10; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("match_%d.txt", i))
+		if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	find := NewFind(dir)
+	result, err := find.Execute(context.Background(), "call_1", map[string]any{
+		"pattern": "match_*.txt",
+	})
+	if err != nil {
+		t.Fatalf("find: %v", err)
+	}
+	text := result.Content[0].(models.TextContent).Text
+	if !strings.Contains(text, "[truncated:") {
+		t.Fatal("expected truncation warning")
+	}
+	if result.Details["matches"] != maxFindMatches {
+		t.Fatalf("expected %d matches, got %v", maxFindMatches, result.Details["matches"])
+	}
+}
+
+func TestLsLimitsEntries(t *testing.T) {
+	dir := tempDir(t)
+	for i := 0; i < maxLsEntries+10; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("file_%03d.txt", i))
+		if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ls := NewLs(dir)
+	result, err := ls.Execute(context.Background(), "call_1", map[string]any{})
+	if err != nil {
+		t.Fatalf("ls: %v", err)
+	}
+	text := result.Content[0].(models.TextContent).Text
+	if !strings.Contains(text, "[truncated:") {
+		t.Fatal("expected truncation warning")
+	}
+	if result.Details["count"] != maxLsEntries {
+		t.Fatalf("expected %d entries, got %v", maxLsEntries, result.Details["count"])
 	}
 }

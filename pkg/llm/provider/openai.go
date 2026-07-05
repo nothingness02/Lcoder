@@ -215,14 +215,28 @@ type openAIUsage struct {
 	TotalTokens         int `json:"total_tokens"`
 	PromptCacheReadTok  int `json:"prompt_cache_read_tokens"`
 	PromptCacheWriteTok int `json:"prompt_cache_write_tokens"`
+	// DeepSeek-style prefix-cache fields.
+	PromptCacheHitTok  int `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTok int `json:"prompt_cache_miss_tokens"`
+	// OpenAI-style alias for cached prompt tokens.
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
 }
 
 func (u openAIUsage) toLLMUsage() *models.LLMUsage {
+	cacheRead := u.PromptCacheReadTok
+	if cacheRead == 0 {
+		cacheRead = u.PromptCacheHitTok
+	}
+	if cacheRead == 0 && u.PromptTokensDetails != nil {
+		cacheRead = u.PromptTokensDetails.CachedTokens
+	}
 	return &models.LLMUsage{
 		PromptTokens:     u.PromptTokens,
 		CompletionTokens: u.CompletionTokens,
 		TotalTokens:      u.TotalTokens,
-		CacheReadTokens:  u.PromptCacheReadTok,
+		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: u.PromptCacheWriteTok,
 	}
 }

@@ -171,14 +171,6 @@ func TestModelViewNotEmpty(t *testing.T) {
 	}
 }
 
-func TestToolResultText(t *testing.T) {
-	result := models.NewToolExecutionResultText("hello world this is a long result")
-	out := toolResultText(result)
-	if out == "" {
-		t.Fatal("expected non-empty result text")
-	}
-}
-
 func TestFormatArgs(t *testing.T) {
 	args := map[string]any{"path": "main.go", "line": 42}
 	out := FormatArgs(args)

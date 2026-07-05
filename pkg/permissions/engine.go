@@ -3,7 +3,6 @@ package permissions
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 )
 
 // Decision is the result of a permission evaluation.
@@ -145,7 +144,3 @@ func (e *Engine) Explain(req Request) string {
 	}
 }
 
-// normalize ensures the path uses forward slashes for matching.
-func normalize(s string) string {
-	return strings.ReplaceAll(s, "\\", "/")
-}

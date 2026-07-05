@@ -37,10 +37,7 @@ func IsRetryable(err error) bool {
 		return true
 	}
 	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-	return false
+	return errors.As(err, &netErr)
 }
 
 // RetryConfig controls turn-establishment retries.

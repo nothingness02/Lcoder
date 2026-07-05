@@ -38,3 +38,28 @@ func TestOverrideWins(t *testing.T) {
 		t.Errorf("override window=%d, want 999", w)
 	}
 }
+
+func TestSnapshotMaxOutput(t *testing.T) {
+	c := New(Options{Refresh: false})
+	if got := c.MaxOutput("openai", "gpt-4o"); got != 16384 {
+		t.Errorf("gpt-4o MaxOutput=%d, want 16384", got)
+	}
+	if got := c.MaxOutput("anthropic", "claude-sonnet-4-20250514"); got != 64000 {
+		t.Errorf("claude sonnet MaxOutput=%d, want 64000", got)
+	}
+	if got := c.MaxOutput("gemini", "gemini-2.5-pro"); got != 65536 {
+		t.Errorf("gemini MaxOutput=%d, want 65536", got)
+	}
+}
+
+func TestProviderAliasGemini(t *testing.T) {
+	c := New(Options{Refresh: false, Overrides: []Entry{
+		{ID: "gemini-2.5-flash", Provider: "google", ContextWindow: 1048576, MaxOutput: 65536},
+	}})
+	if w := c.Window("gemini", "gemini-2.5-flash"); w != 1048576 {
+		t.Errorf("gemini alias window=%d, want 1048576", w)
+	}
+	if out := c.MaxOutput("gemini", "gemini-2.5-flash"); out != 65536 {
+		t.Errorf("gemini alias MaxOutput=%d, want 65536", out)
+	}
+}

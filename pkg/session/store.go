@@ -53,6 +53,8 @@ type Session struct {
 }
 
 // Create initializes a new session for the given working directory.
+// It does not write a session file until the first message is appended, so
+// opening the app and quitting without any conversation produces no record.
 func (s *Store) Create(cwd string) (*Session, error) {
 	id := uuid.New().String()[:12]
 	sess := &Session{
@@ -63,9 +65,6 @@ func (s *Store) Create(cwd string) (*Session, error) {
 		CreatedAt: time.Now().Unix(),
 	}
 	if err := os.MkdirAll(filepath.Dir(sess.Path), 0o755); err != nil {
-		return nil, err
-	}
-	if err := sess.Save(); err != nil {
 		return nil, err
 	}
 	return sess, nil

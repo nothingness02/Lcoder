@@ -53,10 +53,7 @@ func (g *Grep) Definition() models.ToolDefinition {
 }
 
 func (g *Grep) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	pattern, ok := args["pattern"].(string)
-	if !ok || pattern == "" {
-		return models.ToolExecutionResult{}, fmt.Errorf("missing pattern")
-	}
+	pattern := args["pattern"].(string)
 
 	path := g.cwd
 	if v, ok := args["path"].(string); ok && v != "" {
@@ -73,6 +70,7 @@ func (g *Grep) Execute(ctx context.Context, callID string, args map[string]any) 
 	}
 
 	var matches []string
+	var skippedLarge int
 	err = filepath.WalkDir(path, func(p string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -91,6 +89,11 @@ func (g *Grep) Execute(ctx context.Context, callID string, args map[string]any) 
 				return nil // skip out-of-bounds child
 			}
 		}
+		info, statErr := d.Info()
+		if statErr == nil && info.Size() > maxGrepFileSizeBytes {
+			skippedLarge++
+			return nil
+		}
 		data, readErr := os.ReadFile(p)
 		if readErr != nil {
 			return nil
@@ -100,6 +103,9 @@ func (g *Grep) Execute(ctx context.Context, callID string, args map[string]any) 
 			if strings.Contains(line, pattern) {
 				rel, _ := filepath.Rel(g.cwd, p)
 				matches = append(matches, fmt.Sprintf("%s:%d:%s", rel, i+1, line))
+				if len(matches) >= maxGrepMatches {
+					return filepath.SkipAll
+				}
 			}
 		}
 		return nil
@@ -108,8 +114,16 @@ func (g *Grep) Execute(ctx context.Context, callID string, args map[string]any) 
 		return models.ToolExecutionResult{}, err
 	}
 
+	text := strings.Join(matches, "\n")
+	if skippedLarge > 0 {
+		text += fmt.Sprintf("\n\n[skipped %d file(s) larger than %d bytes]", skippedLarge, maxGrepFileSizeBytes)
+	}
+	if len(matches) >= maxGrepMatches {
+		text += fmt.Sprintf("\n\n[truncated: %d matches shown; refine pattern or path]", maxGrepMatches)
+	}
+
 	return models.ToolExecutionResult{
-		Content: []models.ContentPart{models.TextContent{Text: strings.Join(matches, "\n")}},
+		Content: []models.ContentPart{models.TextContent{Text: text}},
 		Details: map[string]any{"path": path, "matches": len(matches)},
 	}, nil
 }

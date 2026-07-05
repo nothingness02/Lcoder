@@ -52,10 +52,7 @@ func (b *Bash) Definition() models.ToolDefinition {
 }
 
 func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	command, ok := args["command"].(string)
-	if !ok || command == "" {
-		return models.ToolExecutionResult{}, fmt.Errorf("missing command")
-	}
+	command := args["command"].(string)
 
 	timeout := 60
 	if v, ok := args["timeout"].(float64); ok {

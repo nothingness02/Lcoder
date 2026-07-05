@@ -113,6 +113,7 @@ func TestTasksToolFrequencyAndLongRangeMetrics(t *testing.T) {
 	}
 
 	bus := events.New()
+	var callsSeen int
 	var calls []taskObservation
 	bus.Subscribe(func(_ context.Context, ev events.Event) error {
 		if e, ok := ev.(events.ToolExecutionStartEvent); ok && e.ToolName == task.ToolName {
@@ -128,8 +129,16 @@ func TestTasksToolFrequencyAndLongRangeMetrics(t *testing.T) {
 	ag := agent.New(agent.Config{
 		SystemPrompt:      "You are a helpful assistant.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          turns,
 		ToolExecutionMode: models.ExecutionSequential,
+		ShouldStop: func(_ context.Context, ts agent.TurnSummary) (bool, error) {
+			for _, tc := range ts.Message.ToolCalls() {
+				if tc.Name == task.ToolName {
+					callsSeen++
+					break
+				}
+			}
+			return callsSeen >= turns, nil
+		},
 	}, client, registry, permissions.NewEngine(permissions.DefaultConfig()), bus)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("Plan and execute a small project.")); err != nil {

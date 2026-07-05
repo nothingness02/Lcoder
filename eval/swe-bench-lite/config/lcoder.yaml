@@ -7,6 +7,7 @@
 # docker -e ANTHROPIC_AUTH_TOKEN=... 注入。coding 网关同时接受 kimi-k2.7-code。
 provider: moonshot
 model: kimi-k2.7-code
+mode: code
 
 providers:
   moonshot:

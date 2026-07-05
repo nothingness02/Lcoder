@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -201,49 +200,6 @@ func updateThinking(msg models.AgentMessage, delta string) models.AgentMessage {
 	}
 	msg.Content = append([]models.ContentPart{models.ThinkingContent{Text: delta}}, msg.Content...)
 	return msg
-}
-
-func updateToolCall(msg models.AgentMessage, call map[string]any, final bool) models.AgentMessage {
-	if call == nil {
-		return msg
-	}
-	id, _ := call["id"].(string)
-	name, _ := call["name"].(string)
-	args, _ := call["arguments"].(map[string]any)
-
-	for i, part := range msg.Content {
-		if tc, ok := part.(models.ToolCallContent); ok && tc.ID == id {
-			if name != "" {
-				tc.Name = name
-			}
-			if tc.Arguments == nil {
-				tc.Arguments = make(map[string]any)
-			}
-			for k, v := range args {
-				tc.Arguments[k] = v
-			}
-			msg.Content[i] = tc
-			return msg
-		}
-	}
-
-	if args == nil {
-		args = make(map[string]any)
-	}
-	msg.Content = append(msg.Content, models.ToolCallContent{
-		ID:        id,
-		Name:      name,
-		Arguments: args,
-	})
-	return msg
-}
-
-func formatToolCallDelta(call map[string]any) string {
-	if call == nil {
-		return ""
-	}
-	b, _ := json.Marshal(call)
-	return string(b)
 }
 
 // minimalCacheBreakpoints returns a safe, minimal set of cache breakpoints for a

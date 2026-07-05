@@ -71,6 +71,61 @@ func TestOpenAIStreamTextAndUsage(t *testing.T) {
 	}
 }
 
+func TestOpenAIStreamDeepSeekCacheUsage(t *testing.T) {
+	body := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":1000,\"completion_tokens\":5,\"total_tokens\":1005,\"prompt_cache_hit_tokens\":800,\"prompt_cache_miss_tokens\":200}}\n\n" +
+		"data: [DONE]\n\n"
+	srv := sseServer(t, body)
+
+	ad := OpenAICompat{}
+	ch, err := ad.Stream(context.Background(),
+		Conn{BaseURL: srv.URL, APIKey: "k", Route: "deepseek"},
+		models.TurnRequest{Model: models.ModelRef{Provider: "deepseek", ID: "deepseek-v4-flash"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(t, ch)
+	var done *Event
+	for i := range evs {
+		if evs[i].Kind == KindDone {
+			done = &evs[i]
+		}
+	}
+	if done == nil || done.Usage == nil {
+		t.Fatalf("expected done with usage, got %+v", done)
+	}
+	if done.Usage.CacheReadTokens != 800 {
+		t.Fatalf("expected cache read 800, got %d", done.Usage.CacheReadTokens)
+	}
+	if done.Usage.PromptTokens != 1000 {
+		t.Fatalf("expected prompt 1000, got %d", done.Usage.PromptTokens)
+	}
+}
+
+func TestOpenAIStreamOpenAICachedTokensDetails(t *testing.T) {
+	body := "data: {\"choices\":[{\"delta\":{}}],\"usage\":{\"prompt_tokens\":500,\"completion_tokens\":3,\"total_tokens\":503,\"prompt_tokens_details\":{\"cached_tokens\":400}}}\n\n" +
+		"data: [DONE]\n\n"
+	srv := sseServer(t, body)
+
+	ad := OpenAICompat{}
+	ch, err := ad.Stream(context.Background(),
+		Conn{BaseURL: srv.URL, APIKey: "k", Route: "openai"},
+		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(t, ch)
+	var done *Event
+	for i := range evs {
+		if evs[i].Kind == KindDone {
+			done = &evs[i]
+		}
+	}
+	if done == nil || done.Usage == nil || done.Usage.CacheReadTokens != 400 {
+		t.Fatalf("expected cache read 400, got %+v", done)
+	}
+}
+
 func TestOpenAIStreamToolCallFragments(t *testing.T) {
 	// Tool call arguments arrive split across chunks; they must accumulate by index.
 	body := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n" +

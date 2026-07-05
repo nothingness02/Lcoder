@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/sandbox"
@@ -170,12 +169,4 @@ func ExpandEndpointEnv(endpoint string) string {
 		}
 		return "${" + key + "}"
 	})
-}
-
-func splitHeader(s string) (string, string) {
-	idx := strings.Index(s, ":")
-	if idx == -1 {
-		return s, ""
-	}
-	return strings.TrimSpace(s[:idx]), strings.TrimSpace(s[idx+1:])
 }

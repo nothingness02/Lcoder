@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/agent"
+	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -46,5 +47,24 @@ func TestCliConfirmParsesYesNo(t *testing.T) {
 	}
 	if runConfirm("\n") {
 		t.Fatal("expected empty input to deny")
+	}
+}
+
+func TestCatalogOverridesFromConfigIncludesMaxOutput(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Catalog = config.ModelCatalog{Models: []config.ModelMeta{{
+		ID:            "local-model",
+		Provider:      "test",
+		ContextWindow: 100000,
+		Capabilities:  []string{"tools"},
+		Budget:        config.ModelBudget{MaxOutput: 32000},
+	}}}
+
+	overrides := catalogOverridesFromConfig(cfg)
+	if len(overrides) != 1 {
+		t.Fatalf("expected 1 override, got %d", len(overrides))
+	}
+	if overrides[0].MaxOutput != 32000 {
+		t.Fatalf("expected override MaxOutput 32000, got %d", overrides[0].MaxOutput)
 	}
 }

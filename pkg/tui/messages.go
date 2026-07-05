@@ -43,16 +43,6 @@ func submitPromptCmd(agent AgentRunner, sess SessionWriter, text string) tea.Cmd
 	}
 }
 
-// continueAgentCmd continues the agent without adding a user message.
-func continueAgentCmd(agent AgentRunner) tea.Cmd {
-	return func() tea.Msg {
-		if err := agent.Continue(context.Background()); err != nil {
-			return AgentDoneMsg{Err: err}
-		}
-		return AgentDoneMsg{}
-	}
-}
-
 // waitForEventCmd blocks until an event arrives on the channel.
 func waitForEventCmd(ch <-chan events.Event) tea.Cmd {
 	return func() tea.Msg {

@@ -52,10 +52,7 @@ func (r *Read) Definition() models.ToolDefinition {
 }
 
 func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	path, ok := args["path"].(string)
-	if !ok || path == "" {
-		return models.ToolExecutionResult{}, fmt.Errorf("missing path")
-	}
+	path := args["path"].(string)
 	path, err := resolveAndCheck(r.cwd, r.sb, path, sandbox.FSRead)
 	if err != nil {
 		return models.ToolExecutionResult{}, err
@@ -67,6 +64,11 @@ func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) 
 	}
 	if info.IsDir() {
 		return models.ToolExecutionResult{}, fmt.Errorf("path is a directory: %s", path)
+	}
+	if info.Size() > maxReadFileSizeBytes {
+		return models.ToolExecutionResult{}, fmt.Errorf(
+			"file too large (%d bytes > %d bytes); use offset/limit or read a smaller section",
+			info.Size(), maxReadFileSizeBytes)
 	}
 
 	data, err := os.ReadFile(path)
@@ -81,9 +83,13 @@ func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) 
 	if v, ok := args["offset"].(float64); ok {
 		offset = int(v)
 	}
-	limit := 0
-	if v, ok := args["limit"].(float64); ok {
-		limit = int(v)
+	userLimit := 0
+	if v, ok := args["limit"].(float64); ok && int(v) > 0 {
+		userLimit = int(v)
+	}
+	limit := userLimit
+	if limit == 0 {
+		limit = defaultReadLines
 	}
 
 	start := offset - 1
@@ -93,15 +99,18 @@ func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) 
 	if start > len(lines) {
 		start = len(lines)
 	}
-	end := len(lines)
-	if limit > 0 {
-		end = start + limit
-		if end > len(lines) {
-			end = len(lines)
-		}
+	end := start + limit
+	truncated := userLimit == 0 && end < len(lines)
+	if end > len(lines) {
+		end = len(lines)
 	}
 
 	selected := strings.Join(lines[start:end], "\n")
+	if truncated {
+		selected += fmt.Sprintf(
+			"\n\n[truncated: showing lines %d-%d of %d; use offset/limit to read more]",
+			start+1, end, len(lines))
+	}
 	return models.ToolExecutionResult{
 		Content: []models.ContentPart{
 			models.TextContent{Text: selected},

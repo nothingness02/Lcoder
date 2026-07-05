@@ -19,6 +19,10 @@ var BuiltinProviders = []ProviderInfo{
 	{Name: "deepseek", Display: "DeepSeek", KeyEnv: "DEEPSEEK_API_KEY", Route: "deepseek"},
 	{Name: "moonshot", Display: "Moonshot (Kimi)", KeyEnv: "MOONSHOT_API_KEY", Route: "openai", DefaultBase: "https://api.moonshot.cn/v1"},
 	{Name: "gemini", Display: "Google Gemini", KeyEnv: "GEMINI_API_KEY", Route: "gemini"},
+	{Name: "xai", Display: "xAI", KeyEnv: "XAI_API_KEY", Route: "xai"},
+	{Name: "alibaba", Display: "Alibaba (Qwen)", KeyEnv: "ALIBABA_API_KEY", Route: "alibaba"},
+	{Name: "zhipu", Display: "Zhipu AI (GLM)", KeyEnv: "ZHIPU_API_KEY", Route: "zhipu"},
+	{Name: "xiaomi", Display: "Xiaomi (MiMo)", KeyEnv: "MIMO_API_KEY", Route: "xiaomi"},
 	{Name: "openrouter", Display: "OpenRouter", KeyEnv: "OPENROUTER_API_KEY", Route: "openrouter"},
 }
 

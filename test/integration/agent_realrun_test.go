@@ -419,19 +419,18 @@ func TestAgentRealRun(t *testing.T) {
 	})
 
 	// 7. Build the agent, mirroring cmd/lcoder prepareAgent's agent.Config:
-	// same MaxTurns, parallel tool execution, "code" mode, and the default
-	// natural-completion stop behavior (no custom ShouldStop — the loop now
-	// keeps going while the model calls tools and stops on its first plain-text
-	// answer). The one deliberate divergence is permissions: production wires an
-	// interactive permission hook (BeforeToolCall) whose "ask" path blocks on
-	// stdin and would hang a non-interactive test, so here we allow all tools.
+	// parallel tool execution, "code" mode, and the default natural-completion
+	// stop behavior (no custom ShouldStop — the loop keeps going while the model
+	// calls tools and stops on its first plain-text answer). The one deliberate
+	// divergence is permissions: production wires an interactive permission hook
+	// (BeforeToolCall) whose "ask" path blocks on stdin and would hang a
+	// non-interactive test, so here we allow all tools.
 	modeManager := agent.NewModeManager()
 	_ = modeManager.LoadModes(agent.DefaultModeDirs(repoRoot))
 	ag, err := agent.NewBuilder().
 		WithConfig(agent.Config{
 			SystemPrompt:      "",
 			Model:             models.ModelRef{Provider: provider, ID: model},
-			MaxTurns:          agentsetup.DefaultMaxTurns,
 			ToolExecutionMode: models.ExecutionParallel,
 			ContextManager:    mgr,
 			Mode:              "code",

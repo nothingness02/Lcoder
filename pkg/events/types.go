@@ -41,9 +41,20 @@ func (b Base) EventType() EventType { return b.Type }
 // AgentStartEvent signals the beginning of an agent run.
 type AgentStartEvent struct{ Base }
 
+// AgentEndReason explains why an agent run ended.
+type AgentEndReason string
+
+const (
+	EndReasonCompleted  AgentEndReason = "completed"
+	EndReasonTerminated AgentEndReason = "terminated"
+	EndReasonInterrupted AgentEndReason = "interrupted"
+	EndReasonError      AgentEndReason = "error"
+)
+
 // AgentEndEvent signals the end of an agent run.
 type AgentEndEvent struct {
 	Base
+	Reason   AgentEndReason        `json:"reason"`
 	Messages []models.AgentMessage `json:"messages"`
 }
 

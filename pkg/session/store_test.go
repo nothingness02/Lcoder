@@ -36,3 +36,29 @@ func TestCreateAppendLoad(t *testing.T) {
 		t.Fatalf("expected hello, got %s", loaded.Messages[0].Text())
 	}
 }
+
+func TestCreateDoesNotWriteEmptySession(t *testing.T) {
+	dir, err := os.MkdirTemp("", "lcoder-empty-session-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	store := NewStore(dir)
+	sess, err := store.Create("/project")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if _, err := os.Stat(sess.Path); !os.IsNotExist(err) {
+		t.Fatalf("expected no session file before first message, got %v", sess.Path)
+	}
+
+	list, err := store.List("/project")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected empty sessions list, got %d", len(list))
+	}
+}

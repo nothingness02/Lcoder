@@ -13,5 +13,4 @@ denied_tools:
   - write
   - edit
   - bash
-max_turns: 15
 execution_mode: sequential

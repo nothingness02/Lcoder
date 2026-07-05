@@ -31,11 +31,6 @@ import (
 	"github.com/lcoder/lcoder/pkg/tui"
 )
 
-const (
-	compactionKeep     = 10
-	compactionInterval = 5
-)
-
 var (
 	cfgFile    string
 	modelID    string
@@ -257,7 +252,6 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			SystemPrompt:      "",
 			BaseSystemPrompt:  agentsetup.BuildSystemPrompt(),
 			Model:             models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
-			MaxTurns:          agentsetup.DefaultMaxTurns,
 			ToolExecutionMode: models.ExecutionParallel,
 			ContextManager:    mgr,
 			BeforeToolCall:    makeBeforeToolCall(cfg.Hooks),

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,9 +28,19 @@ func TestToolKeyArg(t *testing.T) {
 }
 
 func TestFormatCompactToolResult(t *testing.T) {
-	out := formatCompactToolResult("bash", `{"command":"ls"}`, false, "ok", 1200*time.Millisecond)
+	out := formatCompactToolResult("bash", `{"command":"ls"}`, false, "ok", 1200*time.Millisecond, false)
 	if out == "" {
 		t.Fatal("empty compact result")
+	}
+}
+
+func TestFormatCompactToolResultRunning(t *testing.T) {
+	out := formatCompactToolResult("bash", `{"command":"ls"}`, false, "", 250*time.Millisecond, true)
+	if strings.Contains(out, "✓") {
+		t.Fatalf("running tool should not show success icon: %q", out)
+	}
+	if !strings.Contains(out, "Running a command") {
+		t.Fatalf("running tool should still show label: %q", out)
 	}
 }
 

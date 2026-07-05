@@ -30,6 +30,8 @@ const (
 // name has to fall back to the upstream key to resolve window/output/pricing.
 var providerAliases = map[string]string{
 	"moonshot": "moonshotai",
+	"gemini":   "google",
+	"Zai":      "zhipuai",
 }
 
 // providerCandidates returns the provider names to try for a lookup: the given
@@ -98,8 +100,28 @@ func (c *Catalog) merge(entries []Entry) {
 	defer c.mu.Unlock()
 	for _, e := range entries {
 		key := e.Provider + "/" + e.ID
-		if _, exists := c.entries[key]; !exists {
+		existing, exists := c.entries[key]
+		if !exists {
 			c.order = append(c.order, key)
+		} else {
+			// Preserve non-zero fields from the incoming entry; leave existing
+			// values in place when the override is silent (zero / empty).
+			if e.Name != "" {
+				existing.Name = e.Name
+			}
+			if e.ContextWindow > 0 {
+				existing.ContextWindow = e.ContextWindow
+			}
+			if e.MaxOutput > 0 {
+				existing.MaxOutput = e.MaxOutput
+			}
+			if len(e.Capabilities) > 0 {
+				existing.Capabilities = e.Capabilities
+			}
+			if e.Cost.Prompt > 0 || e.Cost.Completion > 0 {
+				existing.Cost = e.Cost
+			}
+			e = existing
 		}
 		c.entries[key] = e
 	}

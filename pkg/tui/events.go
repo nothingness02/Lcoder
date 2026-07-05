@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"fmt"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/mcp"
@@ -50,10 +50,12 @@ func (m *Model) handleEvent(ev events.Event) {
 
 	case events.ToolExecutionStartEvent:
 		m.appendBlock(block{
-			kind:     blockTool,
-			id:       e.ToolCallID,
-			toolName: e.ToolName,
-			toolArgs: FormatArgs(e.Args),
+			kind:        blockTool,
+			id:          e.ToolCallID,
+			toolName:    e.ToolName,
+			toolArgs:    FormatArgs(e.Args),
+			toolStart:   time.Now(),
+			toolRunning: true,
 		})
 
 	case events.ToolExecutionEndEvent:
@@ -61,8 +63,14 @@ func (m *Model) handleEvent(ev events.Event) {
 		m.turnTools = append(m.turnTools, toolResultEntry{
 			name:    e.ToolName,
 			isError: e.IsError,
-			content: toolResultText(e.Result),
+			content: e.Result.Text(),
 		})
+
+	case events.TurnEndEvent:
+		if len(m.turnTools) > 0 {
+			m.addSystem(formatToolSummary(m.turnTools))
+			m.turnTools = m.turnTools[:0]
+		}
 
 	case events.AgentEndEvent:
 		m.completedTurns++
@@ -109,16 +117,20 @@ func (m *Model) commitAssistant(id, content, thinking string, usage *blockUsage)
 
 // finishTool patches the tool block identified by id with its result.
 func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, isError bool) {
-	text := toolResultText(result)
+	text := result.Text()
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == blockTool && m.blocks[i].id == id {
-			m.blocks[i].raw = text
+			m.blocks[i].toolResult = text
 			m.blocks[i].toolErr = isError
+			m.blocks[i].toolRunning = false
+			if !m.blocks[i].toolStart.IsZero() {
+				m.blocks[i].elapsed = time.Since(m.blocks[i].toolStart)
+			}
 			m.rebuildViewport()
 			return
 		}
 	}
-	m.appendBlock(block{kind: blockTool, id: id, toolName: name, raw: text, toolErr: isError})
+	m.appendBlock(block{kind: blockTool, id: id, toolName: name, toolResult: text, toolErr: isError})
 }
 
 // blocksFromMessages rebuilds the block history from a stored conversation.
@@ -145,7 +157,7 @@ func blocksFromMessages(msgs []models.AgentMessage) []block {
 				})
 			}
 		case models.RoleToolResult:
-			out = append(out, block{kind: blockTool, id: msg.ID, raw: msg.Text()})
+			out = append(out, block{kind: blockTool, id: msg.ID, toolResult: msg.Text()})
 		case models.RoleSystem:
 			out = append(out, block{kind: blockSystem, raw: msg.Text()})
 		}
@@ -182,20 +194,6 @@ func usagePtr(msg models.AgentMessage) *blockUsage {
 	}
 }
 
-// toolResultText renders a ToolExecutionResult to plain text.
-func toolResultText(result models.ToolExecutionResult) string {
-	var out string
-	for _, part := range result.Content {
-		if text, ok := part.(models.TextContent); ok {
-			out += text.Text
-		}
-	}
-	if len(out) > 200 {
-		out = out[:197] + "..."
-	}
-	return out
-}
-
 // mcpServers maps an mcp.Registry to the extensions panel's server rows.
 func mcpServers(reg *mcp.Registry) []mcp.ServerStatus {
 	if reg == nil {
@@ -204,10 +202,3 @@ func mcpServers(reg *mcp.Registry) []mcp.ServerStatus {
 	return reg.Servers()
 }
 
-// formatTokenCount renders a token count compactly (1234 -> 1.2k).
-func formatTokenCount(n int) string {
-	if n < 1000 {
-		return fmt.Sprintf("%d", n)
-	}
-	return fmt.Sprintf("%.1fk", float64(n)/1000)
-}

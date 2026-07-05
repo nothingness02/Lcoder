@@ -19,6 +19,8 @@ const (
 	provStepProvider provStep = iota
 	provStepModel
 	provStepKey
+
+	provPageSize = 15
 )
 
 // providerPanel is the modal provider/model/api-key wizard. It is a plain struct
@@ -42,6 +44,7 @@ type providerPanel struct {
 	chosenProvider string
 	chosenModel    string
 	errMsg         string
+	pageSize       int
 }
 
 // BuiltinProvidersForPanel exposes the provider list used by the panel (kept as a
@@ -65,6 +68,7 @@ func newProviderPanel() providerPanel {
 		providers:   BuiltinProvidersForPanel(),
 		keyInput:    key,
 		manualModel: manual,
+		pageSize:    provPageSize,
 	}
 }
 
@@ -94,12 +98,36 @@ func (m *Model) renderProviderPanel() string {
 			b.WriteString(fmt.Sprintf("%s%s\n", cursor, pi.Display))
 		}
 	case provStepModel:
-		b.WriteString(fmt.Sprintf("Select a model for %s  (up/down, enter, esc=back)\n\n", p.chosenProvider))
+		total := len(p.models)
+		page := 0
+		start := 0
+		end := total
+		if p.pageSize > 0 && total > 0 {
+			page = p.modelIdx / p.pageSize
+			start = page * p.pageSize
+			if start > total {
+				start = 0
+				page = 0
+			}
+			end = start + p.pageSize
+			if end > total {
+				end = total
+			}
+		}
+		totalPages := 1
+		if p.pageSize > 0 {
+			totalPages = (total + p.pageSize - 1) / p.pageSize
+			if totalPages < 1 {
+				totalPages = 1
+			}
+		}
+		b.WriteString(fmt.Sprintf("Select a model for %s  (page %d/%d, up/down, ←/→ page, enter, esc=back)\n\n", p.chosenProvider, page+1, totalPages))
 		if p.manual {
 			b.WriteString("No models discovered. Type a model id:\n\n")
 			b.WriteString(p.manualModel.View())
 		} else {
-			for i, id := range p.models {
+			for i := start; i < end; i++ {
+				id := p.models[i]
 				cursor := "  "
 				if i == p.modelIdx {
 					cursor = "> "
@@ -267,6 +295,8 @@ func (m *Model) commitProvider() {
 			ReserveOutput:    budget.ReserveOutput,
 			MaxOutput:        budget.MaxOutput,
 			CompactThreshold: budget.CompactThreshold,
+			DropThreshold:    budget.DropThreshold,
+			StaticRatio:      m.cfg.Context.StaticRatio,
 		},
 	)
 

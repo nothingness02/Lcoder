@@ -13,5 +13,4 @@ allowed_tools:
   - grep
   - find
 denied_tools: []
-max_turns: 30
 execution_mode: sequential

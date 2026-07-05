@@ -433,12 +433,7 @@ func safeString(m map[string]any, key string) string {
 }
 
 func toolResultErrorText(result models.ToolExecutionResult) string {
-	var out string
-	for _, part := range result.Content {
-		if text, ok := part.(models.TextContent); ok {
-			out += text.Text
-		}
-	}
+	out := result.Text()
 	if len(out) > 500 {
 		out = out[:497] + "..."
 	}

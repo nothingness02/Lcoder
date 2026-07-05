@@ -26,11 +26,15 @@ type Conn struct {
 // defaultBaseURLs maps a protocol route to its canonical base URL.
 var defaultBaseURLs = map[string]string{
 	"openai":     "https://api.openai.com/v1",
-	"deepseek":   "https://api.deepseek.com/v1",
-	"moonshot":   "https://api.moonshot.cn/v1",
-	"openrouter": "https://openrouter.ai/api/v1",
-	"gemini":     "https://generativelanguage.googleapis.com/v1beta/openai",
 	"anthropic":  "https://api.anthropic.com/v1",
+	"deepseek":   "https://api.deepseek.com/v1",
+	"gemini":     "https://generativelanguage.googleapis.com/v1beta/openai",
+	"moonshot":   "https://api.moonshot.cn/v1",
+	"xai":        "https://api.x.ai/v1",
+	"alibaba":    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+	"zhipu":      "https://open.bigmodel.cn/api/paas/v4",
+	"xiaomi":     "https://api.xiaomimimo.com/v1",
+	"openrouter": "https://openrouter.ai/api/v1",
 }
 
 // DefaultBaseURL returns the canonical base URL for a route, or "" if unknown.

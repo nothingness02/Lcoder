@@ -102,7 +102,6 @@ func TestTaskManagerSurvivesCompactionAndReconcilesOverwrites(t *testing.T) {
 	cfg := agent.Config{
 		SystemPrompt:      "test system prompt",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-test"},
-		MaxTurns:          5,
 		ToolExecutionMode: models.ExecutionSequential,
 		ContextManager:    mgr,
 		SessionID:         sessionID,
@@ -119,7 +118,8 @@ func TestTaskManagerSurvivesCompactionAndReconcilesOverwrites(t *testing.T) {
 				ag.Steer(longSteer)
 				return true, nil
 			}
-			return false, nil
+			// Stop naturally once the model produces a plain-text answer.
+			return len(ts.Message.ToolCalls()) == 0, nil
 		},
 	}
 	ag = agent.New(cfg, client, registry, permissions.NewEngineFromRules(nil), bus)
@@ -195,11 +195,14 @@ func TestTaskManagerSurvivesCompactionAndReconcilesOverwrites(t *testing.T) {
 	restoredCfg := cfg
 	restoredCfg.ContextManager = restoredMgr
 
-	client2, _ := llmtest.NewScript(llmtest.Turn(llmtest.Done(todoCallWithText("c4", []task.Task{
-		{Text: "task A", Status: task.StatusDone},
-		{Text: "task B", Status: task.StatusDone},
-		{Text: "task C", Status: task.StatusDone},
-	}, ""), nil)))
+	client2, _ := llmtest.NewScript(
+		llmtest.Turn(llmtest.Done(todoCallWithText("c4", []task.Task{
+			{Text: "task A", Status: task.StatusDone},
+			{Text: "task B", Status: task.StatusDone},
+			{Text: "task C", Status: task.StatusDone},
+		}, ""), nil)),
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("Done for now."), nil)),
+	)
 	ag2 := agent.New(restoredCfg, client2, registry, permissions.NewEngineFromRules(nil), events.New())
 	ag2.SetMessages(savedMessages)
 

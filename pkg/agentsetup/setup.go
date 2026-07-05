@@ -7,6 +7,7 @@ package agentsetup
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/lcoder/lcoder/pkg/compaction"
 	"github.com/lcoder/lcoder/pkg/config"
@@ -14,10 +15,6 @@ import (
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/models"
 )
-
-// DefaultMaxTurns is the agent turn budget used by the binary. Exposed so the
-// integration tests can mirror the exact production value.
-const DefaultMaxTurns = 25
 
 // BuildSystemPrompt assembles the shared base system prompt: a fixed persona
 // and operating contract. Project context and activated skills are injected as
@@ -36,6 +33,9 @@ func BuildSystemPrompt() string {
 	paths := []string{
 		"configs/agents/system.txt",             // 从项目根目录运行
 		"../../configs/agents/system.txt",       // 从 pkg/agentsetup 测试
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".lcoder", "agents", "system.txt"))
 	}
 	for _, path := range paths {
 		if content, err := os.ReadFile(path); err == nil {

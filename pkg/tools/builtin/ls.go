@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -67,8 +68,19 @@ func (l *Ls) Execute(ctx context.Context, callID string, args map[string]any) (m
 	}
 	sort.Strings(lines)
 
+	truncated := false
+	if len(lines) > maxLsEntries {
+		lines = lines[:maxLsEntries]
+		truncated = true
+	}
+
+	text := strings.Join(lines, "\n")
+	if truncated {
+		text += fmt.Sprintf("\n\n[truncated: %d of %d entries shown; use a more specific path]", maxLsEntries, len(entries))
+	}
+
 	return models.ToolExecutionResult{
-		Content: []models.ContentPart{models.TextContent{Text: strings.Join(lines, "\n")}},
+		Content: []models.ContentPart{models.TextContent{Text: text}},
 		Details: map[string]any{"path": path, "count": len(lines)},
 	}, nil
 }

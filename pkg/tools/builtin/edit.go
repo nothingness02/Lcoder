@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/sandbox"
@@ -61,10 +62,7 @@ func (e *Edit) Definition() models.ToolDefinition {
 }
 
 func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	path, ok := args["path"].(string)
-	if !ok || path == "" {
-		return models.ToolExecutionResult{}, fmt.Errorf("missing path")
-	}
+	path := args["path"].(string)
 	path, err := resolveAndCheck(e.cwd, e.sb, path, sandbox.FSWrite)
 	if err != nil {
 		return models.ToolExecutionResult{}, err
@@ -113,28 +111,17 @@ func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) 
 }
 
 func containsOnce(s, substr string) bool {
-	idx := findFirst(s, substr)
-	if idx == -1 {
+	if substr == "" {
 		return false
 	}
-	return findFirst(s[idx+len(substr):], substr) == -1
+	return strings.Count(s, substr) == 1
 }
 
 func replaceOnce(s, old, new string) string {
-	idx := findFirst(s, old)
-	if idx == -1 {
+	if old == "" {
 		return s
 	}
-	return s[:idx] + new + s[idx+len(old):]
-}
-
-func findFirst(s, substr string) int {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
+	return strings.Replace(s, old, new, 1)
 }
 
 var _ tools.Executable = (*Edit)(nil)

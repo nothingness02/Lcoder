@@ -27,7 +27,6 @@ func modePriorityAgent(t *testing.T, priority config.ModePromptPriority) *Agent 
 		WithConfig(Config{
 			BaseSystemPrompt:  "BASE PROMPT",
 			Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-			MaxTurns:          1,
 			ToolExecutionMode: models.ExecutionParallel,
 			ContextManager:    mgr,
 			Mode:              "code",

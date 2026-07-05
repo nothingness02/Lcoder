@@ -31,10 +31,13 @@ type block struct {
 	usage    *blockUsage
 
 	// tool extras
-	toolName string
-	toolArgs string
-	toolErr  bool
-	elapsed  time.Duration
+	toolName    string
+	toolArgs    string
+	toolErr     bool
+	toolStart   time.Time
+	toolRunning bool
+	elapsed     time.Duration
+	toolResult  string // full tool output shown in the Ctrl+O expanded view
 }
 
 type blockUsage struct {
@@ -76,10 +79,19 @@ func (b block) render(width int, expanded bool) string {
 		}
 		return sb.String()
 	case blockTool:
-		if expanded {
-			return formatExpandedToolResult(b.toolName, b.toolArgs, b.toolErr, b.raw, b.elapsed)
+		elapsed := b.elapsed
+		if b.toolRunning {
+			elapsed = time.Since(b.toolStart)
 		}
-		return formatCompactToolResult(b.toolName, b.toolArgs, b.toolErr, b.raw, b.elapsed)
+		full := b.toolResult
+		if full == "" {
+			full = b.raw
+		}
+		preview := toolPreview(full, 3, 80)
+		if expanded {
+			return formatExpandedToolResult(b.toolName, b.toolArgs, b.toolErr, full, elapsed, b.toolRunning)
+		}
+		return formatCompactToolResult(b.toolName, b.toolArgs, b.toolErr, preview, elapsed, b.toolRunning)
 	default: // blockSystem
 		return styleDim().Italic(true).Render(b.raw)
 	}
@@ -92,10 +104,10 @@ func renderThinking(thinking string, expanded bool) string {
 	style := styleDim().Italic(true)
 	if !expanded {
 		preview := strings.Join(strings.Fields(thinking), " ")
-		return style.Render("🧠 " + truncate(preview, 200))
+		return style.Render("Thinking: " + truncate(preview, 200))
 	}
 	var sb strings.Builder
-	sb.WriteString(style.Render("🧠 Thinking:"))
+	sb.WriteString(style.Render("Thinking:"))
 	for _, ln := range strings.Split(strings.TrimRight(thinking, "\n"), "\n") {
 		sb.WriteString("\n")
 		sb.WriteString(style.Render("  " + ln))

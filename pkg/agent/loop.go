@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -37,7 +38,6 @@ type Config struct {
 	SystemPrompt      string
 	BaseSystemPrompt  string
 	Model             models.ModelRef
-	MaxTurns          int
 	ToolExecutionMode models.ExecutionMode
 	ContextManager    *contextmgr.Manager
 	TransformContext  TransformContext
@@ -342,6 +342,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 	a.emit(ctx, events.AgentStartEvent{Base: events.Base{Type: events.AgentStart, Turn: turn}})
 
+	endReason := events.EndReasonCompleted
 	for {
 		pending := a.loopState.DrainSteeringQueue()
 		if len(pending) > 0 {
@@ -366,6 +367,11 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			a.loopState.ClearStreamAbort,
 		)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				endReason = events.EndReasonInterrupted
+			} else {
+				endReason = events.EndReasonError
+			}
 			a.emit(ctx, events.ErrorEvent{Base: events.Base{Type: events.Error, Turn: turn}, Message: err.Error()})
 			break
 		}
@@ -396,11 +402,8 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		// This is the only place where the run is in a known-safe state.
 		a.maybeCheckpoint(ctx, turn, checkpoint.ReasonAuto)
 
-		if a.maxTurnsReached(turn) {
-			break
-		}
-
 		if terminate {
+			endReason = events.EndReasonTerminated
 			break
 		}
 
@@ -417,6 +420,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 	a.emit(ctx, events.AgentEndEvent{
 		Base:     events.Base{Type: events.AgentEnd, Turn: turn},
+		Reason:   endReason,
 		Messages: a.mgr.AllMessages(),
 	})
 	a.loopState.SetState(StateIdle)
@@ -508,17 +512,6 @@ func (a *Agent) LatestAssistantMessage() (models.AgentMessage, bool) {
 		}
 	}
 	return models.AgentMessage{}, false
-}
-
-func (a *Agent) maxTurnsReached(turn int) bool {
-	maxTurns := a.cfg.MaxTurns
-	if a.cfg.ModeManager != nil {
-		maxTurns = a.cfg.ModeManager.Get(a.cfg.Mode).EffectiveMaxTurns(maxTurns)
-	}
-	if maxTurns <= 0 {
-		return false
-	}
-	return turn >= maxTurns
 }
 
 func (a *Agent) applyMode() (string, []models.ToolDefinition, models.ModelRef, models.ExecutionMode) {
@@ -636,8 +629,8 @@ func (a *Agent) shouldStop(ctx context.Context, msg models.AgentMessage, toolRes
 		// calling tools; stop on the first turn that produces no tool calls
 		// (its final natural-language answer). This lets the model observe tool
 		// results and decide for itself when the task is done, rather than
-		// halting after a single turn. terminate and MaxTurns, checked earlier
-		// in run(), remain the hard backstops.
+		// halting after a single turn. terminate, checked earlier in run(),
+		// remains the explicit hard backstop.
 		return len(msg.ToolCalls()) == 0
 	}
 	stop, err := a.cfg.ShouldStop(ctx, TurnSummary{

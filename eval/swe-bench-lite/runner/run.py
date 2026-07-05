@@ -20,6 +20,10 @@ REPO_ROOT = os.path.abspath(os.path.join(EVAL_DIR, "..", ".."))
 IMAGE_BASE = "lcoder-swe-bench-lite"
 DATA_DIR = os.path.join(EVAL_DIR, "data")
 RESULTS_DIR = os.path.join(EVAL_DIR, "results")
+AGENTS_DIR = os.path.join(REPO_ROOT, "configs", "agents")
+# 容器内 agent 的 cwd 是 /workspace/repo，不能把 agents 挂载到该目录下（会干扰源码移动）。
+# DefaultModeDirs 还会查找 ~/.lcoder/agents，所以挂载到 /root/.lcoder/agents。
+AGENTS_CONTAINER_DIR = "/root/.lcoder/agents"
 BIN_PATH = os.path.join(EVAL_DIR, "bin", "lcoder-linux")
 TASKS_FILE = os.path.join(DATA_DIR, "tasks.json")
 # 筛选阶段(尚无 tasks.json)用的默认镜像版本。
@@ -89,6 +93,7 @@ def run_task(task):
         "-e", f"INSTANCE_ID={task['instance_id']}",
         "-v", f"{DATA_DIR}:/eval/data:ro",
         "-v", f"{RESULTS_DIR}:/eval/results",
+        "-v", f"{AGENTS_DIR}:{AGENTS_CONTAINER_DIR}:ro",
         tag, "python", "/eval/scripts/run_in_container.py",
     ]
     r = sh(cmd)

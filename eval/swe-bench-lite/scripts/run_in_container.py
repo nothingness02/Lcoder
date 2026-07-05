@@ -13,6 +13,7 @@
   5. 在 agent 改动之上应用 test_patch,跑 F2P + P2P,记录 test_after.log。
   6. 分类:resolved / partial / failed / timeout / error,汇总指标。
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -31,6 +32,9 @@ INSTALL_TIMEOUT_S = int(os.environ.get("INSTALL_TIMEOUT_S", "1200"))
 TEST_TIMEOUT_S = int(os.environ.get("TEST_TIMEOUT_S", "600"))
 # PASS_TO_PASS 可能很多,MVP 限制数量以约束耗时(非静默截断:会在结果里记录)。
 P2P_CAP = int(os.environ.get("P2P_CAP", "20"))
+# 当 fail_to_pass 未通过时,把测试输出反馈给 agent 让它再试几轮。
+FEEDBACK_ATTEMPTS = int(os.environ.get("FEEDBACK_ATTEMPTS", "2"))
+FEEDBACK_TIMEOUT_S = int(os.environ.get("FEEDBACK_TIMEOUT_S", "600"))
 
 
 def run(cmd, cwd=None, timeout=None, env=None, capture=True):
@@ -106,6 +110,59 @@ def run_pytest(nodes, outpath, env):
     with open(outpath, "w", encoding="utf-8") as f:
         f.write(out)
     return rc == 0, rc
+
+
+def project_session_dir(cwd=WORKDIR):
+    """根据 cwd 计算 session store 的目录(lcder 用 sha256 前 16 位)。"""
+    h = hashlib.sha256(cwd.encode("utf-8")).hexdigest()[:16]
+    return os.path.join("/root/.lcoder/sessions", h)
+
+
+def latest_session_path(cwd=WORKDIR):
+    """返回最近修改的 session 文件路径。"""
+    d = project_session_dir(cwd)
+    try:
+        files = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jsonl")]
+    except FileNotFoundError:
+        return None
+    if not files:
+        return None
+    return max(files, key=os.path.getmtime)
+
+
+def extract_agent_patch(rdir):
+    """提取当前工作树的改动到 rdir/patch.diff,返回 diff 文本。"""
+    run(["git", "add", "-A"], cwd=WORKDIR, timeout=120)
+    rc, diff = run(["git", "diff", "--cached", "HEAD"], cwd=WORKDIR, timeout=120)
+    run(["git", "reset", "-q", "HEAD"], cwd=WORKDIR, timeout=120)
+    path = os.path.join(rdir, "patch.diff")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(diff)
+    return diff
+
+
+def run_lcoder_agent(runtime_cfg, prompt, events_path, stderr_path, env, timeout,
+                     continue_session=False, mode="a"):
+    """运行 lcoder agent,将 JSON 事件写入/追加到 events_path。"""
+    cmd = ["lcoder", "--config", runtime_cfg, "--json", "-p", prompt]
+    if continue_session:
+        cmd.append("--continue")
+    with open(events_path, mode, encoding="utf-8") as ev, \
+         open(stderr_path, "a", encoding="utf-8") as er:
+        p = subprocess.run(cmd, cwd=WORKDIR, env=env, stdout=ev, stderr=er, timeout=timeout)
+    return p.returncode
+
+
+def build_feedback_prompt(f2p_nodes, test_output, attempt):
+    """把 pytest 失败输出组装成给 agent 的反馈 prompt。"""
+    output = test_output[-8000:] if len(test_output) > 8000 else test_output
+    nodes = "\n".join(f2p_nodes)
+    return (
+        f"反馈 #{attempt + 1}: 当前修改仍未通过以下测试:\n{nodes}\n\n"
+        f"pytest 输出(节选):\n```\n{output}\n```\n\n"
+        "请分析失败原因,在源码中定位根因并继续修改。"
+        "不要改动测试文件。修改完成后会再次运行这些测试。"
+    )
 
 
 def main():
@@ -224,53 +281,113 @@ def main():
         )
         with open(runtime_cfg, "w", encoding="utf-8") as cf:
             cf.write(cfg_text)
-        agent_timed_out = False
-        agent_start = time.time()
-        try:
-            with open(events_path, "w", encoding="utf-8") as ev, \
-                 open(agent_stderr, "w", encoding="utf-8") as er:
-                p = subprocess.run(
-                    ["lcoder", "--config", runtime_cfg, "--json", "-p", prompt],
-                    cwd=WORKDIR, env=env, stdout=ev, stderr=er,
-                    timeout=AGENT_TIMEOUT_S,
-                )
-            result["stages"]["agent"] = "ok" if p.returncode == 0 else f"exit_{p.returncode}"
-        except subprocess.TimeoutExpired:
-            agent_timed_out = True
-            result["stages"]["agent"] = "timeout"
-        result["agent_duration_s"] = round(time.time() - agent_start, 1)
 
-        # 5) 提取 agent patch(尚未含 test_patch) ----------------------------
+        agent_timed_out = False
+        agent_duration_s = 0.0
+
+        def agent_round(prompt_text, timeout, continue_session, mode, stage_key):
+            nonlocal agent_duration_s
+            start = time.time()
+            timed_out = False
+            try:
+                rc = run_lcoder_agent(
+                    runtime_cfg, prompt_text, events_path, agent_stderr, env,
+                    timeout, continue_session=continue_session, mode=mode,
+                )
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                rc = None
+            dur = time.time() - start
+            agent_duration_s += dur
+            if timed_out:
+                result["stages"][stage_key] = "timeout"
+            else:
+                result["stages"][stage_key] = "ok" if rc == 0 else f"exit_{rc}"
+            return rc, timed_out, dur
+
+        rc, timed_out, _ = agent_round(prompt, AGENT_TIMEOUT_S, False, "w", "agent")
+        agent_timed_out = timed_out
+
+        # 5) 评测:在 agent 改动之上应用 test_patch,未通过则反馈给 agent -----
+        f2p_after = False
+        p2p_after = False
+        eval_status = "failed"
+        test_patch_applied = False
+
+        if agent_timed_out:
+            eval_status = "timeout"
+        else:
+            rc, out = run(["git", "apply", test_patch_path], cwd=WORKDIR, timeout=120)
+            if rc != 0:
+                with open(os.path.join(rdir, "eval_apply.log"), "w") as f:
+                    f.write(out)
+                result["stages"]["eval_apply_test_patch"] = "failed"
+                eval_status = "error"
+            else:
+                result["stages"]["eval_apply_test_patch"] = "ok"
+                test_patch_applied = True
+                f2p_log = os.path.join(rdir, "test_after.log")
+                f2p_after, _ = run_pytest(f2p, f2p_log, env)
+
+                # 若未通过,把 pytest 输出反馈给 agent,继续修复。
+                if not f2p_after:
+                    for fb_attempt in range(FEEDBACK_ATTEMPTS):
+                        with open(f2p_log, encoding="utf-8") as f:
+                            test_output = f.read()
+
+                        # 撤销 test_patch,保留 agent 改动,再让 agent 继续。
+                        run(["git", "apply", "-R", test_patch_path], cwd=WORKDIR, timeout=120)
+                        test_patch_applied = False
+
+                        fb_prompt = build_feedback_prompt(f2p, test_output, fb_attempt)
+                        stage_key = f"agent_feedback_{fb_attempt + 1}"
+                        rc, timed_out, _ = agent_round(
+                            fb_prompt, FEEDBACK_TIMEOUT_S, True, "a", stage_key,
+                        )
+                        if timed_out:
+                            agent_timed_out = True
+                            eval_status = "timeout"
+                            break
+
+                        rc, out = run(["git", "apply", test_patch_path], cwd=WORKDIR, timeout=120)
+                        if rc != 0:
+                            with open(os.path.join(rdir, f"eval_apply_fb_{fb_attempt + 1}.log"), "w") as f:
+                                f.write(out)
+                            result["stages"][f"eval_apply_test_patch_fb_{fb_attempt + 1}"] = "failed"
+                            eval_status = "error"
+                            break
+                        test_patch_applied = True
+                        f2p_log = os.path.join(rdir, f"test_after_fb_{fb_attempt + 1}.log")
+                        f2p_after, _ = run_pytest(f2p, f2p_log, env)
+                        if f2p_after:
+                            break
+
+                if test_patch_applied:
+                    p2p_after, _ = run_pytest(p2p, os.path.join(rdir, "test_after_p2p.log"), env)
+
+                if agent_timed_out:
+                    eval_status = "timeout"
+                elif f2p_after and p2p_after:
+                    eval_status = "resolved"
+                elif f2p_after and not p2p_after:
+                    eval_status = "partial"
+                else:
+                    eval_status = "failed"
+
+        result["fail_to_pass_passed"] = f2p_after
+        result["pass_to_pass_passed"] = p2p_after
+        result["status"] = eval_status
+        result["agent_duration_s"] = round(agent_duration_s, 1)
+
+        # 6) 提取 agent patch(不含 test_patch) -----------------------------
+        if test_patch_applied:
+            run(["git", "apply", "-R", test_patch_path], cwd=WORKDIR, timeout=120)
         run(["git", "add", "-A"], cwd=WORKDIR, timeout=120)
         rc, diff = run(["git", "diff", "--cached", "HEAD"], cwd=WORKDIR, timeout=120)
         with open(os.path.join(rdir, "patch.diff"), "w", encoding="utf-8") as f:
             f.write(diff)
         result["patch_nonempty"] = bool(diff.strip())
-        # 取消暂存,保留工作树改动以便叠加 test_patch
         run(["git", "reset", "-q", "HEAD"], cwd=WORKDIR, timeout=120)
-
-        # 6) 评测:在 agent 改动之上应用 test_patch ---------------------------
-        rc, out = run(["git", "apply", test_patch_path], cwd=WORKDIR, timeout=120)
-        if rc != 0:
-            # agent 可能动了测试文件导致冲突;记录并标记评测失败
-            with open(os.path.join(rdir, "eval_apply.log"), "w") as f:
-                f.write(out)
-            result["stages"]["eval_apply_test_patch"] = "failed"
-            result["status"] = "error"
-        else:
-            result["stages"]["eval_apply_test_patch"] = "ok"
-            f2p_after, _ = run_pytest(f2p, os.path.join(rdir, "test_after.log"), env)
-            p2p_after, _ = run_pytest(p2p, os.path.join(rdir, "test_after_p2p.log"), env)
-            result["fail_to_pass_passed"] = f2p_after
-            result["pass_to_pass_passed"] = p2p_after
-            if agent_timed_out:
-                result["status"] = "timeout"
-            elif f2p_after and p2p_after:
-                result["status"] = "resolved"
-            elif f2p_after and not p2p_after:
-                result["status"] = "partial"
-            else:
-                result["status"] = "failed"
 
         # 7) 指标 -------------------------------------------------------------
         result["metrics"] = collect_metrics(events_path, env)

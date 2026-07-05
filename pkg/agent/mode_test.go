@@ -12,7 +12,6 @@ func TestModeManagerLoadAndGet(t *testing.T) {
 description: Planning mode
 system_prompt: You are a planning assistant.
 allowed_tools: ["read", "ls"]
-max_turns: 10
 `)
 	if err := os.WriteFile(filepath.Join(dir, "plan.yaml"), data, 0o644); err != nil {
 		t.Fatal(err)
@@ -30,9 +29,6 @@ max_turns: 10
 	mode := mm.Get("plan")
 	if mode.Name != "plan" {
 		t.Fatalf("expected plan, got %s", mode.Name)
-	}
-	if mode.EffectiveMaxTurns(25) != 10 {
-		t.Fatalf("expected max turns 10, got %d", mode.EffectiveMaxTurns(25))
 	}
 
 	// Unknown falls back to code; if code is not present, returns safe default.

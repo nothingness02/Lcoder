@@ -15,13 +15,7 @@ import (
 
 // resultText extracts the concatenated text parts of a ToolExecutionResult.
 func resultText(res models.ToolExecutionResult) string {
-	var out string
-	for _, p := range res.Content {
-		if tc, ok := p.(models.TextContent); ok {
-			out += tc.Text
-		}
-	}
-	return out
+	return res.Text()
 }
 
 // TestSandboxPassthroughReadNoRegression verifies that with the default

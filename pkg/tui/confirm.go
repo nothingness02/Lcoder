@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -103,7 +102,7 @@ func (p *confirmPanel) View(width int) string {
 	}
 
 	prompt := fmt.Sprintf("Permission request: %s", p.info.ToolCall.Name)
-	if args := formatArgs(p.info.Args); args != "" {
+	if args := FormatArgsPlain(p.info.Args); args != "" {
 		prompt += " " + args
 	}
 
@@ -140,15 +139,4 @@ func optionStyle(selected bool) lipgloss.Style {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorDim).
 		Padding(0, 1)
-}
-
-func formatArgs(args map[string]any) string {
-	if len(args) == 0 {
-		return ""
-	}
-	var parts []string
-	for k, v := range args {
-		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
-	}
-	return strings.Join(parts, ", ")
 }

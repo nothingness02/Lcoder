@@ -43,7 +43,6 @@ func TestAgentOneTurn(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          5,
 		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), bus, obs)
 
@@ -80,8 +79,10 @@ func TestAgentToolCall(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          2,
 		ToolExecutionMode: models.ExecutionParallel,
+		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
+			return true, nil
+		},
 	}, client, testRegistry(t.TempDir()), permissions.NewEngine(permissions.DefaultConfig()), bus, obs)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("list files")); err != nil {
@@ -118,7 +119,6 @@ func TestAgentNaturalCompletionDefault(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          5,
 		ToolExecutionMode: models.ExecutionParallel,
 		// Deliberately no ShouldStop: exercise the default behavior.
 	}, client, testRegistry(t.TempDir()), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
@@ -133,28 +133,6 @@ func TestAgentNaturalCompletionDefault(t *testing.T) {
 	}
 }
 
-func TestAgentMaxTurns(t *testing.T) {
-	client, adapter := llmtest.NewScript(llmtest.Turn(
-		llmtest.Done(models.AssistantMessage("ok"), nil),
-	))
-
-	obs := observability.NewCollector(observability.NewMemoryExporter())
-	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          3,
-		ToolExecutionMode: models.ExecutionParallel,
-		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
-			return false, nil
-		},
-	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
-
-	_ = ag.Prompt(context.Background(), models.UserMessage("hi"))
-	if adapter.CallCount() != 3 {
-		t.Fatalf("expected 3 turns, got %d", adapter.CallCount())
-	}
-}
-
 func TestAgentAbortIsReentrant(t *testing.T) {
 	// A slow stream keeps the turn in-flight while Abort is called repeatedly.
 	client, adapter := llmtest.NewScript(llmtest.Turn(
@@ -166,7 +144,6 @@ func TestAgentAbortIsReentrant(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          5,
 		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
@@ -190,7 +167,6 @@ func TestAgentAbortStopsStream(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          5,
 		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
@@ -243,7 +219,6 @@ func TestAgentWithModeSnapshot(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "base",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
 		ModeManager:       mm,
 		Mode:              "code",
@@ -293,7 +268,6 @@ func TestAgentTransformContext(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			transformCalled = true
@@ -339,8 +313,10 @@ func TestAgentPermissionAskAllowed(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          2,
 		ToolExecutionMode: models.ExecutionParallel,
+		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
+			return true, nil
+		},
 	}, client, testRegistry(t.TempDir()), perms, bus)
 	ag.SetUserConfirm(userConfirmFunc(func(ctx context.Context, info ToolCallInfo) (bool, error) {
 		confirmed = true
@@ -379,7 +355,6 @@ func TestAgentPermissionDeny(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          2,
 		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry(t.TempDir()), perms, events.New())
 
@@ -410,7 +385,6 @@ func TestAgentEventHandlerErrorIsObservedNotFatal(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), bus, obs)
 
@@ -442,7 +416,6 @@ func TestAgentTransformContextPreservesEphemeralReminders(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
 		ReminderProducers: []ReminderProducer{
 			func(messages []models.AgentMessage) []string {
@@ -481,7 +454,6 @@ func TestAgentTransformContextPreservesCacheBreakpoints(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs, nil
@@ -504,7 +476,6 @@ func TestAgentTransformContextRecomputesBreakpointsWhenCountChanges(t *testing.T
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs[:1], nil
@@ -533,7 +504,6 @@ func TestAgentTransformContextRecomputesMaxTokens(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs[:1], nil

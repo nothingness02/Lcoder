@@ -33,10 +33,8 @@ var (
 	colorFaint     = lipgloss.AdaptiveColor{Light: "252", Dark: "237"}
 	colorSuccess   = lipgloss.AdaptiveColor{Light: "28", Dark: "42"}
 	colorError     = lipgloss.AdaptiveColor{Light: "160", Dark: "196"}
-	colorWarn      = lipgloss.AdaptiveColor{Light: "130", Dark: "214"}
 	// colorAccent — Lcoder frost cyan (Nord). Dark #88C0D0, Light #5E81AC.
 	colorAccent     = lipgloss.AdaptiveColor{Light: "#5E81AC", Dark: "#88C0D0"}
-	colorInfo       = lipgloss.AdaptiveColor{Light: "25", Dark: "39"}
 	colorSelect     = lipgloss.AdaptiveColor{Light: "25", Dark: "111"}
 	colorSelectDesc = lipgloss.AdaptiveColor{Light: "242", Dark: "146"}
 	// colorUserBar — subtle background tint for the full-width user bar.
@@ -67,6 +65,4 @@ func styleSecondary() lipgloss.Style { return lipgloss.NewStyle().Foreground(col
 func styleFaint() lipgloss.Style     { return lipgloss.NewStyle().Foreground(colorFaint) }
 func styleSuccess() lipgloss.Style   { return lipgloss.NewStyle().Foreground(colorSuccess) }
 func styleError() lipgloss.Style     { return lipgloss.NewStyle().Foreground(colorError) }
-func styleWarn() lipgloss.Style      { return lipgloss.NewStyle().Foreground(colorWarn) }
 func styleAccent() lipgloss.Style    { return lipgloss.NewStyle().Foreground(colorAccent) }
-func styleInfo() lipgloss.Style      { return lipgloss.NewStyle().Foreground(colorInfo) }

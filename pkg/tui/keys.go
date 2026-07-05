@@ -168,6 +168,22 @@ func (m *Model) handleProviderKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 				m.provPanel.modelIdx++
 			}
 			return m, nil
+		case tea.KeyLeft, tea.KeyPgUp:
+			if m.provPanel.modelIdx > 0 {
+				m.provPanel.modelIdx -= m.provPanel.pageSize
+				if m.provPanel.modelIdx < 0 {
+					m.provPanel.modelIdx = 0
+				}
+			}
+			return m, nil
+		case tea.KeyRight, tea.KeyPgDown:
+			if last := len(m.provPanel.models) - 1; last > 0 {
+				m.provPanel.modelIdx += m.provPanel.pageSize
+				if m.provPanel.modelIdx > last {
+					m.provPanel.modelIdx = last
+				}
+			}
+			return m, nil
 		case tea.KeyEnter:
 			m.enterKeyStep()
 			return m, nil
@@ -421,9 +437,6 @@ func (m *Model) onAgentDone(err error) {
 	m.input.SetProcessing(false)
 	if err != nil {
 		m.addSystem(styleError().Render("error: " + err.Error()))
-	}
-	if len(m.turnTools) > 0 {
-		m.addSystem(formatToolSummary(m.turnTools))
 	}
 	m.persistSession()
 	m.updateSuggestion()

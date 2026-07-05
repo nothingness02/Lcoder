@@ -9,13 +9,12 @@ import (
 
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/agent/hooks"
-	"github.com/lcoder/lcoder/pkg/compaction"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/llm/catalog"
 	"github.com/lcoder/lcoder/pkg/llm/engine"
 	llmprovider "github.com/lcoder/lcoder/pkg/llm/provider"
-	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/tui"
 )
 
 // buildEngine constructs the in-process LLM engine: a model catalog (snapshot +
@@ -53,24 +52,11 @@ func catalogOverridesFromConfig(cfg config.Config) []catalog.Entry {
 			ID:            m.ID,
 			Provider:      m.Provider,
 			ContextWindow: m.ContextWindow,
+			MaxOutput:     m.Budget.MaxOutput,
 			Capabilities:  m.Capabilities,
 		})
 	}
 	return out
-}
-
-// todo:根据系统优化内置的系统提示词
-func makeTransformContext(keep int) agent.TransformContext {
-	strategy := compaction.NewKeepLastStrategy(keep)
-	return func(ctx context.Context, messages []models.AgentMessage) ([]models.AgentMessage, error) {
-		if len(messages) <= keep+1 {
-			return messages, nil
-		}
-		if len(messages)%compactionInterval == 0 {
-			return strategy.Compact(messages, compaction.SimpleSummarize)
-		}
-		return messages, nil
-	}
 }
 
 func makeBeforeToolCall(hookCfg config.HookConfig) agent.BeforeToolCallHook {
@@ -81,24 +67,13 @@ func makeBeforeToolCall(hookCfg config.HookConfig) agent.BeforeToolCallHook {
 type cliConfirm struct{}
 
 func (cliConfirm) Confirm(ctx context.Context, info agent.ToolCallInfo) (bool, error) {
-	fmt.Fprintf(os.Stderr, "\nPermission request: %s(%s)\nAllow? [y/N] ", info.ToolCall.Name, formatArgs(info.Args))
+	fmt.Fprintf(os.Stderr, "\nPermission request: %s(%s)\nAllow? [y/N] ", info.ToolCall.Name, tui.FormatArgsPlain(info.Args))
 	var line string
 	if _, err := fmt.Fscanln(os.Stdin, &line); err != nil {
 		// EOF or empty newline counts as denial.
 		return false, nil
 	}
 	return strings.EqualFold(strings.TrimSpace(line), "y"), nil
-}
-
-func formatArgs(args map[string]any) string {
-	if len(args) == 0 {
-		return ""
-	}
-	var parts []string
-	for k, v := range args {
-		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
-	}
-	return strings.Join(parts, ", ")
 }
 
 func parsePermissionConfig(pc config.PermissionConfig) []permissions.Rule {

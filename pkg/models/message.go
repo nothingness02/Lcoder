@@ -273,6 +273,17 @@ type ToolExecutionResult struct {
 	Terminate bool           `json:"terminate"`
 }
 
+// Text returns the concatenated text of all text content parts.
+func (r ToolExecutionResult) Text() string {
+	var out string
+	for _, part := range r.Content {
+		if text, ok := part.(TextContent); ok {
+			out += text.Text
+		}
+	}
+	return out
+}
+
 // NewToolExecutionResultText creates a ToolExecutionResult containing a single text part.
 func NewToolExecutionResultText(text string) ToolExecutionResult {
 	return ToolExecutionResult{

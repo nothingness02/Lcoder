@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRenderUserBlock(t *testing.T) {
@@ -22,11 +23,35 @@ func TestRenderAssistantBlockMarkdown(t *testing.T) {
 }
 
 func TestRenderToolBlockCompactVsExpanded(t *testing.T) {
-	b := block{kind: blockTool, toolName: "bash", toolArgs: `{"command":"ls"}`, raw: "file1\nfile2"}
+	b := block{
+		kind:       blockTool,
+		toolName:   "bash",
+		toolArgs:   `{"command":"ls"}`,
+		toolResult: "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10",
+	}
 	compact := b.render(80, false)
 	expanded := b.render(80, true)
 	if compact == expanded {
 		t.Fatal("expanded should differ from compact")
+	}
+	// Compact shows only a few preview lines plus a "more" hint.
+	if strings.Contains(compact, "line8") {
+		t.Fatalf("compact should hide later lines: %q", compact)
+	}
+	// Expanded shows the full output (head+tail).
+	if !strings.Contains(expanded, "line10") {
+		t.Fatalf("expanded should show the full output: %q", expanded)
+	}
+}
+
+func TestRenderRunningToolBlockNoSuccessIcon(t *testing.T) {
+	b := block{kind: blockTool, toolName: "bash", toolArgs: `{"command":"ls"}`, toolRunning: true, toolStart: time.Now().Add(-200 * time.Millisecond)}
+	out := b.render(80, false)
+	if strings.Contains(out, "✓") {
+		t.Fatalf("running tool block should not show success icon: %q", out)
+	}
+	if !strings.Contains(out, "Running a command") {
+		t.Fatalf("running tool block should show friendly label: %q", out)
 	}
 }
 

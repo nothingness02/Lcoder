@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"context"
+	"fmt"
+	"slices"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -62,8 +66,11 @@ func TestModelStepFetchFiltersByProvider(t *testing.T) {
 	if m.provPanel.step != provStepModel {
 		t.Fatalf("expected provStepModel, got %v", m.provPanel.step)
 	}
-	if len(m.provPanel.models) != 1 || m.provPanel.models[0] != "gpt-4o" {
-		t.Fatalf("expected [gpt-4o], got %v", m.provPanel.models)
+	if len(m.provPanel.models) == 0 {
+		t.Fatal("expected at least one openai model")
+	}
+	if !slices.Contains(m.provPanel.models, "gpt-4o") {
+		t.Fatalf("expected openai models to include gpt-4o, got %v", m.provPanel.models)
 	}
 }
 
@@ -89,8 +96,8 @@ func TestModelStepEnterAdvancesToKey(t *testing.T) {
 	if m.provPanel.step != provStepKey {
 		t.Fatalf("expected provStepKey, got %v", m.provPanel.step)
 	}
-	if m.provPanel.chosenModel != "gpt-4o" {
-		t.Fatalf("expected chosenModel gpt-4o, got %q", m.provPanel.chosenModel)
+	if m.provPanel.chosenModel != m.provPanel.models[0] {
+		t.Fatalf("expected chosenModel %q, got %q", m.provPanel.models[0], m.provPanel.chosenModel)
 	}
 }
 
@@ -104,6 +111,7 @@ func TestCommitProviderSavesRegistersAndSwitches(t *testing.T) {
 	m.openProviderPanel()
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // provider -> model
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // model -> key
+	chosenModel := m.provPanel.chosenModel
 	// Type a key and submit.
 	for _, r := range "sk-test" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -113,14 +121,17 @@ func TestCommitProviderSavesRegistersAndSwitches(t *testing.T) {
 	if m.state != stateInput || m.provPanel.visible {
 		t.Fatalf("expected panel closed after commit, state=%v visible=%v", m.state, m.provPanel.visible)
 	}
-	if agent.switchedModel.ID != "gpt-4o" || agent.switchedModel.Provider != "openai" {
-		t.Fatalf("expected agent switched to openai/gpt-4o, got %+v", agent.switchedModel)
+	if agent.switchedModel.Provider != "openai" || agent.switchedModel.ID != chosenModel {
+		t.Fatalf("expected agent switched to openai/%s, got %+v", chosenModel, agent.switchedModel)
 	}
-	if agent.switchedBudget.MaxTotal != 128000 {
-		t.Fatalf("expected budget MaxTotal 128000 from catalog window, got %d", agent.switchedBudget.MaxTotal)
+	window, _ := m.llmClient.ModelWindow(context.Background(), "openai", chosenModel)
+	maxOutput, _ := m.llmClient.ModelMaxOutput(context.Background(), "openai", chosenModel)
+	expected, _ := m.cfg.ResolveContextBudget(window, maxOutput)
+	if agent.switchedBudget.MaxTotal != expected.MaxTotal {
+		t.Fatalf("expected budget MaxTotal %d from catalog window, got %d", expected.MaxTotal, agent.switchedBudget.MaxTotal)
 	}
-	if m.model != "openai/gpt-4o" {
-		t.Fatalf("expected display model openai/gpt-4o, got %q", m.model)
+	if m.model != "openai/"+chosenModel {
+		t.Fatalf("expected display model openai/%s, got %q", chosenModel, m.model)
 	}
 }
 
@@ -143,5 +154,102 @@ func TestFirstLaunchAutoOpensPanel(t *testing.T) {
 
 	if m.state != stateProvider || !m.provPanel.visible {
 		t.Fatalf("expected wizard auto-open on first launch, state=%v visible=%v", m.state, m.provPanel.visible)
+	}
+}
+
+func TestModelStepPaginationRendersFifteenPerPage(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.openProviderPanel()
+	m.provPanel.step = provStepModel
+	m.provPanel.chosenProvider = "openai"
+	for i := 0; i < 22; i++ {
+		m.provPanel.models = append(m.provPanel.models, fmt.Sprintf("model-%02d", i))
+	}
+	m.provPanel.modelIdx = 0
+
+	out := m.renderProviderPanel()
+	if !strings.Contains(out, "page 1/2") {
+		t.Fatalf("expected page indicator 1/2, got:\n%s", out)
+	}
+	for i := 0; i < 15; i++ {
+		if !strings.Contains(out, fmt.Sprintf("model-%02d", i)) {
+			t.Fatalf("expected first-page model model-%02d in render, got:\n%s", i, out)
+		}
+	}
+	for i := 15; i < 22; i++ {
+		if strings.Contains(out, fmt.Sprintf("model-%02d", i)) {
+			t.Fatalf("did not expect second-page model model-%02d on first page, got:\n%s", i, out)
+		}
+	}
+}
+
+func TestModelStepPageDownAndPageUp(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.openProviderPanel()
+	m.provPanel.step = provStepModel
+	m.provPanel.chosenProvider = "openai"
+	for i := 0; i < 22; i++ {
+		m.provPanel.models = append(m.provPanel.models, fmt.Sprintf("model-%02d", i))
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if m.provPanel.modelIdx != 15 {
+		t.Fatalf("expected modelIdx 15 after page right, got %d", m.provPanel.modelIdx)
+	}
+	out := m.renderProviderPanel()
+	if !strings.Contains(out, "page 2/2") {
+		t.Fatalf("expected page indicator 2/2, got:\n%s", out)
+	}
+	if !strings.Contains(out, "model-15") {
+		t.Fatalf("expected second page to contain model-15, got:\n%s", out)
+	}
+	if strings.Contains(out, "model-00") {
+		t.Fatalf("did not expect model-00 on second page, got:\n%s", out)
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if m.provPanel.modelIdx != 0 {
+		t.Fatalf("expected modelIdx 0 after page left, got %d", m.provPanel.modelIdx)
+	}
+	if !strings.Contains(m.renderProviderPanel(), "page 1/2") {
+		t.Fatalf("expected page indicator 1/2 after paging back")
+	}
+}
+
+func TestModelStepDownCrossesPageBoundary(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.openProviderPanel()
+	m.provPanel.step = provStepModel
+	m.provPanel.chosenProvider = "openai"
+	for i := 0; i < 22; i++ {
+		m.provPanel.models = append(m.provPanel.models, fmt.Sprintf("model-%02d", i))
+	}
+	m.provPanel.modelIdx = 14
+
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.provPanel.modelIdx != 15 {
+		t.Fatalf("expected modelIdx 15 after down across boundary, got %d", m.provPanel.modelIdx)
+	}
+	if !strings.Contains(m.renderProviderPanel(), "page 2/2") {
+		t.Fatalf("expected render to show page 2/2 after crossing boundary")
+	}
+}
+
+func TestModelStepUpCrossesPageBoundary(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.openProviderPanel()
+	m.provPanel.step = provStepModel
+	m.provPanel.chosenProvider = "openai"
+	for i := 0; i < 22; i++ {
+		m.provPanel.models = append(m.provPanel.models, fmt.Sprintf("model-%02d", i))
+	}
+	m.provPanel.modelIdx = 15
+
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.provPanel.modelIdx != 14 {
+		t.Fatalf("expected modelIdx 14 after up across boundary, got %d", m.provPanel.modelIdx)
+	}
+	if !strings.Contains(m.renderProviderPanel(), "page 1/2") {
+		t.Fatalf("expected render to show page 1/2 after crossing boundary")
 	}
 }

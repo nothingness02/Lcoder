@@ -74,29 +74,76 @@ func formatToolCallLabel(name, keyArg string) string {
 	}
 }
 
-func toolResultBrief(content string, elapsed time.Duration) string {
-	var parts []string
+func toolResultBrief(elapsed time.Duration) string {
 	if elapsed > 100*time.Millisecond {
-		parts = append(parts, fmt.Sprintf("%.1fs", elapsed.Seconds()))
+		return fmt.Sprintf("%.1fs", elapsed.Seconds())
 	}
-	return strings.Join(parts, "  ")
+	return ""
 }
 
-// formatCompactToolResult renders the single-line tool result.
-func formatCompactToolResult(toolName, args string, isError bool, content string, elapsed time.Duration) string {
+// toolPreview returns the first maxLines of content, each truncated to maxWidth,
+// followed by a "+N more" hint when there are additional lines.
+func toolPreview(content string, maxLines, maxWidth int) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) > maxLines {
+		extra := len(lines) - maxLines
+		lines = lines[:maxLines]
+		lines = append(lines, fmt.Sprintf("… +%d more", extra))
+	}
+	for i, ln := range lines {
+		lines[i] = truncate(ln, maxWidth)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// runningGlyph returns an accent-colored spinner frame that animates by wall
+// clock so in-flight tool rows feel alive without plumbing the global spinner
+// frame through every block.
+func runningGlyph() string {
+	idx := int(time.Now().UnixNano()/int64(spinnerInterval)) % len(spinnerGlyphs)
+	return styleAccent().Render(spinnerGlyphs[idx])
+}
+
+// formatCompactToolResult renders the collapsed tool row. When running is true
+// the row shows a live spinner and elapsed time instead of a completion icon.
+// When the tool has finished, a short preview of the output is shown beneath the
+// header; Ctrl+O expands to the full output.
+func formatCompactToolResult(toolName, args string, isError bool, preview string, elapsed time.Duration, running bool) string {
 	keyArg := toolKeyArg(toolName, args)
+	label := formatToolCallLabel(toolName, keyArg)
 	dimStyle := styleDim()
+
+	if running {
+		line := fmt.Sprintf(" %s", label)
+		if elapsed > 100*time.Millisecond {
+			line += fmt.Sprintf("  %.1fs", elapsed.Seconds())
+		}
+		return runningGlyph() + dimStyle.Render(line)
+	}
+
 	icon := styleSuccess().Render("✓")
-	brief := toolResultBrief(content, elapsed)
 	if isError {
 		icon = styleError().Render("✗")
-		brief = truncate(content, 60)
 	}
-	line := fmt.Sprintf("⏵ %s  %s", formatToolCallLabel(toolName, keyArg), icon)
+	brief := toolResultBrief(elapsed)
+	line := fmt.Sprintf("⏵ %s  %s", label, icon)
 	if brief != "" {
 		line += "  " + brief
 	}
-	return dimStyle.Render(line)
+
+	var sb strings.Builder
+	sb.WriteString(dimStyle.Render(line))
+	if preview != "" {
+		for _, ln := range strings.Split(preview, "\n") {
+			sb.WriteString("\n")
+			sb.WriteString(dimStyle.Render("  " + ln))
+		}
+	}
+	return sb.String()
 }
 
 const (
@@ -123,8 +170,9 @@ func truncateHeadTail(content string, head, tail int) string {
 }
 
 // formatExpandedToolResult renders the Ctrl+O expanded view.
-func formatExpandedToolResult(toolName, args string, isError bool, content string, elapsed time.Duration) string {
-	compact := formatCompactToolResult(toolName, args, isError, content, elapsed)
+func formatExpandedToolResult(toolName, args string, isError bool, content string, elapsed time.Duration, running bool) string {
+	// Header is intentionally preview-free; the full body is rendered below.
+	compact := formatCompactToolResult(toolName, args, isError, "", elapsed, running)
 	dimStyle := styleDim()
 	bodyStyle := dimStyle
 	if isError {
@@ -196,4 +244,17 @@ func FormatArgs(args map[string]any) string {
 		s = s[:37] + "..."
 	}
 	return s
+}
+
+// FormatArgsPlain renders a tool's argument map as key=value pairs for human-
+// readable prompts (e.g. permission confirmations).
+func FormatArgsPlain(args map[string]any) string {
+	if len(args) == 0 {
+		return ""
+	}
+	var parts []string
+	for k, v := range args {
+		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
+	}
+	return strings.Join(parts, ", ")
 }

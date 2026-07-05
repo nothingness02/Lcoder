@@ -28,7 +28,6 @@ type Builder struct {
 func NewBuilder() *Builder {
 	return &Builder{
 		cfg: Config{
-			MaxTurns:          25,
 			ToolExecutionMode: models.ExecutionParallel,
 		},
 	}
@@ -49,12 +48,6 @@ func (b *Builder) WithSystemPrompt(prompt string) *Builder {
 // WithModel sets the model reference.
 func (b *Builder) WithModel(provider, id string) *Builder {
 	b.cfg.Model = models.ModelRef{Provider: provider, ID: id}
-	return b
-}
-
-// WithMaxTurns sets the maximum number of turns.
-func (b *Builder) WithMaxTurns(max int) *Builder {
-	b.cfg.MaxTurns = max
 	return b
 }
 

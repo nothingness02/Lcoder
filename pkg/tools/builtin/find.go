@@ -49,10 +49,7 @@ func (f *Find) Definition() models.ToolDefinition {
 }
 
 func (f *Find) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	pattern, ok := args["pattern"].(string)
-	if !ok || pattern == "" {
-		return models.ToolExecutionResult{}, fmt.Errorf("missing pattern")
-	}
+	pattern := args["pattern"].(string)
 
 	path := f.cwd
 	if v, ok := args["path"].(string); ok && v != "" {
@@ -80,6 +77,9 @@ func (f *Find) Execute(ctx context.Context, callID string, args map[string]any) 
 		if matched {
 			rel, _ := filepath.Rel(f.cwd, p)
 			matches = append(matches, rel)
+			if len(matches) >= maxFindMatches {
+				return filepath.SkipAll
+			}
 		}
 		return nil
 	})
@@ -87,8 +87,13 @@ func (f *Find) Execute(ctx context.Context, callID string, args map[string]any) 
 		return models.ToolExecutionResult{}, err
 	}
 
+	text := strings.Join(matches, "\n")
+	if len(matches) >= maxFindMatches {
+		text += fmt.Sprintf("\n\n[truncated: %d matches shown; refine pattern or path]", maxFindMatches)
+	}
+
 	return models.ToolExecutionResult{
-		Content: []models.ContentPart{models.TextContent{Text: strings.Join(matches, "\n")}},
+		Content: []models.ContentPart{models.TextContent{Text: text}},
 		Details: map[string]any{"path": path, "matches": len(matches)},
 	}, nil
 }

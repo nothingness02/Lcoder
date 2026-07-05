@@ -28,7 +28,6 @@ func TestBuilderBuildsAgent(t *testing.T) {
 		WithPermissions(permissions.NewEngineFromRules(nil)).
 		WithSystemPrompt("test prompt").
 		WithModel("openai", "gpt-4o-mini").
-		WithMaxTurns(10).
 		WithToolExecutionMode(models.ExecutionSequential).
 		Build()
 	if err != nil {
@@ -36,9 +35,6 @@ func TestBuilderBuildsAgent(t *testing.T) {
 	}
 	if ag.cfg.SystemPrompt != "test prompt" {
 		t.Fatalf("unexpected system prompt: %s", ag.cfg.SystemPrompt)
-	}
-	if ag.cfg.MaxTurns != 10 {
-		t.Fatalf("unexpected max turns: %d", ag.cfg.MaxTurns)
 	}
 	if ag.cfg.ToolExecutionMode != models.ExecutionSequential {
 		t.Fatalf("unexpected execution mode: %v", ag.cfg.ToolExecutionMode)

@@ -12,5 +12,4 @@ allowed_tools:
 denied_tools:
   - write
   - edit
-max_turns: 20
 execution_mode: parallel

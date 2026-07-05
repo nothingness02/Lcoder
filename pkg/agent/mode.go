@@ -17,18 +17,9 @@ type ModeConfig struct {
 	SystemPrompt  string   `yaml:"system_prompt"`
 	AllowedTools  []string `yaml:"allowed_tools,omitempty"`
 	DeniedTools   []string `yaml:"denied_tools,omitempty"`
-	MaxTurns      int      `yaml:"max_turns,omitempty"`
 	Model         string   `yaml:"model,omitempty"`
 	Provider      string   `yaml:"provider,omitempty"`
 	ExecutionMode string   `yaml:"execution_mode,omitempty"`
-}
-
-// EffectiveMaxTurns returns the configured max turns or the default.
-func (m ModeConfig) EffectiveMaxTurns(defaultMax int) int {
-	if m.MaxTurns > 0 {
-		return m.MaxTurns
-	}
-	return defaultMax
 }
 
 // ModeManager loads and selects agent modes.

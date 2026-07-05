@@ -252,11 +252,7 @@ func appendWarnings(result models.ToolExecutionResult, warnings []string) models
 		return result
 	}
 	var sb strings.Builder
-	for _, part := range result.Content {
-		if t, ok := part.(models.TextContent); ok {
-			sb.WriteString(t.Text)
-		}
-	}
+	sb.WriteString(result.Text())
 	if sb.Len() > 0 {
 		sb.WriteString("\n\n")
 	}

@@ -48,14 +48,8 @@ func (w *Write) Definition() models.ToolDefinition {
 }
 
 func (w *Write) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	path, ok := args["path"].(string)
-	if !ok || path == "" {
-		return models.ToolExecutionResult{}, fmt.Errorf("missing path")
-	}
-	content, ok := args["content"].(string)
-	if !ok {
-		return models.ToolExecutionResult{}, fmt.Errorf("missing content")
-	}
+	path := args["path"].(string)
+	content := args["content"].(string)
 	path, err := resolveAndCheck(w.cwd, w.sb, path, sandbox.FSWrite)
 	if err != nil {
 		return models.ToolExecutionResult{}, err

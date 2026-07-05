@@ -38,8 +38,10 @@ func TestExecuteToolCall_InvalidArgs_NoToolEvents(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
+		ShouldStop: func(context.Context, TurnSummary) (bool, error) {
+			return true, nil
+		},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), bus)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("go")); err != nil {
@@ -88,8 +90,10 @@ func TestExecuteToolCall_ValidArgs_EmitsEvents(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		MaxTurns:          1,
 		ToolExecutionMode: models.ExecutionParallel,
+		ShouldStop: func(context.Context, TurnSummary) (bool, error) {
+			return true, nil
+		},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), bus)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("go")); err != nil {

@@ -119,7 +119,6 @@ func buildCheckpointTestAgent(t *testing.T, client *llm.Client, root string, sto
 
 	cfg := agent.Config{
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-test"},
-		MaxTurns:          10,
 		ToolExecutionMode: models.ExecutionParallel,
 		ContextManager:    mgr,
 		Mode:              "code",

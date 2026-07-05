@@ -297,7 +297,6 @@ func TestParallelToolCalls(t *testing.T) {
 		WithConfig(agent.Config{
 			SystemPrompt:      "",
 			Model:             models.ModelRef{Provider: provider, ID: model},
-			MaxTurns:          agentsetup.DefaultMaxTurns,
 			ToolExecutionMode: models.ExecutionParallel,
 			ContextManager:    mgr,
 			Mode:              "code",

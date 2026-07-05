@@ -46,7 +46,6 @@ type SessionSnapshot struct {
 type AgentSnapshot struct {
 	Mode              string             `json:"mode"`
 	Model             models.ModelRef    `json:"model"`
-	MaxTurns          int                `json:"max_turns,omitempty"`
 	ToolExecutionMode models.ExecutionMode `json:"tool_execution_mode,omitempty"`
 	DeferredTools     bool               `json:"deferred_tools,omitempty"`
 	CoreTools         []string           `json:"core_tools,omitempty"`
