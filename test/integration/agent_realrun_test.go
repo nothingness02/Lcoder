@@ -361,7 +361,7 @@ func TestAgentRealRun(t *testing.T) {
 	// system prompt comes from agentsetup.BuildSystemPrompt — the same one
 	// production uses; context/skills are injected as their own blocks (no
 	// duplication into the system block).
-	mgr := agentsetup.NewContextManager(cfg, cfgBudget, client, contextText, skillsBlock, nil)
+	mgr := agentsetup.NewContextManager(cfg, cfgBudget, client, contextText, skillsBlock, nil, nil)
 
 	// Tool registry rooted at the repo so file tools can read go.mod.
 	registry := tools.NewRegistry(repoRoot)

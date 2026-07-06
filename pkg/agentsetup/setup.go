@@ -13,6 +13,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/llm"
+	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -49,7 +50,7 @@ func BuildSystemPrompt() string {
 // project-docs, skills, and recent blocks. A summarizer is always attached so
 // that checkpoint restore has a wired manager and compaction can run when the
 // budget policy asks for it.
-func NewContextManager(cfg config.Config, budget config.TokenBudget, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage) *contextmgr.Manager {
+func NewContextManager(cfg config.Config, budget config.TokenBudget, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage, memStore *memory.Store) *contextmgr.Manager {
 	opts := []contextmgr.Option{
 		contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(cfg.Context.MinRecent)),
 		contextmgr.WithMinRecent(cfg.Context.MinRecent),
@@ -79,6 +80,17 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, llmClient *
 	if skillsBlock != "" {
 		mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockSkills, "skills", contextmgr.StabilityStable, 90, contextmgr.CacheHintBreakpoint,
 			models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: skillsBlock})))
+	}
+
+	if memStore != nil && cfg.Memory.Enabled {
+		if userText, err := memStore.UserText(); err == nil && userText != "" {
+			mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockUserProfile, "user_profile", contextmgr.StabilityStable, 70, contextmgr.CacheHintBreakpoint,
+				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: userText})))
+		}
+		if memoryText, err := memStore.MemoryText(); err == nil && memoryText != "" {
+			mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockMemory, "memory", contextmgr.StabilityStable, 75, contextmgr.CacheHintBreakpoint,
+				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: memoryText})))
+		}
 	}
 
 	if len(activeMessages) > 0 {

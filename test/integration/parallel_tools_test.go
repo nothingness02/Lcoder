@@ -243,7 +243,7 @@ func TestParallelToolCalls(t *testing.T) {
 
 	// Minimal context (no project docs / skills) keeps the prompt small and the
 	// run focused on tool-call behavior.
-	mgr := agentsetup.NewContextManager(cfg, cfgBudget, client, "", "", nil)
+	mgr := agentsetup.NewContextManager(cfg, cfgBudget, client, "", "", nil, nil)
 
 	// Registry rooted at the repo; register the instrumented slow_probe alongside
 	// the builtins so the model has an explicit parallel target.
