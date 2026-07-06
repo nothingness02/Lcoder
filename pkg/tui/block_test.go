@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -23,11 +24,15 @@ func TestRenderAssistantBlockMarkdown(t *testing.T) {
 }
 
 func TestRenderToolBlockCompactVsExpanded(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 20; i++ {
+		lines = append(lines, fmt.Sprintf("line%d", i))
+	}
 	b := block{
 		kind:       blockTool,
 		toolName:   "bash",
 		toolArgs:   `{"command":"ls"}`,
-		toolResult: "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10",
+		toolResult: strings.Join(lines, "\n"),
 	}
 	compact := b.render(80, false)
 	expanded := b.render(80, true)
@@ -38,9 +43,32 @@ func TestRenderToolBlockCompactVsExpanded(t *testing.T) {
 	if strings.Contains(compact, "line8") {
 		t.Fatalf("compact should hide later lines: %q", compact)
 	}
-	// Expanded shows the full output (head+tail).
-	if !strings.Contains(expanded, "line10") {
+	// Expanded shows the complete output without head/tail elision.
+	if !strings.Contains(expanded, "line20") {
 		t.Fatalf("expanded should show the full output: %q", expanded)
+	}
+	if strings.Contains(expanded, "… +") {
+		t.Fatalf("expanded should not elide middle lines: %q", expanded)
+	}
+}
+
+func TestRenderExpandedToolBlockShowsFormattedArgs(t *testing.T) {
+	b := block{
+		kind:       blockTool,
+		toolName:   "bash",
+		toolArgs:   `{"command":"ls -la","path":"."}`,
+		toolResult: "ok",
+	}
+	expanded := b.render(80, true)
+	if !strings.Contains(expanded, "Arguments:") {
+		t.Fatalf("expanded should show Arguments section: %q", expanded)
+	}
+	if !strings.Contains(expanded, "command") || !strings.Contains(expanded, "path") {
+		t.Fatalf("expanded should show formatted arg keys: %q", expanded)
+	}
+	// Pretty-printed JSON uses indentation, so colons should be followed by a space.
+	if !strings.Contains(expanded, "command\": \"ls -la\"") {
+		t.Fatalf("expanded should show pretty-printed arg value: %q", expanded)
 	}
 }
 

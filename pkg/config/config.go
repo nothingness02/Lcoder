@@ -23,11 +23,15 @@ type HTTPToolConfig struct {
 	Headers       map[string]string `yaml:"headers"`
 }
 
-// MCPServerConfig describes a stdio MCP server.
+// MCPServerConfig describes an MCP server connection.
 type MCPServerConfig struct {
-	Name    string            `yaml:"name"`
-	Command []string          `yaml:"command"`
-	Env     map[string]string `yaml:"env"`
+	Name      string            `yaml:"name"`
+	Transport string            `yaml:"transport"` // "stdio" or "sse"
+	Command   []string          `yaml:"command"`
+	Env       map[string]string `yaml:"env"`
+	URL       string            `yaml:"url"`
+	Headers   map[string]string `yaml:"headers"`
+	Timeout   int               `yaml:"timeout"` // seconds; 0 -> default
 }
 
 // PermissionConfig holds permission rules per tool.

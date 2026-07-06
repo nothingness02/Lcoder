@@ -161,6 +161,33 @@ func TestModelHandlesEvents(t *testing.T) {
 	}
 }
 
+func TestCtrlOTogglesToolExpansionInInputState(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateInput
+	m.blocks = append(m.blocks, block{
+		kind:       blockTool,
+		toolName:   "bash",
+		toolArgs:   `{"command":"ls"}`,
+		toolResult: "line1\nline2\nline3\nline4",
+	})
+
+	if m.toolsExpanded {
+		t.Fatal("expected toolsExpanded to start false")
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m2 := updated.(*Model)
+	if !m2.toolsExpanded {
+		t.Fatal("expected Ctrl+O to toggle toolsExpanded in input state")
+	}
+
+	updated, _ = m2.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m3 := updated.(*Model)
+	if m3.toolsExpanded {
+		t.Fatal("expected second Ctrl+O to toggle toolsExpanded off")
+	}
+}
+
 func TestModelViewNotEmpty(t *testing.T) {
 	m, _, _ := newTestModel()
 	m.state = stateInput
@@ -176,6 +203,19 @@ func TestFormatArgs(t *testing.T) {
 	out := FormatArgs(args)
 	if out == "" {
 		t.Fatal("expected non-empty args")
+	}
+	if !strings.Contains(out, "main.go") || !strings.Contains(out, "line") {
+		t.Fatalf("expected full JSON args, got %q", out)
+	}
+	if strings.Contains(out, "...") {
+		t.Fatalf("expected full args without truncation, got %q", out)
+	}
+
+	// Long argument maps should not be truncated.
+	longArgs := map[string]any{"command": strings.Repeat("echo hello; ", 20)}
+	longOut := FormatArgs(longArgs)
+	if strings.Contains(longOut, "...") {
+		t.Fatalf("expected long args without truncation, got %q", longOut)
 	}
 }
 

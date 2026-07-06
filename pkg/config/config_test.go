@@ -2,6 +2,8 @@ package config
 
 import (
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // catalogFor builds a Config whose catalog declares one model with the given
@@ -238,5 +240,41 @@ func TestResolveContextBudgetMaxOutput(t *testing.T) {
 	b, _ = cfg.ResolveContextBudget(0, 8000)
 	if b.MaxOutput != 32000 {
 		t.Fatalf("expected clamp to ceiling 32000, got %d", b.MaxOutput)
+	}
+}
+
+func TestMCPServerConfigRemote(t *testing.T) {
+	data := `
+mcp_servers:
+  - name: remote
+    transport: sse
+    url: http://localhost:3000
+    headers:
+      Authorization: Bearer token
+    timeout: 60
+  - name: local
+    transport: stdio
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem"]
+`
+	var cfg Config
+	if err := yaml.Unmarshal([]byte(data), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(cfg.MCPServers) != 2 {
+		t.Fatalf("expected 2 servers, got %d", len(cfg.MCPServers))
+	}
+	remote := cfg.MCPServers[0]
+	if remote.Name != "remote" || remote.Transport != "sse" || remote.URL != "http://localhost:3000" {
+		t.Fatalf("unexpected remote config: %+v", remote)
+	}
+	if remote.Headers["Authorization"] != "Bearer token" {
+		t.Fatalf("unexpected headers: %+v", remote.Headers)
+	}
+	if remote.Timeout != 60 {
+		t.Fatalf("expected timeout 60, got %d", remote.Timeout)
+	}
+	local := cfg.MCPServers[1]
+	if local.Name != "local" || local.Transport != "stdio" || len(local.Command) == 0 {
+		t.Fatalf("unexpected local config: %+v", local)
 	}
 }

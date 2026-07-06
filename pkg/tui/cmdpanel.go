@@ -21,6 +21,7 @@ const (
 	actionNone cmdPanelAction = iota
 	actionSwitchMode
 	actionTriggerSkill
+	actionMCPManage
 )
 
 // cmdPanelItem is one selectable row (mode or skill).

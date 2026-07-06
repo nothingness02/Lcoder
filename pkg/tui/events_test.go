@@ -74,6 +74,34 @@ func TestAgentDoneDoesNotDuplicateToolSummary(t *testing.T) {
 	}
 }
 
+func TestMessageEndUsesStreamingBlockID(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateProcessing
+
+	m.handleEvent(events.MessageStartEvent{Message: models.AgentMessage{Role: models.RoleAssistant, ID: "stream-id"}})
+	m.handleEvent(events.MessageUpdateEvent{Delta: "hello"})
+
+	// Provider may finalize with a different message object/ID.
+	final := models.NewAgentMessage(models.RoleAssistant, models.TextContent{Text: "hello world"})
+	final.ID = "final-id"
+	m.handleEvent(events.MessageEndEvent{Message: final})
+
+	var assistantBlocks int
+	var lastRaw string
+	for _, b := range m.blocks {
+		if b.kind == blockAssistant {
+			assistantBlocks++
+			lastRaw = b.raw
+		}
+	}
+	if assistantBlocks != 1 {
+		t.Fatalf("expected 1 assistant block, got %d", assistantBlocks)
+	}
+	if lastRaw != "hello world" {
+		t.Fatalf("expected 'hello world', got %q", lastRaw)
+	}
+}
+
 func TestToolSummaryAppearsBeforeNextAssistantMessage(t *testing.T) {
 	m, _, _ := newTestModel()
 

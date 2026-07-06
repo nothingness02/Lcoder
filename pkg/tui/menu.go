@@ -31,6 +31,7 @@ var commandRegistry = []commandEntry{
 	{Name: "tools", Description: "Toggle detailed tool & thinking view (Ctrl+O)", Category: "View"},
 	{Name: "tasks", Description: "Toggle task sidebar (Ctrl+T)", Category: "View"},
 	{Name: "extensions", Aliases: []string{"ext"}, Description: "Toggle extensions panel", Category: "View"},
+	{Name: "mcp", Description: "Manage MCP servers", Category: "View"},
 	{Name: "retry", Description: "Retry last turn", Category: "Action"},
 	{Name: "status", Description: "View system status", Category: "System"},
 	{Name: "quit", Aliases: []string{"q"}, Description: "Quit", Category: "System"},

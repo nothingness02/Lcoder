@@ -3,10 +3,12 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/lcoder/lcoder"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,9 +29,36 @@ type ModeManager struct {
 	modes map[string]ModeConfig
 }
 
-// NewModeManager creates an empty mode manager.
+// NewModeManager creates a mode manager preloaded with the embedded default
+// modes. Filesystem modes loaded later via LoadModes override defaults by name.
 func NewModeManager() *ModeManager {
-	return &ModeManager{modes: make(map[string]ModeConfig)}
+	mm := &ModeManager{modes: make(map[string]ModeConfig)}
+	_ = loadEmbeddedModes(mm)
+	return mm
+}
+
+func loadEmbeddedModes(mm *ModeManager) error {
+	entries, err := lcoder.AgentModes.ReadDir("configs/agents")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !(strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
+			continue
+		}
+		data, err := lcoder.AgentModes.ReadFile(path.Join("configs/agents", name))
+		if err != nil {
+			return err
+		}
+		if err := mm.loadModeData(data, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // LoadModes loads mode configs from the provided directories.
@@ -56,16 +85,23 @@ func (mm *ModeManager) LoadModes(dirs []string) error {
 			if err != nil {
 				return err
 			}
-			var mode ModeConfig
-			if err := yaml.Unmarshal(data, &mode); err != nil {
+			if err := mm.loadModeData(data, name); err != nil {
 				return fmt.Errorf("invalid mode config %s: %w", path, err)
 			}
-			if mode.Name == "" {
-				mode.Name = strings.TrimSuffix(name, filepath.Ext(name))
-			}
-			mm.modes[mode.Name] = mode
 		}
 	}
+	return nil
+}
+
+func (mm *ModeManager) loadModeData(data []byte, filename string) error {
+	var mode ModeConfig
+	if err := yaml.Unmarshal(data, &mode); err != nil {
+		return err
+	}
+	if mode.Name == "" {
+		mode.Name = strings.TrimSuffix(filename, filepath.Ext(filename))
+	}
+	mm.modes[mode.Name] = mode
 	return nil
 }
 

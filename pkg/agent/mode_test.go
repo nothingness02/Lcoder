@@ -22,16 +22,17 @@ allowed_tools: ["read", "ls"]
 		t.Fatal(err)
 	}
 
-	if len(mm.List()) != 1 {
-		t.Fatalf("expected 1 mode, got %d", len(mm.List()))
+	// Embedded defaults are preloaded; the custom dir overrides "plan".
+	if len(mm.List()) < 2 {
+		t.Fatalf("expected embedded defaults plus override, got %d", len(mm.List()))
 	}
 
 	mode := mm.Get("plan")
-	if mode.Name != "plan" {
-		t.Fatalf("expected plan, got %s", mode.Name)
+	if mode.Description != "Planning mode" {
+		t.Fatalf("expected custom plan override, got %q", mode.Description)
 	}
 
-	// Unknown falls back to code; if code is not present, returns safe default.
+	// Unknown falls back to code.
 	mode = mm.Get("unknown")
 	if mode.Name != "code" {
 		t.Fatalf("expected code fallback, got %s", mode.Name)

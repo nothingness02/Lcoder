@@ -102,6 +102,8 @@ func (OpenAICompat) Stream(ctx context.Context, conn Conn, req models.TurnReques
 			}
 			if chunk.Usage != nil {
 				usage = chunk.Usage.toLLMUsage()
+			} else if len(chunk.Choices) > 0 && chunk.Choices[0].Usage != nil {
+				usage = chunk.Choices[0].Usage.toLLMUsage()
 			}
 			if len(chunk.Choices) == 0 {
 				continue
@@ -190,10 +192,14 @@ func finalizeMessage(thinking, text string, tools map[int]*toolBuffer) models.Ag
 // --- chunk decoding ---
 
 type openAIChunk struct {
-	Choices []struct {
-		Delta openAIDelta `json:"delta"`
-	} `json:"choices"`
-	Usage *openAIUsage `json:"usage"`
+	Choices []openAIChoice `json:"choices"`
+	Usage   *openAIUsage   `json:"usage"`
+}
+
+type openAIChoice struct {
+	Delta        openAIDelta  `json:"delta"`
+	FinishReason string       `json:"finish_reason"`
+	Usage        *openAIUsage `json:"usage"`
 }
 
 type openAIDelta struct {

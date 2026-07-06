@@ -126,6 +126,39 @@ func TestOpenAIStreamOpenAICachedTokensDetails(t *testing.T) {
 	}
 }
 
+func TestOpenAIStreamChoiceLevelUsage(t *testing.T) {
+	// Kimi Code (and some other OpenAI-compatible endpoints) reports usage on the
+	// final choice rather than at the chunk top level.
+	body := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\",\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3,\"total_tokens\":15,\"cached_tokens\":10,\"prompt_tokens_details\":{\"cached_tokens\":10}}}]}\n\n" +
+		"data: [DONE]\n\n"
+	srv := sseServer(t, body)
+
+	ad := OpenAICompat{}
+	ch, err := ad.Stream(context.Background(),
+		Conn{BaseURL: srv.URL, APIKey: "k", Route: "openai"},
+		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "kimi-for-coding"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(t, ch)
+	var done *Event
+	for i := range evs {
+		if evs[i].Kind == KindDone {
+			done = &evs[i]
+		}
+	}
+	if done == nil || done.Usage == nil {
+		t.Fatalf("expected done with usage, got %+v", done)
+	}
+	if done.Usage.PromptTokens != 12 {
+		t.Fatalf("expected prompt 12, got %d", done.Usage.PromptTokens)
+	}
+	if done.Usage.CacheReadTokens != 10 {
+		t.Fatalf("expected cache read 10, got %d", done.Usage.CacheReadTokens)
+	}
+}
+
 func TestOpenAIStreamToolCallFragments(t *testing.T) {
 	// Tool call arguments arrive split across chunks; they must accumulate by index.
 	body := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n" +

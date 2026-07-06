@@ -184,9 +184,13 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	mcpConfigs := make([]mcp.ServerConfig, 0, len(cfg.MCPServers))
 	for _, s := range cfg.MCPServers {
 		mcpConfigs = append(mcpConfigs, mcp.ServerConfig{
-			Name:    s.Name,
-			Command: s.Command,
-			Env:     s.Env,
+			Name:      s.Name,
+			Transport: s.Transport,
+			Command:   s.Command,
+			Env:       s.Env,
+			URL:       s.URL,
+			Headers:   s.Headers,
+			Timeout:   s.Timeout,
 		})
 	}
 	mcpRegistry := mcp.NewRegistry(mcpConfigs)
@@ -306,7 +310,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		store:           sessStore,
 		bus:             bus,
 		mcpRegistry:     mcpRegistry,
-		cfg:             agentConfig{Config: cfg, loadedSkills: loadedSkills},
+		cfg:             agentConfig{Config: cfg, loadedSkills: loadedSkills, modeManager: modeManager},
 		cwd:             cwd,
 		llmClient:       llmClient,
 		checkpointStore: chkStore,

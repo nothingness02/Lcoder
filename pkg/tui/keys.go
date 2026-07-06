@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -12,6 +13,13 @@ import (
 
 // headerTickMsg drives the startup logo / header animation.
 type headerTickMsg struct{}
+
+// mcpActionMsg carries the result of an async MCP close/reconnect operation.
+type mcpActionMsg struct {
+	name string
+	op   string
+	err  error
+}
 
 func headerTick() tea.Cmd {
 	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return headerTickMsg{} })
@@ -48,6 +56,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AgentDoneMsg:
 		m.onAgentDone(msg.Err)
+		return m, nil
+
+	case mcpActionMsg:
+		if msg.err != nil {
+			m.showTextPanel("mcp", styleError().Render(fmt.Sprintf("%s %s failed: %v", msg.op, msg.name, msg.err)))
+		} else {
+			m.showTextPanel("mcp", styleSuccess().Render(fmt.Sprintf("%s %s succeeded", msg.op, msg.name)))
+		}
+		m.extPanel.SetMCPServers(mcpServers(m.mcpRegistry))
 		return m, nil
 
 	case SendPromptMsg:
@@ -214,6 +231,12 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if k.Type == tea.KeyCtrlO {
+		m.toolsExpanded = !m.toolsExpanded
+		m.rebuildViewport()
+		return m, nil
+	}
+
 	// Command panel (ephemeral output) intercepts keys while visible.
 	if m.cmdPanel.visible {
 		switch m.cmdPanel.kind {
@@ -230,6 +253,32 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 			case tea.KeyEsc:
 				m.closePanel()
 				return m, nil
+			}
+			// MCP management shortcuts: c (close), r (reconnect), q (quit panel).
+			if m.cmdPanel.action == actionMCPManage && k.Type == tea.KeyRunes && len(k.Runes) == 1 {
+				switch k.Runes[0] {
+				case 'q':
+					m.closePanel()
+					return m, nil
+				case 'c', 'r':
+					if m.cmdPanel.selected >= 0 && m.cmdPanel.selected < len(m.cmdPanel.items) {
+						name := m.cmdPanel.items[m.cmdPanel.selected].value
+						op := "close"
+						if k.Runes[0] == 'r' {
+							op = "reconnect"
+						}
+						m.closePanel()
+						return m, func() tea.Msg {
+							var err error
+							if op == "close" {
+								err = m.mcpRegistry.CloseServer(name)
+							} else {
+								err = m.mcpRegistry.Reconnect(name)
+							}
+							return mcpActionMsg{name: name, op: op, err: err}
+						}
+					}
+				}
 			}
 		case cmdPanelText:
 			if k.Type == tea.KeyEsc || k.Type == tea.KeyEnter {
@@ -557,6 +606,8 @@ func (m *Model) dispatchSlash(text string) tea.Cmd {
 	case "extensions":
 		m.extPanel.Visible = true
 		m.state = stateExtensions
+	case "mcp":
+		m.openMCPPanel()
 	case "tools":
 		m.toolsExpanded = !m.toolsExpanded
 		m.rebuildViewport()
@@ -650,6 +701,32 @@ func (m *Model) openSkillPanel() {
 	m.updateSizes()
 }
 
+// openMCPPanel shows configured MCP servers with close/reconnect shortcuts.
+func (m *Model) openMCPPanel() {
+	if m.mcpRegistry == nil {
+		m.showTextPanel("mcp", styleDim().Render("no MCP registry"))
+		return
+	}
+	servers := m.mcpRegistry.Servers()
+	if len(servers) == 0 {
+		m.showTextPanel("mcp", styleDim().Render("no MCP servers configured"))
+		return
+	}
+	var items []cmdPanelItem
+	for _, s := range servers {
+		desc := fmt.Sprintf("%s · not connected", s.Transport)
+		if s.Connected {
+			desc = fmt.Sprintf("%s · connected · %d tools", s.Transport, s.ToolCount)
+		}
+		if s.Error != "" {
+			desc = fmt.Sprintf("%s · %s", s.Transport, s.Error)
+		}
+		items = append(items, cmdPanelItem{label: s.Name, desc: desc, value: s.Name})
+	}
+	m.cmdPanel = cmdPanel{visible: true, kind: cmdPanelSelect, title: "mcp (c=close r=reconnect q=quit)", items: items, action: actionMCPManage}
+	m.updateSizes()
+}
+
 // execCmdPanel runs the selected row's action and closes the panel.
 func (m *Model) execCmdPanel() (*Model, tea.Cmd) {
 	p := m.cmdPanel
@@ -662,6 +739,12 @@ func (m *Model) execCmdPanel() (*Model, tea.Cmd) {
 		m.switchMode(p.items[p.selected].value)
 	case actionTriggerSkill:
 		return m, m.handleSkillTrigger(p.items[p.selected].value, "")
+	case actionMCPManage:
+		name := p.items[p.selected].value
+		return m, func() tea.Msg {
+			err := m.mcpRegistry.Reconnect(name)
+			return mcpActionMsg{name: name, op: "reconnect", err: err}
+		}
 	}
 	return m, nil
 }

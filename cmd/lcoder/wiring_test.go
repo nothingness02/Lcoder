@@ -68,3 +68,31 @@ func TestCatalogOverridesFromConfigIncludesMaxOutput(t *testing.T) {
 		t.Fatalf("expected override MaxOutput 32000, got %d", overrides[0].MaxOutput)
 	}
 }
+
+// TestPrepareAgentWiresModeManager verifies that prepareAgent populates
+// setup.cfg.modeManager so the TUI can list and switch modes.
+func TestPrepareAgentWiresModeManager(t *testing.T) {
+	dir, err := os.MkdirTemp("", "lcoder-wiring-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	// Use a built-in provider/model and a fake key so provider setup does not
+	// block wiring.
+	cfg := config.DefaultConfig()
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+
+	setup, err := prepareAgent(cfg, dir)
+	if err != nil {
+		t.Fatalf("prepareAgent: %v", err)
+	}
+	defer setup.cleanup()
+
+	if setup.cfg.modeManager == nil {
+		t.Fatal("expected setup.cfg.modeManager to be wired")
+	}
+	if len(setup.cfg.modeManager.List()) == 0 {
+		t.Fatal("expected at least one default mode to be loaded")
+	}
+}

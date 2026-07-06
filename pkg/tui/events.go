@@ -38,7 +38,14 @@ func (m *Model) handleEvent(ev events.Event) {
 			if final == "" {
 				final = m.streamLive
 			}
-			m.commitAssistant(e.Message.ID, final, e.Message.Thinking(), usagePtr(e.Message))
+			// The provider may finalize with a message object whose ID differs from
+			// the partial we streamed. Patch the in-flight block using the streaming
+			// ID we recorded so we don't append a duplicate assistant paragraph.
+			id := m.streamMsgID
+			if id == "" {
+				id = e.Message.ID
+			}
+			m.commitAssistant(id, final, e.Message.Thinking(), usagePtr(e.Message))
 			m.streaming = false
 			m.streamLive = ""
 			m.streamMsgID = ""

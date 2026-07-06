@@ -103,6 +103,9 @@ type Model struct {
 	provPanel          providerPanel
 	needsProviderSetup bool
 
+	// MCP registry for the /mcp management panel.
+	mcpRegistry *mcp.Registry
+
 	// Confirmation panel for interactive permission approvals.
 	confirm confirmPanel
 
@@ -145,6 +148,7 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		llmClient:          llmClient,
 		cfg:                cfg,
 		needsProviderSetup: needsProviderSetup,
+		mcpRegistry:        mcpRegistry,
 		header:             headerInfo{model: model, cwd: cwd, version: "0.1"},
 	}
 	// Restore the display from the agent's already-loaded context window so a

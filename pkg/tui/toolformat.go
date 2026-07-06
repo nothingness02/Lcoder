@@ -140,62 +140,80 @@ func formatCompactToolResult(toolName, args string, isError bool, preview string
 	if preview != "" {
 		for _, ln := range strings.Split(preview, "\n") {
 			sb.WriteString("\n")
-			sb.WriteString(dimStyle.Render("  " + ln))
+			sb.WriteString(dimStyle.Render("  │ " + ln))
 		}
 	}
 	return sb.String()
 }
 
-const (
-	expandedHeadLines = 8
-	expandedTailLines = 4
-)
-
-// truncateHeadTail keeps the first head and last tail lines, eliding the middle.
-func truncateHeadTail(content string, head, tail int) string {
-	content = strings.TrimRight(content, "\n")
-	if content == "" {
-		return ""
-	}
-	lines := strings.Split(content, "\n")
-	if len(lines) <= head+tail {
-		return strings.Join(lines, "\n")
-	}
-	hidden := len(lines) - head - tail
-	out := make([]string, 0, head+tail+1)
-	out = append(out, lines[:head]...)
-	out = append(out, fmt.Sprintf("… +%d lines", hidden))
-	out = append(out, lines[len(lines)-tail:]...)
-	return strings.Join(out, "\n")
-}
-
-// formatExpandedToolResult renders the Ctrl+O expanded view.
+// formatExpandedToolResult renders the Ctrl+O expanded view with the complete
+// tool arguments and full output. No head/tail truncation is applied so the user
+// can inspect everything the tool returned.
 func formatExpandedToolResult(toolName, args string, isError bool, content string, elapsed time.Duration, running bool) string {
-	// Header is intentionally preview-free; the full body is rendered below.
-	compact := formatCompactToolResult(toolName, args, isError, "", elapsed, running)
 	dimStyle := styleDim()
 	bodyStyle := dimStyle
 	if isError {
 		bodyStyle = styleError()
 	}
+
 	var sb strings.Builder
-	sb.WriteString(compact)
-	sb.WriteString("\n")
-	sb.WriteString(dimStyle.Render("  Args: " + truncate(args, 200)))
-	body := truncateHeadTail(content, expandedHeadLines, expandedTailLines)
-	if body != "" {
-		label := "  Result:"
+
+	// Header line mirrors the compact row but without a preview.
+	keyArg := toolKeyArg(toolName, args)
+	label := formatToolCallLabel(toolName, keyArg)
+	icon := styleSuccess().Render("✓")
+	if isError {
+		icon = styleError().Render("✗")
+	} else if running {
+		icon = runningGlyph()
+	}
+	header := fmt.Sprintf("⏵ %s  %s", label, icon)
+	if brief := toolResultBrief(elapsed); brief != "" {
+		header += "  " + brief
+	}
+	sb.WriteString(dimStyle.Render(header))
+
+	// Arguments section with pretty-printed JSON when possible.
+	if args != "" {
+		sb.WriteString("\n")
+		sb.WriteString(dimStyle.Render("  Arguments:"))
+		for _, ln := range strings.Split(formatArgsForDisplay(args), "\n") {
+			sb.WriteString("\n")
+			sb.WriteString(dimStyle.Render("    " + ln))
+		}
+	}
+
+	// Output section: full, untruncated result.
+	if content != "" {
+		sb.WriteString("\n")
+		label := "  Output:"
 		if isError {
 			label = "  Error:"
 		}
-		sb.WriteString("\n")
 		sb.WriteString(dimStyle.Render(label))
-		for _, ln := range strings.Split(body, "\n") {
+		content = strings.TrimRight(content, "\n")
+		for _, ln := range strings.Split(content, "\n") {
 			sb.WriteString("\n")
-			sb.WriteString(bodyStyle.Render("  " + ln))
+			sb.WriteString(bodyStyle.Render("    " + ln))
 		}
 	}
+
 	return sb.String()
+}
+
+// formatArgsForDisplay returns a human-readable rendering of a tool's JSON
+// arguments. Valid JSON is pretty-printed; otherwise the raw string is returned
+// truncated to a generous limit.
+func formatArgsForDisplay(args string) string {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(args), &m); err != nil {
+		return truncate(args, 500)
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return truncate(args, 500)
+	}
+	return string(data)
 }
 
 // formatToolSummary renders a single collapsed summary line for a turn.
@@ -213,13 +231,21 @@ func formatToolSummary(results []toolResultEntry) string {
 	dimStyle := styleDim()
 	okIcon := styleSuccess().Render("✓")
 	errIcon := styleError().Render("✗")
-	var line string
-	if errCount == 0 {
-		line = fmt.Sprintf("⏵ %d tools used  %s", total, okIcon)
-	} else {
-		line = fmt.Sprintf("⏵ %d tools used  %s%d %s%d", total, okIcon, total-errCount, errIcon, errCount)
+
+	toolWord := "tools"
+	if total == 1 {
+		toolWord = "tool"
 	}
-	return dimStyle.Render(line)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "⏵ %d %s used  ", total, toolWord)
+	if errCount == 0 {
+		sb.WriteString(okIcon)
+	} else {
+		fmt.Fprintf(&sb, "%s %d", okIcon, total-errCount)
+		fmt.Fprintf(&sb, "  %s %d", errIcon, errCount)
+	}
+	return dimStyle.Render(sb.String())
 }
 
 func strVal(m map[string]any, key string) string {
@@ -239,11 +265,7 @@ func FormatArgs(args map[string]any) string {
 	if err != nil {
 		return ""
 	}
-	s := string(data)
-	if len(s) > 40 {
-		s = s[:37] + "..."
-	}
-	return s
+	return string(data)
 }
 
 // FormatArgsPlain renders a tool's argument map as key=value pairs for human-

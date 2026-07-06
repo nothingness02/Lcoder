@@ -9,6 +9,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/skills"
 )
 
@@ -61,8 +62,24 @@ system_prompt: you review
 	if !m.cmdPanel.visible || m.cmdPanel.kind != cmdPanelSelect {
 		t.Fatalf("expected select panel, got %v", m.cmdPanel)
 	}
-	if len(m.cmdPanel.items) != 1 || m.cmdPanel.items[0].value != "review" {
-		t.Fatalf("unexpected items: %v", m.cmdPanel.items)
+
+	var reviewIdx int
+	found := false
+	for i, it := range m.cmdPanel.items {
+		if it.value == "review" {
+			reviewIdx = i
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("review mode not in items: %v", m.cmdPanel.items)
+	}
+
+	// Move selection to the review item.
+	for m.cmdPanel.selected < reviewIdx {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(*Model)
 	}
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -135,5 +152,77 @@ func TestCmdPanelSkillTriggers(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected prompt command after skill trigger")
+	}
+}
+
+func TestCmdPanelMCPOpensAndReconnectShortcut(t *testing.T) {
+	reg := mcp.NewRegistry([]mcp.ServerConfig{
+		{Name: "remote", Transport: "sse", URL: "http://127.0.0.1:0", Timeout: 1},
+	})
+	bus := events.New()
+	ag := &fakeAgent{}
+	sess := &fakeSession{id: "abc123"}
+	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, reg, nil, nil, config.Config{}, nil, false)
+	m.width = 80
+	m.height = 24
+	m.state = stateInput
+
+	m.dispatchSlash("/mcp")
+	if !m.cmdPanel.visible || m.cmdPanel.kind != cmdPanelSelect {
+		t.Fatalf("expected mcp select panel, got %v", m.cmdPanel)
+	}
+	if m.cmdPanel.action != actionMCPManage {
+		t.Fatalf("expected actionMCPManage, got %v", m.cmdPanel.action)
+	}
+	if len(m.cmdPanel.items) != 1 || m.cmdPanel.items[0].value != "remote" {
+		t.Fatalf("unexpected items: %v", m.cmdPanel.items)
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m2 := updated.(*Model)
+	if m2.cmdPanel.visible {
+		t.Fatal("expected panel closed after r")
+	}
+	if cmd == nil {
+		t.Fatal("expected reconnect command")
+	}
+	msg := cmd()
+	action, ok := msg.(mcpActionMsg)
+	if !ok {
+		t.Fatalf("expected mcpActionMsg, got %T", msg)
+	}
+	if action.name != "remote" || action.op != "reconnect" {
+		t.Fatalf("unexpected action: %+v", action)
+	}
+}
+
+func TestCmdPanelMCPCloseShortcut(t *testing.T) {
+	reg := mcp.NewRegistry([]mcp.ServerConfig{
+		{Name: "remote", Transport: "sse", URL: "http://127.0.0.1:0", Timeout: 1},
+	})
+	bus := events.New()
+	ag := &fakeAgent{}
+	sess := &fakeSession{id: "abc123"}
+	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, reg, nil, nil, config.Config{}, nil, false)
+	m.width = 80
+	m.height = 24
+	m.state = stateInput
+
+	m.dispatchSlash("/mcp")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m2 := updated.(*Model)
+	if m2.cmdPanel.visible {
+		t.Fatal("expected panel closed after c")
+	}
+	if cmd == nil {
+		t.Fatal("expected close command")
+	}
+	msg := cmd()
+	action, ok := msg.(mcpActionMsg)
+	if !ok {
+		t.Fatalf("expected mcpActionMsg, got %T", msg)
+	}
+	if action.name != "remote" || action.op != "close" {
+		t.Fatalf("unexpected action: %+v", action)
 	}
 }

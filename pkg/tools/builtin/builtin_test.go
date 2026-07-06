@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/sandbox"
 )
 
 func tempDir(t *testing.T) string {
@@ -161,6 +163,40 @@ func TestBash(t *testing.T) {
 	text := result.Content[0].(models.TextContent).Text
 	if !strings.HasPrefix(text, "go version") {
 		t.Fatalf("expected go version output, got %q", text)
+	}
+}
+
+func TestBashDefaultTimeoutIsTwoMinutes(t *testing.T) {
+	bash := NewBash(".").(*Bash)
+	def := bash.Definition()
+	timeoutProp, ok := def.Parameters["properties"].(map[string]any)["timeout"].(map[string]any)
+	if !ok {
+		t.Fatal("expected timeout property in definition")
+	}
+	desc, ok := timeoutProp["description"].(string)
+	if !ok || !strings.Contains(desc, "120") {
+		t.Fatalf("expected default timeout description to mention 120, got %q", desc)
+	}
+}
+
+func TestBashTimeoutPassedToSandbox(t *testing.T) {
+	b := NewBash("/tmp").(*Bash)
+	fake := sandbox.NewFakeSandbox()
+	fake.Result = sandbox.ExecResult{Stdout: "ok"}
+	b.UseSandbox(fake)
+
+	_, err := b.Execute(context.Background(), "c1", map[string]any{
+		"command": "sleep 1",
+		"timeout": float64(42),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fake.Calls) != 1 {
+		t.Fatalf("expected 1 exec call, got %d", len(fake.Calls))
+	}
+	if fake.Calls[0].Timeout != 42*time.Second {
+		t.Fatalf("expected timeout 42s, got %v", fake.Calls[0].Timeout)
 	}
 }
 

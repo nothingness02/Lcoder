@@ -42,7 +42,7 @@ func (b *Bash) Definition() models.ToolDefinition {
 				},
 				"timeout": map[string]any{
 					"type":        "integer",
-					"description": "Timeout in seconds (default 60)",
+					"description": "Timeout in seconds (default 120)",
 				},
 			},
 			"required": []string{"command"},
@@ -54,7 +54,7 @@ func (b *Bash) Definition() models.ToolDefinition {
 func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	command := args["command"].(string)
 
-	timeout := 60
+	timeout := 120
 	if v, ok := args["timeout"].(float64); ok {
 		timeout = int(v)
 	}

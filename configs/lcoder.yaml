@@ -164,9 +164,22 @@ permissions:
 
 # mcp_servers:
 #   - name: filesystem
+#     transport: stdio
 #     command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."]
 #     env:
 #       NODE_ENV: production
+#
+#   - name: remote
+#     transport: sse
+#     url: http://localhost:3000
+#     headers:
+#       Authorization: Bearer ${REMOTE_MCP_TOKEN}
+#     timeout: 60
+#
+#   - name: fetch
+#     transport: streamable-http
+#     url: https://mcpmarket.cn/mcp/<your-mcp-id>
+#     timeout: 60
 
 # Declarative hooks.
 # hooks:
