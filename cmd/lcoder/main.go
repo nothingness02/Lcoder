@@ -19,6 +19,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/extension"
 	"github.com/lcoder/lcoder/pkg/llm"
+	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
@@ -27,7 +28,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/tools"
-	_ "github.com/lcoder/lcoder/pkg/tools/builtin"
+	builtinTools "github.com/lcoder/lcoder/pkg/tools/builtin"
 	"github.com/lcoder/lcoder/pkg/tui"
 )
 
@@ -148,10 +149,26 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init sandbox: %w", err)
 	}
+
+	var memStore *memory.Store
+	if cfg.Memory.Enabled {
+		memStore, err = memory.NewStore(cwd)
+		if err != nil {
+			return nil, fmt.Errorf("init memory store: %w", err)
+		}
+		memStore.WithLimits(memory.Limits{
+			MemoryCharLimit: cfg.Memory.MemoryCharLimit,
+			UserCharLimit:   cfg.Memory.UserCharLimit,
+		})
+	}
+
 	registry := tools.NewRegistry(cwd)
 	registry.SetSandbox(sb)
 	if err := registry.RegisterBuiltinFactories(cwd); err != nil {
 		return nil, fmt.Errorf("register built-in tools: %w", err)
+	}
+	if memStore != nil {
+		registry.Register("memory", builtinTools.NewMemory(cwd, memStore))
 	}
 	for _, cfgTool := range cfg.HTTPTools {
 		registry.Register(cfgTool.Name, tools.NewHTTPExecutable(tools.HTTPConfig{
@@ -245,7 +262,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	if source == "default" {
 		fmt.Fprintf(os.Stderr, "warning: 未能自动获取模型 %q 的上下文窗口,回退默认 %d\n", cfg.Model, budget.MaxTotal)
 	}
-	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.ActiveMessages())
+	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.ActiveMessages(), memStore)
 	chkStore := checkpoint.NewFileStore(filepath.Join(session.DefaultDir(), "checkpoints"))
 	ag, err := agent.NewBuilder().
 		WithConfig(agent.Config{
