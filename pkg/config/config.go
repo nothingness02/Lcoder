@@ -84,6 +84,13 @@ type ContextConfig struct {
 	DropThreshold    float64  `yaml:"drop_threshold"`    // ratio of effective input at which old msgs drop
 }
 
+// MemoryConfig controls persistent memory behavior.
+type MemoryConfig struct {
+	Enabled         bool `yaml:"enabled"`
+	MemoryCharLimit int  `yaml:"memory_char_limit"`
+	UserCharLimit   int  `yaml:"user_char_limit"`
+}
+
 // Config is the full Lcoder configuration.
 type Config struct {
 	Provider    string                  `yaml:"provider"`
@@ -98,6 +105,7 @@ type Config struct {
 	Packages    []PackageConfig         `yaml:"packages"`
 	Providers   map[string]ProviderConn `yaml:"providers"`
 	Sandbox     SandboxConfig           `yaml:"sandbox"`
+	Memory      MemoryConfig            `yaml:"memory"`
 	// Language    string                  `yaml:"language"`
 	// Catalog is the shared model metadata loaded from models.yaml (not parsed
 	// from the main config file). ModelsConfigPath is its resolved location.
@@ -124,6 +132,11 @@ func DefaultConfig() Config {
 			DeferredTools:    false,
 			CoreTools:        nil,
 			DropThreshold:    1.0,
+		},
+		Memory: MemoryConfig{
+			Enabled:         true,
+			MemoryCharLimit: 0,
+			UserCharLimit:   0,
 		},
 		Permissions: PermissionConfig{
 			Rules: map[string]map[string]string{
@@ -326,6 +339,11 @@ func Load() (Config, error) {
 			"deferred_tools":    cfg.Context.DeferredTools,
 			"core_tools":        cfg.Context.CoreTools,
 			"drop_threshold":    cfg.Context.DropThreshold,
+		},
+		"memory": map[string]any{
+			"enabled":           cfg.Memory.Enabled,
+			"memory_char_limit": cfg.Memory.MemoryCharLimit,
+			"user_char_limit":   cfg.Memory.UserCharLimit,
 		},
 	}, "."), nil)
 
