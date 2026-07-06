@@ -1,0 +1,220 @@
+package memory
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Target identifies a memory channel.
+type Target int
+
+const (
+	MemoryTarget Target = iota
+	UserTarget
+)
+
+func targetName(t Target) string {
+	switch t {
+	case UserTarget:
+		return "USER"
+	default:
+		return "MEMORY"
+	}
+}
+
+// Limits holds per-channel character caps. Zero values fall back to defaults.
+type Limits struct {
+	MemoryCharLimit int
+	UserCharLimit   int
+}
+
+// Store reads and writes memory files. It combines global (user home) and
+// project (cwd) files for reads, and writes to the global file only.
+type Store struct {
+	globalDir  string
+	projectDir string
+	limits     Limits
+}
+
+// NewStore creates a store rooted at cwd. The global directory is
+// ~/.lcoder/memory.
+func NewStore(cwd string) (*Store, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("home dir: %w", err)
+	}
+	return &Store{
+		globalDir:  filepath.Join(home, ".lcoder", "memory"),
+		projectDir: filepath.Join(cwd, ".lcoder", "memory"),
+		limits: Limits{
+			MemoryCharLimit: DefaultMemoryCharLimit,
+			UserCharLimit:   DefaultUserCharLimit,
+		},
+	}, nil
+}
+
+// WithLimits overrides the default character limits.
+func (s *Store) WithLimits(l Limits) *Store {
+	s.limits = l
+	return s
+}
+
+func (s *Store) limitFor(t Target) int {
+	switch t {
+	case UserTarget:
+		if s.limits.UserCharLimit > 0 {
+			return s.limits.UserCharLimit
+		}
+		return DefaultUserCharLimit
+	default:
+		if s.limits.MemoryCharLimit > 0 {
+			return s.limits.MemoryCharLimit
+		}
+		return DefaultMemoryCharLimit
+	}
+}
+
+func (s *Store) globalPath(t Target) string {
+	name := targetName(t) + ".md"
+	return filepath.Join(s.globalDir, name)
+}
+
+func (s *Store) projectPath(t Target) string {
+	name := targetName(t) + ".md"
+	return filepath.Join(s.projectDir, name)
+}
+
+func (s *Store) loadFile(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseEntries(string(data)), nil
+}
+
+func (s *Store) saveFile(path string, t Target, entries []string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return err
+	}
+	data := formatFile(targetName(t), entries, s.limitFor(t))
+	return os.WriteFile(path, []byte(data), 0640)
+}
+
+// GlobalEntries returns entries from the global file.
+func (s *Store) GlobalEntries(t Target) ([]string, error) {
+	return s.loadFile(s.globalPath(t))
+}
+
+// ProjectEntries returns entries from the project file.
+func (s *Store) ProjectEntries(t Target) ([]string, error) {
+	return s.loadFile(s.projectPath(t))
+}
+
+func (s *Store) allEntries(t Target) ([]string, error) {
+	global, err := s.GlobalEntries(t)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.ProjectEntries(t)
+	if err != nil {
+		return nil, err
+	}
+	return append(global, project...), nil
+}
+
+func (s *Store) textFor(t Target) (string, error) {
+	entries, err := s.allEntries(t)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "", nil
+	}
+	title := "Agent memory"
+	if t == UserTarget {
+		title = "User profile"
+	}
+	return title + ":\n\n" + strings.Join(entries, "\n\n"), nil
+}
+
+// MemoryText returns the merged global+project memory text for injection.
+func (s *Store) MemoryText() (string, error) { return s.textFor(MemoryTarget) }
+
+// UserText returns the merged global+project user profile text for injection.
+func (s *Store) UserText() (string, error) { return s.textFor(UserTarget) }
+
+// Add appends a new entry to the global file. Duplicate entries are silently ignored.
+func (s *Store) Add(t Target, content string) error {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return fmt.Errorf("content cannot be empty")
+	}
+	entries, err := s.GlobalEntries(t)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e == content {
+			return nil
+		}
+	}
+	limit := s.limitFor(t)
+	if charCount(entries)+len(content) > limit {
+		return fmt.Errorf("%s at %d/%d chars. Adding this entry (%d chars) would exceed the limit. Consolidate now: use 'replace' to merge overlapping entries into shorter ones or 'remove' stale entries, then retry this add.", targetName(t), charCount(entries), limit, len(content))
+	}
+	entries = append(entries, content)
+	return s.saveFile(s.globalPath(t), t, entries)
+}
+
+// Replace updates the unique entry matching oldText with content.
+func (s *Store) Replace(t Target, oldText, content string) error {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return fmt.Errorf("content cannot be empty")
+	}
+	entries, err := s.GlobalEntries(t)
+	if err != nil {
+		return err
+	}
+	idx, err := findEntryIndex(entries, oldText)
+	if err != nil {
+		return err
+	}
+	newEntries := make([]string, len(entries))
+	copy(newEntries, entries)
+	newEntries[idx] = content
+	limit := s.limitFor(t)
+	if charCount(newEntries) > limit {
+		return fmt.Errorf("%s at %d/%d chars. Replacing would exceed the limit. Shorten the new content or remove other entries first.", targetName(t), charCount(entries), limit)
+	}
+	return s.saveFile(s.globalPath(t), t, newEntries)
+}
+
+// Remove deletes the unique entry matching oldText.
+func (s *Store) Remove(t Target, oldText string) error {
+	entries, err := s.GlobalEntries(t)
+	if err != nil {
+		return err
+	}
+	idx, err := findEntryIndex(entries, oldText)
+	if err != nil {
+		return err
+	}
+	entries = append(entries[:idx], entries[idx+1:]...)
+	return s.saveFile(s.globalPath(t), t, entries)
+}
+
+// UsageString returns "used/limit" for the global channel.
+func (s *Store) UsageString(t Target) (string, error) {
+	entries, err := s.GlobalEntries(t)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d/%d", charCount(entries), s.limitFor(t)), nil
+}
