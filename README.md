@@ -4,7 +4,7 @@ A minimal, extensible SWE agent harness.
 
 - **Core**: Go
 - **LLM engine**: in-process Go (hand-written HTTP+SSE adapters for OpenAI-compatible and Anthropic providers)
-- **Extension tools**: HTTP servers and MCP (stdio) servers
+- **Extension tools**: HTTP servers and MCP servers (stdio, SSE, and Streamable HTTP)
 - **UI**: Terminal UI via `charmbracelet/bubbletea`
 - **Session storage**: JSONL with branching (`parent_id`)
 
@@ -52,7 +52,8 @@ Interactive TUI:
 Inside the TUI:
 - `Enter` send message
 - `Shift+Enter` newline
-- `Ctrl+T` toggle tool panel
+- `Ctrl+O` expand/collapse tool call results (full output + arguments)
+- `Ctrl+T` toggle task sidebar
 - `Ctrl+M` toggle extensions panel (HTTP tools / MCP servers)
 - `Ctrl+S` session picker
 - `Ctrl+B` fork from last assistant message
@@ -61,13 +62,20 @@ Inside the TUI:
 - `PgUp/PgDn` or mouse wheel scroll history
 - `Ctrl+C` / `Esc` quit
 
+Slash commands while composing:
+- `/mcp` manage configured MCP servers (reconnect / close)
+- `/modes` switch agent mode
+- `/tasks` toggle task sidebar
+- `/tools` expand/collapse all tool results
+- `/help` list all commands
+
 List models:
 
 ```bash
 ./lcoder models
 ```
 
-List agent modes:
+List agent modes (default modes are embedded, so this works from any directory):
 
 ```bash
 ./lcoder modes
@@ -136,7 +144,7 @@ Observed metrics include:
 Lcoder supports two extension mechanisms:
 
 1. **HTTP tools** — POST to a local or remote endpoint.
-2. **MCP servers** — connect to Model Context Protocol servers over stdio.
+2. **MCP servers** — connect to Model Context Protocol servers over stdio, SSE, or the Streamable HTTP transport.
 
 Example `~/.lcoder/config.yaml`:
 
@@ -156,22 +164,39 @@ http_tools:
 
 mcp_servers:
   - name: filesystem
+    transport: stdio
     command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."]
+
+  - name: remote-sse
+    transport: sse
+    url: http://localhost:3000
+    headers:
+      Authorization: Bearer ${REMOTE_MCP_TOKEN}
+    timeout: 60
+
+  - name: remote-http
+    transport: streamable-http
+    url: https://mcp.example.com/v1
+    headers:
+      Authorization: Bearer ${REMOTE_MCP_TOKEN}
+    timeout: 60
 ```
 
-MCP tools appear as `{serverName}_{toolName}` in the agent tool list.
+The `transport` field is required. MCP tools appear as `{serverName}_{toolName}` in the agent tool list.
+
+In the TUI you can inspect and reconnect servers with `/mcp`.
+
+## Tool Timeouts
+
+Time-consuming tools accept an LLM-controllable timeout:
+
+- `bash` has a `timeout` parameter (seconds, default **120**).
+- MCP tools expose an optional `timeout_seconds` parameter (default **120**) when the server does not already define one.
+- If the LLM omits the parameter, the default is used.
 
 ## Architecture
 
-See `docs/` for design documents:
-
-- [docs/architecture.md](docs/architecture.md)
-- [docs/agent-loop.md](docs/agent-loop.md)
-- [docs/event-bus.md](docs/event-bus.md)
-- [docs/http-tool-protocol.md](docs/http-tool-protocol.md)
-- [docs/mcp.md](docs/mcp.md)
-- [docs/session-storage.md](docs/session-storage.md)
-- [docs/tui.md](docs/tui.md)
+See `.claude/CLAUDE.md` for project conventions and `docs/` for design notes and reports.
 
 ## License
 
