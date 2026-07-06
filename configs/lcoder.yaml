@@ -55,6 +55,14 @@ context:
   compact_threshold: 0.9   # compact when usage reaches this ratio of target_tokens
   cache_hint_policy: default  # default | aggressive | none
 
+# Persistent memory. Lcoder loads ~/.lcoder/memory/{MEMORY,USER}.md and
+# <repo>/.lcoder/memory/{MEMORY,USER}.md into the system prompt.
+# The memory tool writes to the global files only.
+memory:
+  enabled: true
+  # memory_char_limit: 2200
+  # user_char_limit: 1375
+
 permissions:
   rules:
     read:
