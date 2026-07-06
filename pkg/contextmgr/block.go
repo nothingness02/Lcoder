@@ -20,6 +20,8 @@ const (
 	BlockSummary     BlockKind = "summary"      // Summarized older messages
 	BlockRecent      BlockKind = "recent"       // Recent full messages
 	BlockRetrieval   BlockKind = "retrieval"    // RAG / code index results
+	BlockMemory      BlockKind = "memory"       // Agent personal notes
+	BlockUserProfile BlockKind = "user_profile" // User profile
 )
 
 // Stability indicates how likely a block is to change between turns.
@@ -106,7 +108,7 @@ func (b *Block) Text() string {
 // IsSystemBlock reports whether the block should be merged into the system prompt.
 func IsSystemBlock(b *Block) bool {
 	switch b.Kind {
-	case BlockSystem, BlockMode, BlockSkills, BlockProjectDocs:
+	case BlockSystem, BlockMode, BlockSkills, BlockProjectDocs, BlockMemory, BlockUserProfile:
 		return true
 	}
 	return false
@@ -120,6 +122,8 @@ func DefaultBlockOrder() []BlockKind {
 		BlockMode,
 		BlockSkills,
 		BlockProjectDocs,
+		BlockMemory,
+		BlockUserProfile,
 		BlockSummary,
 		BlockRetrieval,
 		BlockRecent,
