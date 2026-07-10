@@ -23,6 +23,11 @@ func catalogFor(model string, window, target, reserve int) Config {
 // back to the hard defaults and reports source "default".
 func TestDefaultBashPermissionRules(t *testing.T) {
 	cfg := DefaultConfig()
+
+	if cfg.Permissions.UnsafeMode {
+		t.Fatal("expected UnsafeMode to default to false")
+	}
+
 	bashRules := cfg.Permissions.Rules["bash"]
 
 	cases := []struct {

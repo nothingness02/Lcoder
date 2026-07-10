@@ -36,7 +36,8 @@ type MCPServerConfig struct {
 
 // PermissionConfig holds permission rules per tool.
 type PermissionConfig struct {
-	Rules map[string]map[string]string `yaml:"rules"`
+	Rules      map[string]map[string]string `yaml:"rules"`
+	UnsafeMode bool                         `yaml:"unsafe_mode"`
 }
 
 // SandboxConfig configures the sandbox backend wiring tools at startup.
