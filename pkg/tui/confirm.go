@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -12,6 +14,7 @@ import (
 // confirmResult is returned to the blocked tool call goroutine.
 type confirmResult struct {
 	allow bool
+	scope agent.ConfirmScope
 	err   error
 }
 
@@ -29,6 +32,7 @@ type confirmRequestMsg struct {
 // confirmResponseMsg carries the user's decision back into the loop.
 type confirmResponseMsg struct {
 	allow bool
+	scope agent.ConfirmScope
 }
 
 // programSender matches the part of *tea.Program that tuiConfirm needs.
@@ -43,20 +47,27 @@ type tuiConfirm struct {
 }
 
 func (c *tuiConfirm) Confirm(ctx context.Context, info agent.ToolCallInfo) (bool, error) {
+	res, err := c.ConfirmWithScope(ctx, info)
+	return res.Allow, err
+}
+
+func (c *tuiConfirm) ConfirmWithScope(ctx context.Context, info agent.ToolCallInfo) (agent.ConfirmResult, error) {
 	req := confirmRequest{info: info, resp: make(chan confirmResult)}
 	c.program.Send(confirmRequestMsg{req: req})
 	select {
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return agent.ConfirmResult{}, ctx.Err()
 	case r := <-req.resp:
-		return r.allow, r.err
+		return agent.ConfirmResult{Allow: r.allow, Scope: r.scope}, r.err
 	}
 }
 
 // confirmPanel renders an interactive permission prompt as a bottom strip.
 type confirmPanel struct {
 	visible  bool
-	selected int // 0 = Allow, 1 = Deny
+	selected int // index into options
+	options  []string
+	ultra    bool
 	info     agent.ToolCallInfo
 	resp     chan confirmResult
 }
@@ -66,6 +77,12 @@ func (p *confirmPanel) show(info agent.ToolCallInfo, resp chan confirmResult) {
 	p.selected = 0
 	p.info = info
 	p.resp = resp
+	p.ultra = isUltraDestructive(info)
+	if p.ultra {
+		p.options = []string{"Deny", "Once", "Project allow"}
+	} else {
+		p.options = []string{"Deny", "Once", "Project allow", "Global allow"}
+	}
 }
 
 func (p *confirmPanel) hide() {
@@ -73,24 +90,38 @@ func (p *confirmPanel) hide() {
 	p.selected = 0
 	p.info = agent.ToolCallInfo{}
 	p.resp = nil
+	p.options = nil
+	p.ultra = false
 }
 
 func (p *confirmPanel) next() {
-	if !p.visible {
+	if !p.visible || len(p.options) == 0 {
 		return
 	}
-	p.selected = (p.selected + 1) % 2
+	p.selected = (p.selected + 1) % len(p.options)
 }
 
 func (p *confirmPanel) prev() {
-	if !p.visible {
+	if !p.visible || len(p.options) == 0 {
 		return
 	}
-	p.selected = (p.selected - 1 + 2) % 2
+	p.selected = (p.selected - 1 + len(p.options)) % len(p.options)
 }
 
-func (p *confirmPanel) confirm() bool {
-	return p.selected == 0
+func (p *confirmPanel) confirm() agent.ConfirmResult {
+	if !p.visible || len(p.options) == 0 {
+		return agent.ConfirmResult{Allow: false, Scope: agent.ScopeDeny}
+	}
+	switch p.options[p.selected] {
+	case "Once":
+		return agent.ConfirmResult{Allow: true, Scope: agent.ScopeOnce}
+	case "Project allow":
+		return agent.ConfirmResult{Allow: true, Scope: agent.ScopeProject}
+	case "Global allow":
+		return agent.ConfirmResult{Allow: true, Scope: agent.ScopeGlobal}
+	default:
+		return agent.ConfirmResult{Allow: false, Scope: agent.ScopeDeny}
+	}
 }
 
 func (p *confirmPanel) View(width int) string {
@@ -105,14 +136,15 @@ func (p *confirmPanel) View(width int) string {
 	if args := FormatArgsPlain(p.info.Args); args != "" {
 		prompt += " " + args
 	}
+	if p.ultra {
+		prompt += "\nDestructive command (global allow disabled)"
+	}
 
-	allowStyle := optionStyle(p.selected == 0)
-	denyStyle := optionStyle(p.selected == 1)
-	options := lipgloss.JoinHorizontal(lipgloss.Left,
-		allowStyle.Render("Allow"),
-		"  ",
-		denyStyle.Render("Deny"),
-	)
+	rendered := make([]string, len(p.options))
+	for i, opt := range p.options {
+		rendered[i] = optionStyle(p.selected == i).Render(opt)
+	}
+	options := lipgloss.JoinHorizontal(lipgloss.Left, rendered...)
 
 	hint := styleDim().Render("← → select · Enter confirm · Esc cancel")
 	line := lipgloss.JoinHorizontal(lipgloss.Left, options, "    ", hint)
@@ -139,4 +171,56 @@ func optionStyle(selected bool) lipgloss.Style {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorDim).
 		Padding(0, 1)
+}
+
+func isUltraDestructive(info agent.ToolCallInfo) bool {
+	if info.ToolCall.Name != "bash" {
+		return false
+	}
+	cmd, _ := info.Args["command"].(string)
+	if cmd == "" {
+		cmd, _ = info.ToolCall.Arguments["command"].(string)
+	}
+	cmd = normalizeCommand(cmd)
+	if cmd == "" {
+		return false
+	}
+	// Check the built-in blacklist patterns manually; the TUI should not offer
+	// global allow for commands like rm -rf / even if the permission engine is
+	// in unsafe mode.
+	for _, p := range []string{
+		"rm -rf /",
+		"rm -rf /*",
+		"sudo *",
+		"su *",
+		"doas *",
+		"mkfs.*",
+		"fdisk *",
+		"dd *",
+		"reboot",
+		"shutdown *",
+		"halt",
+		"poweroff",
+		"systemctl *",
+		"chmod -R 777 /",
+		"chmod -R 777 /*",
+		"chown -R root /",
+	} {
+		if matched, _ := matchUltra(p, cmd); matched {
+			return true
+		}
+	}
+	return false
+}
+
+func matchUltra(pattern, target string) (bool, error) {
+	// Treat '/' as a literal character for command matching.
+	const placeholder = "\x00"
+	normPattern := strings.ReplaceAll(pattern, "/", placeholder)
+	normTarget := strings.ReplaceAll(target, "/", placeholder)
+	return path.Match(normPattern, normTarget)
+}
+
+func normalizeCommand(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

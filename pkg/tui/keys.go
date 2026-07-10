@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
@@ -78,7 +79,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case confirmResponseMsg:
 		if m.confirm.visible && m.confirm.resp != nil {
-			m.confirm.resp <- confirmResult{allow: msg.allow}
+			res := m.confirm.confirm()
+			m.confirm.resp <- confirmResult{allow: res.Allow, scope: res.Scope}
 		}
 		m.confirm.hide()
 		m.state = stateProcessing
@@ -428,15 +430,16 @@ func (m *Model) handleConfirmKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		m.confirm.next()
 		return m, nil
 	case tea.KeyEnter:
-		return m, func() tea.Msg { return confirmResponseMsg{allow: m.confirm.confirm()} }
+		res := m.confirm.confirm()
+		return m, func() tea.Msg { return confirmResponseMsg{allow: res.Allow, scope: res.Scope} }
 	case tea.KeyEsc:
-		return m, func() tea.Msg { return confirmResponseMsg{allow: false} }
+		return m, func() tea.Msg { return confirmResponseMsg{allow: false, scope: agent.ScopeDeny} }
 	case tea.KeyRunes:
 		switch strings.ToLower(string(k.Runes)) {
 		case "y":
-			return m, func() tea.Msg { return confirmResponseMsg{allow: true} }
+			return m, func() tea.Msg { return confirmResponseMsg{allow: true, scope: agent.ScopeOnce} }
 		case "n":
-			return m, func() tea.Msg { return confirmResponseMsg{allow: false} }
+			return m, func() tea.Msg { return confirmResponseMsg{allow: false, scope: agent.ScopeDeny} }
 		}
 	}
 

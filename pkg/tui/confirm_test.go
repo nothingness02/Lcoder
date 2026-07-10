@@ -58,7 +58,7 @@ func TestTuiConfirmBlocksUntilResponse(t *testing.T) {
 	}
 
 	// Unblock the waiting confirmation.
-	req.req.resp <- confirmResult{allow: true}
+	req.req.resp <- confirmResult{allow: true, scope: agent.ScopeOnce}
 
 	select {
 	case r := <-resultCh:
@@ -83,24 +83,33 @@ func TestConfirmPanelSelectionAndDecision(t *testing.T) {
 		t.Fatal("panel should be visible")
 	}
 	if p.selected != 0 {
-		t.Fatalf("default selection should be Allow(0), got %d", p.selected)
+		t.Fatalf("default selection should be Deny(0), got %d", p.selected)
+	}
+	wantOptions := []string{"Deny", "Once", "Project allow", "Global allow"}
+	if len(p.options) != len(wantOptions) {
+		t.Fatalf("expected %v options, got %v", wantOptions, p.options)
 	}
 
 	p.next()
 	if p.selected != 1 {
-		t.Fatalf("next should move to Deny(1), got %d", p.selected)
+		t.Fatalf("next should move to Once(1), got %d", p.selected)
 	}
 	p.prev()
 	if p.selected != 0 {
-		t.Fatalf("prev should move back to Allow(0), got %d", p.selected)
+		t.Fatalf("prev should move back to Deny(0), got %d", p.selected)
 	}
 
-	if !p.confirm() {
-		t.Fatal("confirm on Allow should return true")
+	res := p.confirm()
+	if res.Allow {
+		t.Fatal("confirm on Deny should return allow=false")
+	}
+	if res.Scope != agent.ScopeDeny {
+		t.Fatalf("confirm on Deny should return scope=ScopeDeny, got %v", res.Scope)
 	}
 	p.next()
-	if p.confirm() {
-		t.Fatal("confirm on Deny should return false")
+	res = p.confirm()
+	if !res.Allow || res.Scope != agent.ScopeOnce {
+		t.Fatalf("confirm on Once should return allow=true scope=ScopeOnce, got %v", res)
 	}
 }
 
@@ -125,11 +134,10 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 	if !strings.Contains(view, "Permission request: bash") {
 		t.Fatalf("view missing permission prompt:\n%s", view)
 	}
-	if !strings.Contains(view, "Allow") {
-		t.Fatalf("view missing Allow option:\n%s", view)
-	}
-	if !strings.Contains(view, "Deny") {
-		t.Fatalf("view missing Deny option:\n%s", view)
+	for _, opt := range []string{"Deny", "Once", "Project allow", "Global allow"} {
+		if !strings.Contains(view, opt) {
+			t.Fatalf("view missing option %q:\n%s", opt, view)
+		}
 	}
 	if strings.Contains(view, "Type a message") {
 		t.Fatalf("input box should be hidden while confirming:\n%s", view)
@@ -147,13 +155,13 @@ func TestConfirmPanelArrowSelection(t *testing.T) {
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	mm := m2.(*Model)
 	if mm.confirm.selected != 1 {
-		t.Fatalf("right arrow should select Deny, got %d", mm.confirm.selected)
+		t.Fatalf("right arrow should select Once, got %d", mm.confirm.selected)
 	}
 
 	m3, _ := mm.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	mm = m3.(*Model)
 	if mm.confirm.selected != 0 {
-		t.Fatalf("left arrow should select Allow, got %d", mm.confirm.selected)
+		t.Fatalf("left arrow should select Deny, got %d", mm.confirm.selected)
 	}
 }
 
@@ -165,7 +173,7 @@ func TestConfirmPanelEnterDecision(t *testing.T) {
 		resp: resp,
 	}})
 
-	// Move to Deny and confirm.
+	// Move to Once and confirm.
 	m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
@@ -182,8 +190,30 @@ func TestConfirmPanelEnterDecision(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected confirmResponseMsg, got %T", msg)
 	}
-	if cmsg.allow {
-		t.Fatal("Deny selection should produce allow=false")
+	if !cmsg.allow {
+		t.Fatal("Once selection should produce allow=true")
+	}
+	if cmsg.scope != agent.ScopeOnce {
+		t.Fatalf("Once selection should produce scope=ScopeOnce, got %v", cmsg.scope)
+	}
+}
+
+func TestConfirmPanelUltraDestructiveHidesGlobal(t *testing.T) {
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
+	resp := make(chan confirmResult, 1)
+	m2, _ := m.Update(confirmRequestMsg{req: confirmRequest{
+		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "rm -rf /"}}},
+		resp: resp,
+	}})
+	mm := m2.(*Model)
+
+	if !mm.confirm.ultra {
+		t.Fatal("expected ultra-destructive panel")
+	}
+	for _, opt := range mm.confirm.options {
+		if opt == "Global allow" {
+			t.Fatal("global allow should not be offered for ultra-destructive commands")
+		}
 	}
 }
 
@@ -229,7 +259,7 @@ func TestConfirmPanelStateTransitions(t *testing.T) {
 		t.Fatal("expected confirm panel visible")
 	}
 
-	m3, _ := mm.Update(confirmResponseMsg{allow: true})
+	m3, _ := mm.Update(confirmResponseMsg{allow: true, scope: agent.ScopeOnce})
 	mm = m3.(*Model)
 	if mm.state != stateProcessing {
 		t.Fatalf("expected stateProcessing, got %v", mm.state)
