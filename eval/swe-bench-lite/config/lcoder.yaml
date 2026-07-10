@@ -27,20 +27,7 @@ context:
   compact_threshold: 0.9
   cache_hint_policy: default
 
-# 非交互(--json/-p)模式下没有人工审批通道,所有工具放行,否则 bash 会被 "ask" 卡住。
+# 非交互(--json/-p)模式下没有人工审批通道,使用 unsafe_mode 放行所有工具。
+# 评估场景在隔离容器内运行,超危命令(如 rm -rf /)仍会被拦截。
 permissions:
-  rules:
-    read:
-      "*": allow
-    write:
-      "*": allow
-    edit:
-      "*": allow
-    ls:
-      "*": allow
-    grep:
-      "*": allow
-    find:
-      "*": allow
-    bash:
-      "*": allow
+  unsafe_mode: true

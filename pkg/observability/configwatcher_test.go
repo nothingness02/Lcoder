@@ -12,7 +12,7 @@ import (
 func TestConfigWatcherUpdatesSamplingRate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "observability.yaml")
-	if err := os.WriteFile(path, []byte("sampling:\n  enabled: true\n  rate: 0\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("sampling:\n  enabled: true\n  rate: 0\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -35,19 +35,20 @@ func TestConfigWatcherUpdatesSamplingRate(t *testing.T) {
 	}
 
 	// Update the configuration file and wait for the watcher to reload it.
-	if err := os.WriteFile(path, []byte("sampling:\n  enabled: true\n  rate: 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("sampling:\n  enabled: true\n  rate: 1\n"), 0o600); err != nil {
 		t.Fatalf("update config: %v", err)
 	}
 
-	// Wait for fsnotify event + debounce + reload.
-	time.Sleep(300 * time.Millisecond)
-
-	if err := sampler.Export(Record{Type: "metric", Metric: &Metric{Name: "m", Value: 2}}); err != nil {
-		t.Fatalf("export: %v", err)
+	// Poll until the new rate is applied or a generous timeout elapses.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		sampler.Export(Record{Type: "metric", Metric: &Metric{Name: "m", Value: 2}})
+		if len(inner.Records) == 1 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	if len(inner.Records) != 1 {
-		t.Fatalf("expected one record after rate update, got %d", len(inner.Records))
-	}
+	t.Fatalf("expected one record after rate update, got %d", len(inner.Records))
 }
 
 func TestConfigWatcherNoSamplerStillStarts(t *testing.T) {

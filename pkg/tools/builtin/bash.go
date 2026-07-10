@@ -44,6 +44,11 @@ func (b *Bash) Definition() models.ToolDefinition {
 					"type":        "integer",
 					"description": "Timeout in seconds (default 120)",
 				},
+				"outputs": map[string]any{
+					"type":        "array",
+					"description": "Optional list of output file paths to copy back to the workspace on success.",
+					"items":       map[string]any{"type": "string"},
+				},
 			},
 			"required": []string{"command"},
 		},
@@ -52,12 +57,13 @@ func (b *Bash) Definition() models.ToolDefinition {
 }
 
 func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	command := args["command"].(string)
-
-	timeout := 120
-	if v, ok := args["timeout"].(float64); ok {
-		timeout = int(v)
+	command := tools.String(args, "command", "")
+	if command == "" {
+		return models.ToolExecutionResult{}, fmt.Errorf("missing command")
 	}
+	outputs := tools.StringSlice(args, "outputs")
+
+	timeout := tools.Int(args, "timeout", 120)
 
 	cwd := b.cwd
 	if !filepath.IsAbs(cwd) {
@@ -103,6 +109,13 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 		if result.ExitCode != 0 {
 			return res, fmt.Errorf("command failed: exit code %d", result.ExitCode)
 		}
+		copied, copyErr := copyOutputs(outputs, cwd, cwd)
+		if copyErr != nil {
+			return res, fmt.Errorf("command succeeded but copying outputs failed: %w", copyErr)
+		}
+		if len(copied) > 0 {
+			res.Details["outputs_copied"] = copied
+		}
 		return res, nil
 	}
 
@@ -146,7 +159,40 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 	if err != nil {
 		return res, fmt.Errorf("command failed: %w", err)
 	}
+	copied, copyErr := copyOutputs(outputs, cwd, cwd)
+	if copyErr != nil {
+		return res, fmt.Errorf("command succeeded but copying outputs failed: %w", copyErr)
+	}
+	if len(copied) > 0 {
+		res.Details["outputs_copied"] = copied
+	}
 	return res, nil
+}
+
+func copyOutputs(outputs []string, srcDir, dstDir string) ([]string, error) {
+	var copied []string
+	for _, out := range outputs {
+		src := out
+		if !filepath.IsAbs(src) {
+			src = filepath.Join(srcDir, src)
+		}
+		dst := out
+		if !filepath.IsAbs(dst) {
+			dst = filepath.Join(dstDir, dst)
+		}
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return copied, fmt.Errorf("read output %s: %w", out, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return copied, fmt.Errorf("mkdir for %s: %w", dst, err)
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return copied, fmt.Errorf("write output %s: %w", dst, err)
+		}
+		copied = append(copied, dst)
+	}
+	return copied, nil
 }
 
 func mergeOutput(stdout, stderr string) string {

@@ -64,13 +64,23 @@ memory:
   # user_char_limit: 1375
 
 permissions:
+  # Set unsafe_mode: true to bypass the permission engine for the current run.
+  # Ultra-destructive commands (e.g. "rm -rf /") still require approval.
+  # This can also be enabled per-run with the --unsafe CLI flag.
+  unsafe_mode: false
+
+  # Rules can be set to allow, ask, or deny. More specific patterns win over
+  # generic ones. When a command is approved via the TUI/CLI as "project" or
+  # "global", a matching rule is automatically written to:
+  #   project:  <repo>/.lcoder/permissions.yaml
+  #   global:   ~/.lcoder/permissions/global.yaml
   rules:
     read:
       "*": allow
     write:
-      "*": allow
+      "*": ask
     edit:
-      "*": allow
+      "*": ask
     ls:
       "*": allow
     grep:
@@ -86,31 +96,17 @@ permissions:
       "echo *": allow
       "which *": allow
       "whoami": allow
-      "uname *": allow
       "date": allow
-      "stat *": allow
-      "cat *": allow
-      "head *": allow
-      "tail *": allow
-      "find *": allow
-      "grep *": allow
       "git status": allow
       "git status *": allow
       "git log": allow
       "git log *": allow
       "git diff": allow
       "git diff *": allow
-      "git show": allow
-      "git show *": allow
       "git branch": allow
       "git branch *": allow
       "git remote -v": allow
       "git stash list": allow
-      "git *": allow
-      "go test *": allow
-      "go vet *": allow
-      "go build *": allow
-      "go mod *": allow
       # Dangerous commands are always denied.
       "rm -rf /": deny
       "rm -rf /*": deny

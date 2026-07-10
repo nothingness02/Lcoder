@@ -40,6 +40,7 @@ var (
 	cont       bool
 	modeName   string
 	promptText string
+	unsafeMode bool
 )
 
 func main() {
@@ -57,6 +58,7 @@ func main() {
 	root.Flags().StringVar(&modeName, "mode", "", "Agent mode: plan, code, explore, review, test")
 	root.Flags().StringVarP(&promptText, "prompt", "p", "", "Single prompt to run and exit")
 	root.Flags().Bool("json", false, "Output events as JSONL instead of TUI/text")
+	root.Flags().BoolVar(&unsafeMode, "unsafe", false, "Bypass permission engine (ultra-destructive commands still require approval)")
 
 	root.AddCommand(modelsCmd())
 	root.AddCommand(skillsCmd())
@@ -100,6 +102,9 @@ func loadConfig() (config.Config, error) {
 	}
 	if provider != "" {
 		cfg.Provider = provider
+	}
+	if unsafeMode {
+		cfg.Permissions.UnsafeMode = true
 	}
 	return cfg, nil
 }
@@ -200,6 +205,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	mcpRegistry.RegisterTools(registry)
 
 	permEngine := permissions.NewEngineFromRules(parsePermissionConfig(cfg.Permissions))
+	permEngine.SetUnsafeMode(cfg.Permissions.UnsafeMode)
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = permEngine.LoadGlobalLearnedRules(filepath.Join(home, ".lcoder", "permissions", "global.yaml"))
+	}
+	_ = permEngine.LoadProjectRules(filepath.Join(cwd, ".lcoder", "permissions.yaml"))
 
 	sessStore := session.NewStore("")
 	var sess *session.Session
