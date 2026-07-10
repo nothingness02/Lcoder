@@ -44,6 +44,21 @@ func TestProjectRuleOverridesGlobal(t *testing.T) {
 	}
 }
 
+func TestUnsafeModeAllowsAllExceptUltraDestructive(t *testing.T) {
+	engine := NewEngine(DefaultConfig())
+	engine.SetUnsafeMode(true)
+
+	if got := engine.Evaluate(Request{Tool: "bash", Command: "curl http://example.com"}); got != Allow {
+		t.Fatalf("expected unsafe allow, got %v", got)
+	}
+	if got := engine.Evaluate(Request{Tool: "bash", Command: "rm -rf /"}); got != Ask {
+		t.Fatalf("expected ultra-destructive ask, got %v", got)
+	}
+	if got := engine.Evaluate(Request{Tool: "write", Path: "/etc/passwd"}); got != Allow {
+		t.Fatalf("expected unsafe allow for write, got %v", got)
+	}
+}
+
 func TestDefaultAllow(t *testing.T) {
 	engine := NewEngine(DefaultConfig())
 	if engine.Evaluate(Request{Tool: "read"}) != Allow {

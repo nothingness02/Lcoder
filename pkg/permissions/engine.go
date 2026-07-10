@@ -3,7 +3,9 @@ package permissions
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
@@ -52,6 +54,7 @@ type ruleSource struct {
 type Engine struct {
 	sources    []ruleSource
 	nextOrigin int
+	unsafeMode bool
 }
 
 // NewEngine creates a permission engine from config.
@@ -62,6 +65,16 @@ func NewEngine(cfg Config) *Engine {
 	e := &Engine{nextOrigin: 1}
 	e.AddSource("config", cfg)
 	return e
+}
+
+// SetUnsafeMode enables or disables the permission engine bypass.
+func (e *Engine) SetUnsafeMode(v bool) {
+	e.unsafeMode = v
+}
+
+// UnsafeMode returns the current unsafe mode state.
+func (e *Engine) UnsafeMode() bool {
+	return e.unsafeMode
 }
 
 // AddSource appends a rule source. Later sources win on specificity tie.
@@ -117,11 +130,74 @@ func (e *Engine) Decide(tool string, args map[string]any) Decision {
 	return e.Evaluate(req)
 }
 
+// dangerousTools default to Deny when no rule table exists, so that an
+// omitted or empty permission config cannot silently allow destructive ops.
+var dangerousTools = map[string]bool{
+	"write": true,
+	"edit":  true,
+	"bash":  true,
+}
+
+var ultraDestructivePatterns = []string{
+	"rm -rf /",
+	"rm -rf /*",
+	"rm -rf / *",
+	"sudo *",
+	"su *",
+	"doas *",
+	"mkfs.*",
+	"fdisk *",
+	"dd *",
+	"reboot",
+	"shutdown *",
+	"halt",
+	"poweroff",
+	"systemctl *",
+	"chmod -R 777 /",
+	"chmod -R 777 /*",
+	"chown -R root /",
+	":(){ :|:& };:",
+}
+
+// IsUltraDestructive reports whether command matches the built-in ultra-
+// destructive blacklist. This check is independent of configured rules.
+func (e *Engine) IsUltraDestructive(command string) bool {
+	norm := normalizeCommand(command)
+	for _, p := range ultraDestructivePatterns {
+		if matched, _ := matchUltraDestructive(p, norm); matched {
+			return true
+		}
+	}
+	return false
+}
+
+func matchUltraDestructive(pattern, target string) (bool, error) {
+	const placeholder = "\x00"
+	return path.Match(strings.ReplaceAll(pattern, "/", placeholder), strings.ReplaceAll(target, "/", placeholder))
+}
+
+// normalizeCommand trims leading/trailing whitespace and collapses any run of
+// whitespace to a single space.
+func normalizeCommand(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
 // Evaluate returns the decision for a request.
-// Default is Allow unless explicitly configured otherwise.
+// Unknown tools default to Allow; dangerous tools default to Deny unless a
+// rule table (even an empty one) exists for them.
 func (e *Engine) Evaluate(req Request) Decision {
+	if e.unsafeMode {
+		if req.Tool == "bash" && req.Command != "" && e.IsUltraDestructive(req.Command) {
+			return Ask
+		}
+		return Allow
+	}
+
 	table, ok := e.mergedRules(req.Tool)
 	if !ok {
+		if dangerousTools[req.Tool] {
+			return Deny
+		}
 		return Allow
 	}
 
@@ -151,6 +227,9 @@ func (e *Engine) Evaluate(req Request) Decision {
 		}
 	}
 	if !set {
+		if dangerousTools[req.Tool] {
+			return Deny
+		}
 		return Allow
 	}
 	return best
