@@ -1,8 +1,31 @@
 package permissions
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+func TestLoadProjectRules(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "permissions.yaml")
+	content := `permissions:
+  rules:
+    bash:
+      "go test *": allow
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := NewEngine(DefaultConfig())
+	if err := engine.LoadProjectRules(path); err != nil {
+		t.Fatal(err)
+	}
+	if engine.Evaluate(Request{Tool: "bash", Command: "go test ./..."}) != Allow {
+		t.Fatal("expected project rule to allow go test")
+	}
+}
 
 func TestDefaultAllow(t *testing.T) {
 	engine := NewEngine(DefaultConfig())
