@@ -26,8 +26,8 @@ func TestMissingMentionBlocksSubmit(t *testing.T) {
 	if !m2.cmdPanel.visible {
 		t.Fatal("expected error panel to be visible")
 	}
-	if len(agent.prompts) != 0 {
-		t.Fatalf("expected no prompt dispatched, got %d", len(agent.prompts))
+	if len(agent.Prompts) != 0 {
+		t.Fatalf("expected no prompt dispatched, got %d", len(agent.Prompts))
 	}
 	for _, b := range m2.blocks {
 		if b.kind == blockUser {

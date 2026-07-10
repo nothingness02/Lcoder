@@ -95,7 +95,7 @@ func mergeCredentials(providers, creds map[string]ProviderConn) map[string]Provi
 // SaveCredentials writes creds to path with 0600 permissions, creating the
 // parent directory as needed. Used by the TUI to persist entered api keys.
 func SaveCredentials(path string, creds map[string]ProviderConn) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create credentials dir: %w", err)
 	}
 	data, err := yaml.Marshal(creds)
@@ -141,15 +141,15 @@ func SaveProviderSelection(provider, model string) error {
 	}
 	raw["provider"] = provider
 	raw["model"] = model
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 	data, err := yaml.Marshal(raw)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
-	return nil
+	return os.Chmod(path, 0o600)
 }

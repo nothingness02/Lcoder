@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -79,7 +80,9 @@ func (r *Registry) Has(name string) bool {
 }
 
 // Execute runs a tool by name. It returns the tool result and a flag indicating
-// whether the result represents an error.
+// whether the result represents a system error. Business-level failures (e.g.
+// a non-zero shell exit) should be returned as a normal ToolExecutionResult
+// with nil error; they will not be marked as system errors.
 func (r *Registry) Execute(ctx context.Context, callID string, name string, args map[string]any) (models.ToolExecutionResult, bool) {
 	exec, ok := r.Get(name)
 	if !ok {
@@ -87,6 +90,10 @@ func (r *Registry) Execute(ctx context.Context, callID string, name string, args
 	}
 	result, err := exec.Execute(ctx, callID, args)
 	if err != nil {
+		if errors.Is(err, ErrToolExecution) {
+			// Tool explicitly marks this as a business outcome, not a system error.
+			return models.NewToolExecutionResultError(err.Error()), false
+		}
 		return models.NewToolExecutionResultError(err.Error()), true
 	}
 	return result, false

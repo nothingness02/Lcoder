@@ -19,8 +19,8 @@ func TestBashReturnsStructuredDetails(t *testing.T) {
 	b.UseSandbox(fake)
 
 	res, err := b.Execute(context.Background(), "c1", map[string]any{"command": "echo hello"})
-	if err == nil {
-		t.Fatal("expected error for non-zero exit")
+	if err != nil {
+		t.Fatalf("unexpected error for non-zero exit: %v", err)
 	}
 
 	if got := res.Details["stdout"]; got != "hello" {
@@ -59,15 +59,18 @@ func TestBashUsesSandboxExec(t *testing.T) {
 	}
 }
 
-func TestBashSandboxNonZeroExitReturnsError(t *testing.T) {
+func TestBashSandboxNonZeroExitReturnsBusinessResult(t *testing.T) {
 	b := NewBash("/tmp").(*Bash)
 	fake := sandbox.NewFakeSandbox()
 	fake.Result = sandbox.ExecResult{Stderr: "boom", ExitCode: 1}
 	b.UseSandbox(fake)
 
-	_, err := b.Execute(context.Background(), "c1", map[string]any{"command": "false"})
-	if err == nil {
-		t.Fatal("expected error for non-zero exit")
+	res, err := b.Execute(context.Background(), "c1", map[string]any{"command": "false"})
+	if err != nil {
+		t.Fatalf("expected no system error for non-zero exit: %v", err)
+	}
+	if res.Details["exit_code"] != 1 {
+		t.Fatalf("exit_code = %v, want 1", res.Details["exit_code"])
 	}
 }
 
@@ -78,11 +81,14 @@ func TestBashSandboxTimeoutMarksOutput(t *testing.T) {
 	b.UseSandbox(fake)
 
 	res, err := b.Execute(context.Background(), "c1", map[string]any{"command": "sleep 99"})
-	if err == nil {
-		t.Fatal("expected error on timeout")
+	if err != nil {
+		t.Fatalf("expected no system error on timeout: %v", err)
 	}
 	txt := res.Content[0].(models.TextContent).Text
 	if txt != "partial\n[command timed out]" {
 		t.Fatalf("output = %q", txt)
+	}
+	if res.Details["timed_out"] != true {
+		t.Fatalf("timed_out = %v, want true", res.Details["timed_out"])
 	}
 }

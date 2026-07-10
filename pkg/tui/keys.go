@@ -408,7 +408,7 @@ func (m *Model) handleProcessingKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		if text != "" {
 			m.input.Reset()
 			m.addUser(text)
-			m.agent.Steer(models.UserMessage(text))
+			m.runner.SubmitSteer(models.UserMessage(text))
 		}
 		return m, nil
 	}
@@ -469,18 +469,15 @@ func (m *Model) submit(text string) tea.Cmd {
 	return m.startPrompt(text)
 }
 
-// startPrompt records the user block and kicks off the agent. @file mentions
-// are kept verbatim for the agent except ~ which is expanded to an absolute
-// path (the read tool cannot expand ~).
+// startPrompt records the user block and enqueues the prompt with the runner.
+// The runner worker appends the message to the session and calls agent.Prompt.
 func (m *Model) startPrompt(text string) tea.Cmd {
 	m.addUser(text)
 	m.state = stateProcessing
 	m.input.SetProcessing(true)
 	m.errMsg = ""
-	return tea.Batch(
-		submitPromptCmd(m.agent, m.session, expandHomeMentions(text)),
-		spinnerTick(),
-	)
+	m.runner.SubmitPrompt(expandHomeMentions(text))
+	return spinnerTick()
 }
 
 // onAgentDone returns the model to the input state and persists the session.
@@ -652,6 +649,7 @@ func (m *Model) switchMode(mode string) {
 	}
 	if sw, ok := m.agent.(ModeSwitcher); ok {
 		m.agent = sw.WithMode(mode)
+		m.runner.SetAgent(m.agent)
 		m.closePanel()
 	} else {
 		m.showTextPanel("mode", styleError().Render("agent does not support modes"))

@@ -100,14 +100,12 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 				"timed_out": result.TimedOut,
 			},
 		}
-		if execErr != nil {
+		if execErr != nil && result.ExitCode == 0 && !result.TimedOut {
 			return res, fmt.Errorf("command failed: %w", execErr)
 		}
-		if result.TimedOut {
-			return res, fmt.Errorf("command failed: timed out")
-		}
-		if result.ExitCode != 0 {
-			return res, fmt.Errorf("command failed: exit code %d", result.ExitCode)
+		if result.ExitCode != 0 || result.TimedOut {
+			// Business-level failure: surface result to the LLM without a system error.
+			return res, nil
 		}
 		copied, copyErr := copyOutputs(outputs, cwd, cwd)
 		if copyErr != nil {
@@ -157,6 +155,10 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 		},
 	}
 	if err != nil {
+		// If the process started but exited non-zero, return it as a business result.
+		if cmd.ProcessState != nil {
+			return res, nil
+		}
 		return res, fmt.Errorf("command failed: %w", err)
 	}
 	copied, copyErr := copyOutputs(outputs, cwd, cwd)

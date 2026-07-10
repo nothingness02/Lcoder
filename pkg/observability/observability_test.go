@@ -13,6 +13,7 @@ func TestCollectorBasicFlow(t *testing.T) {
 	exporter := NewMemoryExporter()
 	collector := NewCollector(exporter)
 	bus := events.New()
+	defer bus.Close()
 	collector.Subscribe(bus)
 
 	ctx := context.Background()
@@ -22,6 +23,8 @@ func TestCollectorBasicFlow(t *testing.T) {
 	_ = bus.Emit(ctx, events.ToolExecutionEndEvent{Base: events.Base{Type: events.ToolExecutionEnd, Turn: 0}, ToolCallID: "call_1", ToolName: "ls"})
 	_ = bus.Emit(ctx, events.TurnEndEvent{Base: events.Base{Type: events.TurnEnd, Turn: 0}})
 	_ = bus.Emit(ctx, events.AgentEndEvent{Base: events.Base{Type: events.AgentEnd, Turn: 0}})
+
+	_ = bus.Close()
 
 	if len(exporter.Records) == 0 {
 		t.Fatal("expected records")
@@ -67,6 +70,7 @@ func TestCollectorAuditEvent(t *testing.T) {
 	logger := &memoryAuditLogger{}
 	collector := NewCollectorWithAudit(exporter, "sess-1", logger)
 	bus := events.New()
+	defer bus.Close()
 	collector.Subscribe(bus)
 
 	ctx := context.Background()
@@ -79,6 +83,8 @@ func TestCollectorAuditEvent(t *testing.T) {
 		Decision:   "allow",
 		Allowed:    true,
 	})
+
+	_ = bus.Close()
 
 	if len(logger.Records) != 1 {
 		t.Fatalf("expected 1 audit record, got %d", len(logger.Records))
@@ -94,6 +100,7 @@ func TestCollectorToolExecutionAudit(t *testing.T) {
 	logger := &memoryAuditLogger{}
 	collector := NewCollectorWithAudit(exporter, "sess-2", logger)
 	bus := events.New()
+	defer bus.Close()
 	collector.Subscribe(bus)
 
 	ctx := context.Background()
@@ -111,6 +118,8 @@ func TestCollectorToolExecutionAudit(t *testing.T) {
 		ToolName:   "bash",
 		Result:     models.NewToolExecutionResultText("ok"),
 	})
+
+	_ = bus.Close()
 
 	if len(logger.Records) != 1 {
 		t.Fatalf("expected 1 audit record, got %d", len(logger.Records))

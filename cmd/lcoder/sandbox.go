@@ -15,6 +15,8 @@ import (
 func toSandboxConfig(c config.SandboxConfig, projectRoot string) sandbox.Config {
 	return sandbox.Config{
 		Backend:      c.Backend,
+		Runtime:      c.Runtime,
+		Image:        c.Image,
 		EnvAllowlist: c.EnvAllowlist,
 		Network: sandbox.NetworkConfig{
 			DefaultAllow: c.Network.Default == "allow",

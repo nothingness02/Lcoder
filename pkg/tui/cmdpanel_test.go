@@ -52,7 +52,7 @@ system_prompt: you review
 
 	bus := events.New()
 	ag := &fakeAgent{}
-	sess := &fakeSession{id: "abc123"}
+	sess := &fakeSession{ID: "abc123"}
 	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, mm, nil, config.Config{}, nil, false)
 	m.width = 80
 	m.height = 24
@@ -128,7 +128,7 @@ func TestCmdPanelTypingDismisses(t *testing.T) {
 func TestCmdPanelSkillTriggers(t *testing.T) {
 	bus := events.New()
 	ag := &fakeAgent{}
-	sess := &fakeSession{id: "abc123"}
+	sess := &fakeSession{ID: "abc123"}
 	loaded := []skills.Skill{
 		{Name: "security-review", WhenToUse: "Review code", Steps: []string{"Read file", "Find risks"}},
 	}
@@ -161,7 +161,7 @@ func TestCmdPanelMCPOpensAndReconnectShortcut(t *testing.T) {
 	})
 	bus := events.New()
 	ag := &fakeAgent{}
-	sess := &fakeSession{id: "abc123"}
+	sess := &fakeSession{ID: "abc123"}
 	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, reg, nil, nil, config.Config{}, nil, false)
 	m.width = 80
 	m.height = 24
@@ -202,7 +202,7 @@ func TestCmdPanelMCPCloseShortcut(t *testing.T) {
 	})
 	bus := events.New()
 	ag := &fakeAgent{}
-	sess := &fakeSession{id: "abc123"}
+	sess := &fakeSession{ID: "abc123"}
 	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, reg, nil, nil, config.Config{}, nil, false)
 	m.width = 80
 	m.height = 24

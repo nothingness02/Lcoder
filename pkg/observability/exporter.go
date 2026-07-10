@@ -18,13 +18,14 @@ type FileExporter struct {
 
 // NewFileExporter creates a file-backed exporter.
 func NewFileExporter(path string) (*FileExporter, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}
+	_ = os.Chmod(path, 0o600)
 	return &FileExporter{path: path, file: f}, nil
 }
 

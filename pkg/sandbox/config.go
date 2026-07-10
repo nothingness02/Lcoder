@@ -10,6 +10,8 @@ import (
 // Config selects and parameterizes a sandbox backend.
 type Config struct {
 	Backend      string // "" or "passthrough" | "soft-limit" | "container"/"remote" (reserved)
+	Runtime      string // container runtime executable, e.g. "docker" or "podman"
+	Image        string // container image for the container backend
 	EnvAllowlist []string
 	Network      NetworkConfig
 	Filesystem   FilesystemConfig
@@ -54,7 +56,9 @@ func New(cfg Config) (Sandbox, error) {
 			envAllow = defaultEnvAllowlist
 		}
 		return &softLimit{network: np, fs: fs, envAllow: envAllow}, nil
-	case "container", "remote":
+	case "container":
+		return newContainerSandbox(cfg)
+	case "remote":
 		return nil, fmt.Errorf("sandbox backend %q not yet implemented (interface reserved)", cfg.Backend)
 	default:
 		return nil, fmt.Errorf("unknown sandbox backend %q", cfg.Backend)

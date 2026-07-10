@@ -1,0 +1,54 @@
+name: SWE-bench Lite
+
+on:
+  # Weekly baseline run (Sunday 06:00 UTC).
+  schedule:
+    - cron: '0 6 * * 0'
+  # Manual trigger with configurable sample size.
+  workflow_dispatch:
+    inputs:
+      sample:
+        description: 'Number of tasks to run (0 = all)'
+        required: true
+        default: '4'
+      workers:
+        description: 'Parallel workers'
+        required: true
+        default: '1'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build image and select tasks
+        working-directory: eval/swe-bench-lite/runner
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: |
+          python run.py --build --select --limit 100
+
+      - name: Run evaluation sample
+        working-directory: eval/swe-bench-lite/runner
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: |
+          SAMPLE=${{ github.event.inputs.sample || 4 }}
+          WORKERS=${{ github.event.inputs.workers || 1 }}
+          python run.py --sample "$SAMPLE" --workers "$WORKERS"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swe-bench-lite-results
+          path: eval/swe-bench-lite/results/

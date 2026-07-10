@@ -118,9 +118,10 @@ func NewCollectorWithAudit(exporter Exporter, sessionID string, auditLogger Audi
 	}
 }
 
-// Subscribe registers the collector on an event bus.
+// Subscribe registers the collector on an event bus asynchronously so that
+// potentially slow export/audit work does not block the agent loop.
 func (c *Collector) Subscribe(bus *events.Bus) func() {
-	return bus.Subscribe(c.handle)
+	return bus.SubscribeAsync(c.handle, events.AsyncOptions{BufferSize: 256})
 }
 
 func (c *Collector) handle(ctx context.Context, ev events.Event) error {

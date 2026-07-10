@@ -39,8 +39,10 @@ type Model struct {
 	checkpointStore checkpoint.Store
 	bus             *events.Bus
 
-	unsubscribe func()
-	eventCh     chan events.Event
+	unsubscribe   func()
+	eventCh       chan events.Event
+	runner        *runnerQueue
+	runnerCancel  context.CancelFunc
 
 	state uiState
 
@@ -161,6 +163,10 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		m.tasks = ag.TaskManager().List()
 	}
 	m.unsubscribe = bus.Subscribe(m.onEvent)
+	runnerCtx, cancel := context.WithCancel(context.Background())
+	m.runnerCancel = cancel
+	m.runner = newRunnerQueue(ag, session)
+	m.runner.Start(runnerCtx)
 	if needsProviderSetup {
 		m.openProviderPanel()
 	}
@@ -176,6 +182,7 @@ func (m *Model) SetCapabilities(caps []string) {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		waitForEventCmd(m.eventCh),
+		waitForRunnerResultCmd(m.runner.Results()),
 		headerTick(),
 	)
 }
@@ -189,8 +196,11 @@ func (m *Model) onEvent(ctx context.Context, ev events.Event) error {
 	return nil
 }
 
-// Close cleans up the event subscription.
+// Close cleans up the event subscription and runner queue.
 func (m *Model) Close() {
+	if m.runnerCancel != nil {
+		m.runnerCancel()
+	}
 	if m.unsubscribe != nil {
 		m.unsubscribe()
 	}

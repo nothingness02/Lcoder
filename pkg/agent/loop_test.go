@@ -378,7 +378,7 @@ func TestAgentEventHandlerErrorIsObservedNotFatal(t *testing.T) {
 
 	bus := events.New()
 	bus.Subscribe(func(ctx context.Context, ev events.Event) error {
-		if ev.EventType() == events.TurnStart {
+		if ev.EventType() == events.MessageStart {
 			return fmt.Errorf("intentional handler failure")
 		}
 		return nil
@@ -396,6 +396,8 @@ func TestAgentEventHandlerErrorIsObservedNotFatal(t *testing.T) {
 	if err := ag.Prompt(context.Background(), models.UserMessage("hi")); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
+
+	_ = bus.Close()
 
 	var found bool
 	for _, r := range exporter.Records {

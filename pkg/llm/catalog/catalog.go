@@ -248,8 +248,9 @@ func (c *Catalog) refresh(cachePath string) {
 	}
 	if cachePath != "" {
 		if data, err := json.Marshal(ents); err == nil {
-			_ = os.MkdirAll(filepath.Dir(cachePath), 0o755)
-			_ = os.WriteFile(cachePath, data, 0o644)
+			_ = os.MkdirAll(filepath.Dir(cachePath), 0o700)
+			_ = os.WriteFile(cachePath, data, 0o600)
+			_ = os.Chmod(cachePath, 0o600)
 		}
 	}
 	c.applyRefresh(ents)

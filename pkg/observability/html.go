@@ -34,10 +34,13 @@ func (h *HTMLExporter) Close() error { return nil }
 
 // Save writes the HTML report to disk.
 func (h *HTMLExporter) Save(path string) error {
-	if err := os.MkdirAll(pathParent(path), 0o755); err != nil {
+	if err := os.MkdirAll(pathParent(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(h.Render()), 0o644)
+	if err := os.WriteFile(path, []byte(h.Render()), 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 func pathParent(path string) string {

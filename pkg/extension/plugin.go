@@ -50,6 +50,11 @@ func (l *PluginLoader) Build(sourceDir, name string) (string, error) {
 //	func New(cfg map[string]any) (Extension, error)
 func (l *PluginLoader) Load(name string, cfg map[string]any) (Extension, error) {
 	path := filepath.Join(l.root, name+".so")
+	return l.LoadPath(path, cfg)
+}
+
+// LoadPath opens a plugin .so file at an explicit path and calls its New function.
+func (l *PluginLoader) LoadPath(path string, cfg map[string]any) (Extension, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("plugin not found: %s", path)
 	}

@@ -33,7 +33,7 @@ func TestPersistSessionWritesAgentOutput(t *testing.T) {
 
 	// The agent produced an assistant reply that lives only in its window.
 	asst := models.AssistantMessage("hello there")
-	ag := &fakeAgent{msgs: []models.AgentMessage{user, asst}}
+	ag := &fakeAgent{Messages: []models.AgentMessage{user, asst}}
 	m := &Model{agent: ag, session: sess}
 
 	m.persistSession()

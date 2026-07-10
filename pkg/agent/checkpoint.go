@@ -16,12 +16,23 @@ import (
 // Checkpoint captures the agent's current mode, model, context manager state,
 // and runtime state into a portable snapshot.
 func (a *Agent) Checkpoint() (*checkpoint.Checkpoint, error) {
-	return a.CheckpointWithReason(checkpoint.ReasonManual)
+	if a.cpMgr != nil {
+		return a.cpMgr.Capture(checkpoint.ReasonManual)
+	}
+	return a.captureWithReason(checkpoint.ReasonManual)
 }
 
 // CheckpointWithReason captures the agent state and records why the checkpoint
 // was taken (e.g. manual slash command or automatic turn boundary).
 func (a *Agent) CheckpointWithReason(reason string) (*checkpoint.Checkpoint, error) {
+	if a.cpMgr != nil {
+		return a.cpMgr.Capture(reason)
+	}
+	return a.captureWithReason(reason)
+}
+
+// captureWithReason contains the actual checkpoint serialization logic.
+func (a *Agent) captureWithReason(reason string) (*checkpoint.Checkpoint, error) {
 	mgrState, err := a.mgr.SnapshotRuntime()
 	if err != nil {
 		return nil, err
@@ -102,6 +113,14 @@ func (a *Agent) agentConfigHash() string {
 // (e.g., while the agent is idle and waiting for user input) when no run loop,
 // streamer, or executor is active.
 func (a *Agent) Restore(cp *checkpoint.Checkpoint) error {
+	if a.cpMgr != nil {
+		return a.cpMgr.Restore(cp)
+	}
+	return a.restore(cp)
+}
+
+// restore contains the actual checkpoint restoration logic.
+func (a *Agent) restore(cp *checkpoint.Checkpoint) error {
 	if cp == nil {
 		return fmt.Errorf("agent: cannot restore: nil checkpoint")
 	}

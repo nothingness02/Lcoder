@@ -121,14 +121,14 @@ func TestCommitProviderSavesRegistersAndSwitches(t *testing.T) {
 	if m.state != stateInput || m.provPanel.visible {
 		t.Fatalf("expected panel closed after commit, state=%v visible=%v", m.state, m.provPanel.visible)
 	}
-	if agent.switchedModel.Provider != "openai" || agent.switchedModel.ID != chosenModel {
-		t.Fatalf("expected agent switched to openai/%s, got %+v", chosenModel, agent.switchedModel)
+	if agent.SwitchedModel.Provider != "openai" || agent.SwitchedModel.ID != chosenModel {
+		t.Fatalf("expected agent switched to openai/%s, got %+v", chosenModel, agent.SwitchedModel)
 	}
 	window, _ := m.llmClient.ModelWindow(context.Background(), "openai", chosenModel)
 	maxOutput, _ := m.llmClient.ModelMaxOutput(context.Background(), "openai", chosenModel)
 	expected, _ := m.cfg.ResolveContextBudget(window, maxOutput)
-	if agent.switchedBudget.MaxTotal != expected.MaxTotal {
-		t.Fatalf("expected budget MaxTotal %d from catalog window, got %d", expected.MaxTotal, agent.switchedBudget.MaxTotal)
+	if agent.SwitchedBudget.MaxTotal != expected.MaxTotal {
+		t.Fatalf("expected budget MaxTotal %d from catalog window, got %d", expected.MaxTotal, agent.SwitchedBudget.MaxTotal)
 	}
 	if m.model != "openai/"+chosenModel {
 		t.Fatalf("expected display model openai/%s, got %q", chosenModel, m.model)
@@ -148,7 +148,7 @@ func TestSlashProviderOpensPanel(t *testing.T) {
 func TestFirstLaunchAutoOpensPanel(t *testing.T) {
 	bus := events.New()
 	store := &fakeSessionStore{}
-	m := NewModel(bus, &fakeAgent{}, &fakeSession{id: "x"}, store, ".", "x",
+	m := NewModel(bus, &fakeAgent{}, &fakeSession{ID: "x"}, store, ".", "x",
 		"openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, true /* needsProviderSetup */)
 	defer m.Close()
 

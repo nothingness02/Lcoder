@@ -77,6 +77,10 @@ type Config struct {
 	// no automatic checkpoints are written.
 	CheckpointStore checkpoint.Store
 
+	// CheckpointInterval controls how often automatic checkpoints are written.
+	// 0 means every turn (backward-compatible); values > 0 save every N turns.
+	CheckpointInterval int
+
 	// DeferredTools, when true, ships only CoreTools with full schemas plus
 	// the tool_search meta-tool; every other registered tool is sent as a
 	// name-only stub. tool_search is resolved locally (see executor.go),
@@ -144,6 +148,8 @@ type Agent struct {
 	streamer  *streamer
 	executor  *executor
 	taskMgr   *task.Manager
+	cpMgr     *checkpointManager
+	rc        *reminderCoordinator
 }
 
 // State describes the agent runtime state.
@@ -233,6 +239,8 @@ func New(cfg Config, llmClient *llm.Client, registry *tools.Registry, perms *per
 	ag.taskMgr = task.NewManager()
 	ag.streamer = &streamer{cfg: &ag.cfg, llm: ag.llm, mgr: ag.mgr, emitter: ag.emitter}
 	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter, taskMgr: ag.taskMgr}
+	ag.cpMgr = newCheckpointManager(ag)
+	ag.rc = newReminderCoordinator(ag.taskMgr, cfg.ReminderProducers)
 	return ag
 }
 
@@ -341,7 +349,8 @@ func (a *Agent) WithMode(mode string) Runner {
 		executor:     newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter, a.taskMgr),
 		taskMgr:      a.taskMgr,
 	}
-
+	fresh.cpMgr = newCheckpointManager(fresh)
+	fresh.rc = newReminderCoordinator(fresh.taskMgr, fresh.cfg.ReminderProducers)
 	fresh.loopState.restore(a.loopState.snapshot())
 	fresh.loopState.SetResuming(true)
 	fresh.executor.restore(a.executor.snapshot())
@@ -417,7 +426,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 		// Persist an automatic checkpoint at the completed-turn boundary.
 		// This is the only place where the run is in a known-safe state.
-		a.maybeCheckpoint(ctx, turn, checkpoint.ReasonAuto)
+		a.cpMgr.MaybeCheckpoint(ctx, turn, checkpoint.ReasonAuto, a.emit)
 
 		if terminate {
 			endReason = events.EndReasonTerminated
@@ -444,46 +453,12 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 	return nil
 }
 
-// maybeCheckpoint writes an automatic checkpoint when a store and session id are
-// configured. Errors are emitted as events but never stop the run.
-func (a *Agent) maybeCheckpoint(ctx context.Context, turn int, reason string) {
-	if a.cfg.CheckpointStore == nil || a.cfg.SessionID == "" {
-		return
-	}
-	cp, err := a.CheckpointWithReason(reason)
-	if err != nil {
-		a.emit(ctx, events.ErrorEvent{
-			Base:    events.Base{Type: events.Error, Turn: turn},
-			Message: "checkpoint: " + err.Error(),
-		})
-		return
-	}
-	if err := a.cfg.CheckpointStore.Save(a.cfg.SessionID, cp); err != nil {
-		a.emit(ctx, events.ErrorEvent{
-			Base:    events.Base{Type: events.Error, Turn: turn},
-			Message: "checkpoint save: " + err.Error(),
-		})
-	}
-}
-
 // refreshEphemeralReminders stages reminders for the upcoming turn.
-// It always includes any unfinished task reminder from the TaskManager, then runs
-// any configured ReminderProducers over the current conversation.
+// It always includes any unfinished task reminder, then runs any configured
+// ReminderProducers over the current conversation.
 func (a *Agent) refreshEphemeralReminders() {
 	a.mgr.ClearEphemeralReminders()
-
-	var reminders []string
-	if r := a.taskMgr.FormatReminder(); r != "" {
-		reminders = append(reminders, r)
-	}
-
-	if len(a.cfg.ReminderProducers) > 0 {
-		msgs := a.mgr.AllMessages()
-		for _, p := range a.cfg.ReminderProducers {
-			reminders = append(reminders, p(msgs)...)
-		}
-	}
-
+	reminders := a.rc.Reminders(a.mgr.AllMessages())
 	if len(reminders) > 0 {
 		a.mgr.SetEphemeralReminders(reminders)
 	}

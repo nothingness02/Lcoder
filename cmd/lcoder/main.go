@@ -106,6 +106,9 @@ func loadConfig() (config.Config, error) {
 	if unsafeMode {
 		cfg.Permissions.UnsafeMode = true
 	}
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("invalid config: %w", err)
+	}
 	return cfg, nil
 }
 
@@ -184,6 +187,10 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			ExecutionMode: models.ExecutionMode(cfgTool.ExecutionMode),
 			Headers:       cfgTool.Headers,
 		}))
+	}
+
+	if err := registry.LoadExtensions(cfg.ToolExtensions, newToolExtensionPluginLoader(extension.DefaultPluginLoader())); err != nil {
+		return nil, fmt.Errorf("load tool extensions: %w", err)
 	}
 
 	mcpConfigs := make([]mcp.ServerConfig, 0, len(cfg.MCPServers))
@@ -290,6 +297,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			ModeManager:       modeManager,
 			DeferredTools:     cfg.Context.DeferredTools,
 			CoreTools:         cfg.Context.CoreTools,
+			CheckpointInterval: 5,
 		}).
 		WithGatewayClient(llmClient).
 		WithRegistry(registry).
@@ -329,6 +337,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			if obsWatcher != nil {
 				_ = obsWatcher.Close()
 			}
+			_ = bus.Close()
 			obsCollector.Close()
 			mcpRegistry.Close()
 		},
