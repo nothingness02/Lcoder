@@ -31,11 +31,21 @@ func TestNewSoftLimit(t *testing.T) {
 }
 
 func TestNewReservedBackendsError(t *testing.T) {
-	for _, b := range []string{"container", "remote"} {
+	for _, b := range []string{"remote"} {
 		_, err := New(Config{Backend: b})
 		if err == nil || !strings.Contains(err.Error(), "not yet implemented") {
 			t.Fatalf("backend %q: expected not-implemented error, got %v", b, err)
 		}
+	}
+}
+
+func TestNewContainerBackend(t *testing.T) {
+	sb, err := New(Config{Backend: "container", ProjectRoot: t.TempDir()})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if sb.Name() != "container" {
+		t.Fatalf("expected container, got %q", sb.Name())
 	}
 }
 

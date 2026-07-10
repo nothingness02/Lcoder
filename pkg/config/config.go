@@ -43,6 +43,8 @@ type PermissionConfig struct {
 // SandboxConfig configures the sandbox backend wiring tools at startup.
 type SandboxConfig struct {
 	Backend      string                  `yaml:"backend"` // "" -> passthrough
+	Runtime      string                  `yaml:"runtime"` // container runtime: docker, podman
+	Image        string                  `yaml:"image"`   // container image
 	EnvAllowlist []string                `yaml:"env_allowlist"`
 	Network      SandboxNetworkConfig    `yaml:"network"`
 	Filesystem   SandboxFilesystemConfig `yaml:"filesystem"`
@@ -104,6 +106,7 @@ type Config struct {
 	Context     ContextConfig           `yaml:"context"`
 	Permissions PermissionConfig        `yaml:"permissions"`
 	HTTPTools   []HTTPToolConfig        `yaml:"http_tools"`
+	ToolExtensions []ToolExtensionConfig `yaml:"tool_extensions"`
 	MCPServers  []MCPServerConfig       `yaml:"mcp_servers"`
 	Hooks       HookConfig              `yaml:"hooks"`
 	Extensions  []ExtensionConfig       `yaml:"extensions"`

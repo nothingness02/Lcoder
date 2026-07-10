@@ -45,11 +45,17 @@ func TestBash_DoesNotCopyOutputsOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := bash.Execute(context.Background(), "call_1", map[string]any{
+	res, err := bash.Execute(context.Background(), "call_1", map[string]any{
 		"command": "exit 1",
 		"outputs": []any{"report.md"},
 	})
-	if err == nil {
-		t.Fatal("expected error for non-zero exit")
+	if err != nil {
+		t.Fatalf("expected no error for non-zero exit, got %v", err)
+	}
+	if exitCode, _ := res.Details["exit_code"].(int); exitCode != 1 {
+		t.Fatalf("exit_code = %v, want 1", res.Details["exit_code"])
+	}
+	if _, ok := res.Details["outputs_copied"]; ok {
+		t.Fatal("outputs should not be copied on failure")
 	}
 }

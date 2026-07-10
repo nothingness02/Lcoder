@@ -79,20 +79,20 @@ func (f *fakeCheckpointAgent) Checkpoint() (*checkpoint.Checkpoint, error) {
 	if f.checkpointErr != nil {
 		return nil, f.checkpointErr
 	}
-	return &checkpoint.Checkpoint{Agent: &checkpoint.AgentSnapshot{Mode: f.mode}}, nil
+	return &checkpoint.Checkpoint{Agent: &checkpoint.AgentSnapshot{Mode: f.ModeName}}, nil
 }
 
 func (f *fakeCheckpointAgent) Restore(cp *checkpoint.Checkpoint) error {
 	if f.restoreErr != nil {
 		return f.restoreErr
 	}
-	f.mode = cp.Agent.Mode
+	f.ModeName = cp.Agent.Mode
 	return nil
 }
 
 func newCheckpointTestModel(agent AgentRunner, chkStore checkpoint.Store) *Model {
 	bus := events.New()
-	sess := &fakeSession{id: "abc123"}
+	sess := &fakeSession{ID: "abc123"}
 	m := NewModel(bus, agent, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, chkStore, false)
 	m.width = 80
 	m.height = 24
@@ -101,7 +101,7 @@ func newCheckpointTestModel(agent AgentRunner, chkStore checkpoint.Store) *Model
 }
 
 func TestTUISaveCheckpoint(t *testing.T) {
-	ag := &fakeCheckpointAgent{fakeAgent: &fakeAgent{mode: "code", msgs: []models.AgentMessage{models.UserMessage("hi")}}}
+	ag := &fakeCheckpointAgent{fakeAgent: &fakeAgent{ModeName: "code", Messages: []models.AgentMessage{models.UserMessage("hi")}}}
 	chkStore := &fakeCheckpointStore{}
 	m := newCheckpointTestModel(ag, chkStore)
 
@@ -122,7 +122,7 @@ func TestTUISaveCheckpoint(t *testing.T) {
 }
 
 func TestTUIRestoreCheckpoint(t *testing.T) {
-	ag := &fakeCheckpointAgent{fakeAgent: &fakeAgent{mode: "code"}}
+	ag := &fakeCheckpointAgent{fakeAgent: &fakeAgent{ModeName: "code"}}
 	chkStore := &fakeCheckpointStore{
 		checkpoints: map[string]*checkpoint.Checkpoint{
 			"abc123": {Agent: &checkpoint.AgentSnapshot{Mode: "review"}},
@@ -161,7 +161,7 @@ func TestTUIListCheckpoints(t *testing.T) {
 
 func TestTUISaveCheckpointUnsupportedAgent(t *testing.T) {
 	chkStore := &fakeCheckpointStore{}
-	m := newCheckpointTestModel(&fakeAgent{mode: "code"}, chkStore)
+	m := newCheckpointTestModel(&fakeAgent{ModeName: "code"}, chkStore)
 
 	m.dispatchSlash("/save")
 
@@ -174,7 +174,7 @@ func TestTUISaveCheckpointUnsupportedAgent(t *testing.T) {
 }
 
 func TestTUIRestoreCheckpointNoStore(t *testing.T) {
-	ag := &fakeCheckpointAgent{fakeAgent: &fakeAgent{mode: "code"}}
+	ag := &fakeCheckpointAgent{fakeAgent: &fakeAgent{ModeName: "code"}}
 	m := newCheckpointTestModel(ag, nil)
 
 	m.dispatchSlash("/restore")

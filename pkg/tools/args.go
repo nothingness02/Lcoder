@@ -13,6 +13,46 @@ func String(args map[string]any, key, defaultVal string) string {
 	return defaultVal
 }
 
+// RequiredString returns args[key] as a string. It returns an error if the key
+// is missing or not a string.
+func RequiredString(args map[string]any, key string) (string, error) {
+	v, ok := args[key].(string)
+	if !ok {
+		return "", fmt.Errorf("missing required argument %q", key)
+	}
+	if v == "" {
+		return "", fmt.Errorf("required argument %q is empty", key)
+	}
+	return v, nil
+}
+
+// Bool returns args[key] as a bool, or defaultVal if missing / not a bool.
+func Bool(args map[string]any, key string, defaultVal bool) bool {
+	if v, ok := args[key].(bool); ok {
+		return v
+	}
+	return defaultVal
+}
+
+// Float64 returns args[key] as a float64, accepting float64 / int / int64 / json.Number.
+func Float64(args map[string]any, key string, defaultVal float64) float64 {
+	switch v := args[key].(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		if f, err := v.Float64(); err == nil {
+			return f
+		}
+	}
+	return defaultVal
+}
+
 // Int returns args[key] as an int, accepting float64 / int / int64 / json.Number.
 func Int(args map[string]any, key string, defaultVal int) int {
 	switch v := args[key].(type) {

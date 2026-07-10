@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"context"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
@@ -29,24 +27,17 @@ type SendPromptMsg struct {
 	Text string
 }
 
-// submitPromptCmd runs the agent in a goroutine.
-func submitPromptCmd(agent AgentRunner, sess SessionWriter, text string) tea.Cmd {
-	return func() tea.Msg {
-		msg := models.UserMessage(text)
-		if err := sess.Append(msg); err != nil {
-			return AgentDoneMsg{Err: err}
-		}
-		if err := agent.Prompt(context.Background(), msg); err != nil {
-			return AgentDoneMsg{Err: err}
-		}
-		return AgentDoneMsg{}
-	}
-}
-
 // waitForEventCmd blocks until an event arrives on the channel.
 func waitForEventCmd(ch <-chan events.Event) tea.Cmd {
 	return func() tea.Msg {
 		return EventMsg{Event: <-ch}
+	}
+}
+
+// waitForRunnerResultCmd blocks until the runner queue produces a result.
+func waitForRunnerResultCmd(ch <-chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
 	}
 }
 

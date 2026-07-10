@@ -13,7 +13,7 @@ import (
 func newSkillModel() (*Model, *fakeAgent, *fakeSession) {
 	bus := events.New()
 	agent := &fakeAgent{}
-	sess := &fakeSession{id: "abc123"}
+	sess := &fakeSession{ID: "abc123"}
 	store := &fakeSessionStore{}
 	skill := skills.Skill{Name: "tester", WhenToUse: "writing tests", Steps: []string{"write a test"}}
 	m := NewModel(bus, agent, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, skill)
@@ -34,8 +34,8 @@ func TestSubmitManualSkillTrigger(t *testing.T) {
 		t.Fatalf("expected stateProcessing, got %v", m.state)
 	}
 	// ExpandManualTrigger appends a system + user message to the session.
-	if len(sess.messages) != 2 {
-		t.Fatalf("expected 2 expanded messages appended, got %d", len(sess.messages))
+	if len(sess.Messages) != 2 {
+		t.Fatalf("expected 2 expanded messages appended, got %d", len(sess.Messages))
 	}
 	var activated bool
 	for _, b := range m.blocks {

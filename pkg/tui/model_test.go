@@ -1,90 +1,26 @@
 package tui
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/session"
-	"github.com/lcoder/lcoder/pkg/task"
+	"github.com/lcoder/lcoder/pkg/testutil"
 )
 
-type fakeAgent struct {
-	prompts []models.AgentMessage
-	msgs    []models.AgentMessage
-	mode    string
-	taskMgr *task.Manager
-
-	switchedModel  models.ModelRef
-	switchedBudget contextmgr.TokenBudget
-}
-
-func (f *fakeAgent) Prompt(_ context.Context, msg models.AgentMessage) error {
-	f.prompts = append(f.prompts, msg)
-	return nil
-}
-
-func (f *fakeAgent) Continue(_ context.Context) error       { return nil }
-func (f *fakeAgent) AllMessages() []models.AgentMessage     { return f.msgs }
-func (f *fakeAgent) SetMessages(msgs []models.AgentMessage) { f.msgs = msgs }
-func (f *fakeAgent) Stats() map[string]int                  { return nil }
-func (f *fakeAgent) Mode() string {
-	if f.mode == "" {
-		return "code"
-	}
-	return f.mode
-}
-func (f *fakeAgent) SetUserConfirm(uc agent.UserConfirmation) {}
-func (f *fakeAgent) Steer(models.AgentMessage)                {}
-func (f *fakeAgent) Abort()                                   {}
-func (f *fakeAgent) SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget) {
-	f.switchedModel = ref
-	f.switchedBudget = budget
-}
-func (f *fakeAgent) TaskManager() *task.Manager {
-	if f.taskMgr == nil {
-		return nil
-	}
-	return f.taskMgr
-}
-func (f *fakeAgent) WithMode(mode string) AgentRunner {
-	f.mode = mode
-	return f
-}
-
-type fakeSession struct {
-	id       string
-	messages []models.AgentMessage
-}
-
-func (f *fakeSession) Append(msg models.AgentMessage) error {
-	f.messages = append(f.messages, msg)
-	return nil
-}
-func (f *fakeSession) SessionID() string { return f.id }
-
-type fakeSessionStore struct{}
-
-func (f *fakeSessionStore) List(cwd string) ([]session.Session, error) { return nil, nil }
-func (f *fakeSessionStore) LoadByID(cwd, id string) (*session.Session, error) {
-	return nil, nil
-}
-
-func newTestModel() (*Model, *fakeAgent, *fakeSession) {
+func newTestModel() (*Model, *testutil.FakeAgent, *testutil.FakeSession) {
 	bus := events.New()
-	agent := &fakeAgent{}
-	sess := &fakeSession{id: "abc123"}
-	store := &fakeSessionStore{}
-	m := NewModel(bus, agent, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
+	ag := &testutil.FakeAgent{}
+	sess := &testutil.FakeSession{ID: "abc123"}
+	store := &testutil.FakeSessionStore{}
+	m := NewModel(bus, ag, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
 	m.width = 80
 	m.height = 24
-	return m, agent, sess
+	return m, ag, sess
 }
 
 func TestStatusTextShowsCapabilities(t *testing.T) {
@@ -128,9 +64,9 @@ func TestModelHandlesUserInput(t *testing.T) {
 	if m2.state != stateProcessing {
 		t.Fatalf("expected stateProcessing, got %v", m2.state)
 	}
-	if len(agent.prompts) != 0 {
+	if len(agent.Prompts) != 0 {
 		// Prompt runs asynchronously via tea.Cmd, not yet executed.
-		t.Fatalf("expected prompts to be empty before cmd exec, got %d", len(agent.prompts))
+		t.Fatalf("expected prompts to be empty before cmd exec, got %d", len(agent.Prompts))
 	}
 }
 
