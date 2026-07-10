@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"sync"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/permissions/bashrisk"
 	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
@@ -377,6 +379,17 @@ func (e *executor) activeDeferredNames() []string {
 // configured UserConfirmation handler. It returns true when the call may proceed.
 func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallInfo) (bool, error) {
 	decision := e.permissions.Decide(info.ToolCall.Name, info.Args)
+
+	// Low-risk bash commands do not need interactive approval even when no rule
+	// explicitly allows them.
+	if decision == permissions.Ask && info.ToolCall.Name == "bash" {
+		cmd, _ := info.Args["command"].(string)
+		cwd, _ := os.Getwd()
+		report := bashrisk.Classify(cmd, cwd)
+		if report.Level == bashrisk.RiskNone || report.Level == bashrisk.RiskLow {
+			decision = permissions.Allow
+		}
+	}
 
 	var blocked bool
 	var blockReason string
