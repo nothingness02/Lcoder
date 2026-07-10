@@ -27,6 +27,23 @@ func TestLoadProjectRules(t *testing.T) {
 	}
 }
 
+func TestProjectRuleOverridesGlobal(t *testing.T) {
+	engine := NewEngine(Config{
+		Rules: map[string]RuleTable{
+			"bash": {"go *": Deny},
+		},
+	})
+	engine.AddSource("project", Config{
+		Rules: map[string]RuleTable{
+			"bash": {"go test *": Allow},
+		},
+	})
+
+	if got := engine.Evaluate(Request{Tool: "bash", Command: "go test ./..."}); got != Allow {
+		t.Fatalf("expected project-specific allow, got %v", got)
+	}
+}
+
 func TestDefaultAllow(t *testing.T) {
 	engine := NewEngine(DefaultConfig())
 	if engine.Evaluate(Request{Tool: "read"}) != Allow {
