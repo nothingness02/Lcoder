@@ -3,6 +3,8 @@ package bashrisk
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/lcoder/lcoder/internal/strutil"
 )
 
 // RiskLevel indicates the danger of a bash command.
@@ -130,22 +132,22 @@ func detectCategories(tokens []string, projectRoot string) []Category {
 	// Network / external code.
 	if inSlice(cmd, []string{"curl", "wget", "nc", "ncat", "ssh", "scp", "git"}) {
 		if inSlice(cmd, []string{"curl", "wget", "nc", "ncat", "ssh", "scp"}) ||
-			containsAny(text, []string{"git clone", "git push", "git fetch", "git pull"}) {
+			strutil.ContainsAny(text, []string{"git clone", "git push", "git fetch", "git pull"}) {
 			cats = appendDistinct(cats, CatNetwork)
 		}
 	}
-	if containsAny(text, []string{"| bash", "| sh", "| python", "| python3", "bash -c", "python -c", "python3 -c", "eval ", "source "}) {
+	if strutil.ContainsAny(text, []string{"| bash", "| sh", "| python", "| python3", "bash -c", "python -c", "python3 -c", "eval ", "source "}) {
 		cats = appendDistinct(cats, CatExternalCode)
 	}
 
 	// Package install.
 	if inSlice(cmd, []string{"apt", "apt-get", "yum", "dnf", "pacman", "brew"}) ||
-		containsAny(text, []string{"npm install -g", "pip install", "go install", "cargo install"}) {
+		strutil.ContainsAny(text, []string{"npm install -g", "pip install", "go install", "cargo install"}) {
 		cats = appendDistinct(cats, CatPackageInstall)
 	}
 
 	// File delete / destructive.
-	if inSlice(cmd, []string{"rm", "rmdir"}) || containsAny(text, []string{"git clean", "git reset --hard"}) {
+	if inSlice(cmd, []string{"rm", "rmdir"}) || strutil.ContainsAny(text, []string{"git clean", "git reset --hard"}) {
 		cats = appendDistinct(cats, CatFileDelete)
 	}
 
@@ -163,7 +165,7 @@ func detectCategories(tokens []string, projectRoot string) []Category {
 	}
 
 	// Credential access.
-	if containsAny(text, []string{"~/.ssh", "~/.aws", "~/.gnupg", ".env", ".key", ".pem"}) {
+	if strutil.ContainsAny(text, []string{"~/.ssh", "~/.aws", "~/.gnupg", ".env", ".key", ".pem"}) {
 		cats = appendDistinct(cats, CatCredential)
 	}
 
@@ -192,15 +194,6 @@ func isOutsideProject(arg, projectRoot string) bool {
 func inSlice(v string, s []string) bool {
 	for _, x := range s {
 		if x == v {
-			return true
-		}
-	}
-	return false
-}
-
-func containsAny(s string, subs []string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
 			return true
 		}
 	}

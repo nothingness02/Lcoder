@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lcoder/lcoder/internal/fsutil"
 )
 
 // FileStore is a Store implementation that persists checkpoints as JSON files
@@ -34,9 +36,6 @@ func (fs *FileStore) Save(id string, cp *Checkpoint) error {
 		fs.Retain = 5
 	}
 	sessionDir := filepath.Join(fs.Dir, sanitize(id))
-	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
-		return err
-	}
 
 	turn := 0
 	if cp.Runtime != nil {
@@ -49,10 +48,9 @@ func (fs *FileStore) Save(id string, cp *Checkpoint) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := fsutil.WritePrivateFile(path, data); err != nil {
 		return err
 	}
-	_ = os.Chmod(path, 0o600)
 
 	return fs.prune(sessionDir)
 }

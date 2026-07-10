@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/lcoder/lcoder/internal/fsutil"
 	"github.com/lcoder/lcoder/pkg/llm/pricing"
 	"github.com/lcoder/lcoder/pkg/models"
 )
@@ -248,9 +248,7 @@ func (c *Catalog) refresh(cachePath string) {
 	}
 	if cachePath != "" {
 		if data, err := json.Marshal(ents); err == nil {
-			_ = os.MkdirAll(filepath.Dir(cachePath), 0o700)
-			_ = os.WriteFile(cachePath, data, 0o600)
-			_ = os.Chmod(cachePath, 0o600)
+			_ = fsutil.WritePrivateFile(cachePath, data)
 		}
 	}
 	c.applyRefresh(ents)

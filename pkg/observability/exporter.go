@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
+
+	"github.com/lcoder/lcoder/internal/fsutil"
+	"github.com/lcoder/lcoder/internal/paths"
 )
 
 // FileExporter writes observability records to a JSONL file.
@@ -18,14 +20,10 @@ type FileExporter struct {
 
 // NewFileExporter creates a file-backed exporter.
 func NewFileExporter(path string) (*FileExporter, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := fsutil.OpenPrivateAppend(path)
 	if err != nil {
 		return nil, err
 	}
-	_ = os.Chmod(path, 0o600)
 	return &FileExporter{path: path, file: f}, nil
 }
 
@@ -111,11 +109,7 @@ func ExportFile(path string, exporter Exporter, output string) error {
 
 // DefaultPath returns the default observability log path for a session.
 func DefaultPath(sessionID string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return filepath.Join(home, ".lcoder", "observability", "sessions", sessionID+".jsonl")
+	return paths.LCoderHome("observability", "sessions", sessionID+".jsonl")
 }
 
 // LoadFile reads all records from an observability JSONL file.

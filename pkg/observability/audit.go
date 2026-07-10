@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
+
+	"github.com/lcoder/lcoder/internal/fsutil"
+	"github.com/lcoder/lcoder/internal/paths"
 )
 
 // AuditRecord describes a single tool invocation for security auditing.
@@ -40,14 +42,10 @@ type FileAuditLogger struct {
 
 // NewFileAuditLogger creates an audit logger backed by a JSONL file.
 func NewFileAuditLogger(path string) (*FileAuditLogger, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := fsutil.OpenPrivateAppend(path)
 	if err != nil {
 		return nil, err
 	}
-	_ = os.Chmod(path, 0o600)
 	return &FileAuditLogger{path: path, file: f}, nil
 }
 
@@ -80,9 +78,5 @@ func (l *FileAuditLogger) Close() error {
 
 // DefaultAuditPath returns the default audit log path for a session.
 func DefaultAuditPath(sessionID string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return filepath.Join(home, ".lcoder", "audit", sessionID+".jsonl")
+	return paths.LCoderHome("audit", sessionID+".jsonl")
 }

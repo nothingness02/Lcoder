@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/lcoder/lcoder/internal/fsutil"
+	"github.com/lcoder/lcoder/internal/paths"
 )
 
 // Target identifies a memory channel.
@@ -42,12 +45,8 @@ type Store struct {
 // NewStore creates a store rooted at cwd. The global directory is
 // ~/.lcoder/memory.
 func NewStore(cwd string) (*Store, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("home dir: %w", err)
-	}
 	return &Store{
-		globalDir:  filepath.Join(home, ".lcoder", "memory"),
+		globalDir:  paths.LCoderHome("memory"),
 		projectDir: filepath.Join(cwd, ".lcoder", "memory"),
 		limits: Limits{
 			MemoryCharLimit: DefaultMemoryCharLimit,
@@ -99,11 +98,8 @@ func (s *Store) loadFile(path string) ([]string, error) {
 }
 
 func (s *Store) saveFile(path string, t Target, entries []string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
-		return err
-	}
 	data := formatFile(targetName(t), entries, s.limitFor(t))
-	return os.WriteFile(path, []byte(data), 0640)
+	return fsutil.WritePrivateFile(path, []byte(data))
 }
 
 // GlobalEntries returns entries from the global file.

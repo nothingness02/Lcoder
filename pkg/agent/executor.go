@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
@@ -499,8 +500,7 @@ func (e *executor) learnRule(info ToolCallInfo, scope ConfirmScope) {
 		target = filepath.Join(cwd, ".lcoder", "permissions.yaml")
 		_ = e.permissions.LoadProjectRules(target)
 	} else {
-		home, _ := os.UserHomeDir()
-		target = filepath.Join(home, ".lcoder", "permissions", "global.yaml")
+		target = paths.LCoderHome("permissions", "global.yaml")
 		_ = e.permissions.LoadGlobalLearnedRules(target)
 	}
 	_ = permissions.SaveRule(target, tool, pattern, permissions.Allow)

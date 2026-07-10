@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/lcoder/lcoder"
+	"github.com/lcoder/lcoder/internal/paths"
+	"github.com/lcoder/lcoder/internal/strutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -134,13 +136,13 @@ func (mm *ModeManager) List() []ModeConfig {
 func (mm *ModeManager) Detect(prompt string) string {
 	lower := strings.ToLower(prompt)
 	switch {
-	case containsAny(lower, []string{"plan", "design", "architecture", "roadmap", "strategy"}):
+	case strutil.ContainsAny(lower, []string{"plan", "design", "architecture", "roadmap", "strategy"}):
 		return mm.fallback("plan")
-	case containsAny(lower, []string{"test", "testing", "spec", "unit test", "assert"}):
+	case strutil.ContainsAny(lower, []string{"test", "testing", "spec", "unit test", "assert"}):
 		return mm.fallback("test")
-	case containsAny(lower, []string{"review", "audit", "check", "inspect", "critique"}):
+	case strutil.ContainsAny(lower, []string{"review", "audit", "check", "inspect", "critique"}):
 		return mm.fallback("review")
-	case containsAny(lower, []string{"explore", "find", "search", "discover", "lookup"}):
+	case strutil.ContainsAny(lower, []string{"explore", "find", "search", "discover", "lookup"}):
 		return mm.fallback("explore")
 	default:
 		return mm.fallback("code")
@@ -157,23 +159,10 @@ func (mm *ModeManager) fallback(name string) string {
 	return name
 }
 
-func containsAny(s string, keywords []string) bool {
-	for _, k := range keywords {
-		if strings.Contains(s, k) {
-			return true
-		}
-	}
-	return false
-}
-
 // DefaultModeDirs returns the default directories to search for mode configs.
 func DefaultModeDirs(cwd string) []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
 	return []string{
 		filepath.Join(cwd, "configs", "agents"),
-		filepath.Join(home, ".lcoder", "agents"),
+		paths.LCoderHome("agents"),
 	}
 }

@@ -12,16 +12,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lcoder/lcoder/internal/fsutil"
+	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
 // DefaultDir returns the default session directory.
 func DefaultDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return filepath.Join(home, ".lcoder", "sessions")
+	return paths.LCoderHome("sessions")
 }
 
 // hashCWD creates a stable directory name for a project path.
@@ -75,7 +73,7 @@ func (s *Store) Create(cwd string) (*Session, error) {
 		CreatedAt: time.Now().Unix(),
 	}
 	sess.initBranchState()
-	if err := os.MkdirAll(filepath.Dir(sess.Path), 0o700); err != nil {
+	if err := fsutil.EnsurePrivateDir(filepath.Dir(sess.Path)); err != nil {
 		return nil, err
 	}
 	return sess, nil
@@ -241,7 +239,7 @@ func (s *Session) Fork(msgID string) (string, error) {
 // Save writes all messages to the session file using an atomic temp-file +
 // rename so a crash mid-write cannot leave a truncated/corrupt JSONL.
 func (s *Session) Save() error {
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
+	if err := fsutil.EnsurePrivateDir(filepath.Dir(s.Path)); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(s.Path), ".session-*.tmp")

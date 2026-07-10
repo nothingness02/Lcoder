@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lcoder/lcoder/internal/paths"
 	"gopkg.in/yaml.v3"
 )
 
@@ -103,10 +104,7 @@ func resolveModelsConfigPath() (string, bool) {
 			return abs(p), true
 		}
 	}
-	candidates := []string{filepath.Join("configs", "models.yaml")}
-	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(home, ".lcoder", "models.yaml"))
-	}
+	candidates := []string{filepath.Join("configs", "models.yaml"), paths.LCoderHome("models.yaml")}
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {
 			return abs(p), true

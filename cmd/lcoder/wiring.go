@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/agent/hooks"
 	"github.com/lcoder/lcoder/pkg/config"
@@ -22,10 +22,7 @@ import (
 // background refresh + models.yaml overrides) plus every configured provider
 // connection. The returned engine is passed to llm.NewClient.
 func buildEngine(cfg config.Config) *engine.Engine {
-	cachePath := ""
-	if home, err := os.UserHomeDir(); err == nil {
-		cachePath = filepath.Join(home, ".lcoder", "cache", "models.json")
-	}
+	cachePath := paths.LCoderHome("cache", "models.json")
 	cat := catalog.New(catalog.Options{
 		Refresh:   true,
 		CachePath: cachePath,
@@ -74,7 +71,7 @@ func (c cliConfirm) Confirm(ctx context.Context, info agent.ToolCallInfo) (bool,
 
 func (c cliConfirm) ConfirmWithScope(ctx context.Context, info agent.ToolCallInfo) (agent.ConfirmResult, error) {
 	fmt.Fprintf(os.Stderr, "\nPermission request: %s(%s)\n", info.ToolCall.Name, tui.FormatArgsPlain(info.Args))
-	ultra := isUltraDestructive(info)
+	ultra := permissions.IsUltraDestructiveCommand(info.BashCommand())
 	if ultra {
 		fmt.Fprint(os.Stderr, "Destructive command (global allow disabled).\n")
 		fmt.Fprint(os.Stderr, "Allow? (y = once / p = project / N = deny): ")
@@ -111,50 +108,6 @@ func parseConfirmScope(s string) (agent.ConfirmScope, error) {
 	default:
 		return agent.ScopeDeny, fmt.Errorf("unknown choice")
 	}
-}
-
-func isUltraDestructive(info agent.ToolCallInfo) bool {
-	if info.ToolCall.Name != "bash" {
-		return false
-	}
-	cmd, _ := info.Args["command"].(string)
-	if cmd == "" {
-		cmd, _ = info.ToolCall.Arguments["command"].(string)
-	}
-	cmd = strings.Join(strings.Fields(cmd), " ")
-	if cmd == "" {
-		return false
-	}
-	for _, p := range []string{
-		"rm -rf /",
-		"rm -rf /*",
-		"sudo *",
-		"su *",
-		"doas *",
-		"mkfs.*",
-		"fdisk *",
-		"dd *",
-		"reboot",
-		"shutdown *",
-		"halt",
-		"poweroff",
-		"systemctl *",
-		"chmod -R 777 /",
-		"chmod -R 777 /*",
-		"chown -R root /",
-	} {
-		if matched, _ := matchUltraPattern(p, cmd); matched {
-			return true
-		}
-	}
-	return false
-}
-
-func matchUltraPattern(pattern, target string) (bool, error) {
-	const placeholder = "\x00"
-	normPattern := strings.ReplaceAll(pattern, "/", placeholder)
-	normTarget := strings.ReplaceAll(target, "/", placeholder)
-	return filepath.Match(normPattern, normTarget)
 }
 
 func parsePermissionConfig(pc config.PermissionConfig) []permissions.Rule {

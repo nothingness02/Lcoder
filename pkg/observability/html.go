@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"html"
-	"os"
 	"time"
+
+	"github.com/lcoder/lcoder/internal/fsutil"
 )
 
 // HTMLExporter writes a single-session report to an HTML file.
@@ -34,27 +35,10 @@ func (h *HTMLExporter) Close() error { return nil }
 
 // Save writes the HTML report to disk.
 func (h *HTMLExporter) Save(path string) error {
-	if err := os.MkdirAll(pathParent(path), 0o700); err != nil {
+	if err := fsutil.WritePrivateFile(path, []byte(h.Render())); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(h.Render()), 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
-}
-
-func pathParent(path string) string {
-	idx := 0
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' || path[i] == '\\' {
-			idx = i
-			break
-		}
-	}
-	if idx == 0 {
-		return "."
-	}
-	return path[:idx]
+	return nil
 }
 
 // Render returns the HTML report string.

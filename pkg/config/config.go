@@ -4,13 +4,13 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/confmap"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	koanf "github.com/knadh/koanf/v2"
+	"github.com/lcoder/lcoder/internal/paths"
 )
 
 // HTTPToolConfig describes an external HTTP tool.
@@ -100,20 +100,20 @@ type MemoryConfig struct {
 
 // Config is the full Lcoder configuration.
 type Config struct {
-	Provider    string                  `yaml:"provider"`
-	Model       string                  `yaml:"model"`
-	TUI         TUIConfig               `yaml:"tui"`
-	Context     ContextConfig           `yaml:"context"`
-	Permissions PermissionConfig        `yaml:"permissions"`
-	HTTPTools   []HTTPToolConfig        `yaml:"http_tools"`
-	ToolExtensions []ToolExtensionConfig `yaml:"tool_extensions"`
-	MCPServers  []MCPServerConfig       `yaml:"mcp_servers"`
-	Hooks       HookConfig              `yaml:"hooks"`
-	Extensions  []ExtensionConfig       `yaml:"extensions"`
-	Packages    []PackageConfig         `yaml:"packages"`
-	Providers   map[string]ProviderConn `yaml:"providers"`
-	Sandbox     SandboxConfig           `yaml:"sandbox"`
-	Memory      MemoryConfig            `yaml:"memory"`
+	Provider       string                  `yaml:"provider"`
+	Model          string                  `yaml:"model"`
+	TUI            TUIConfig               `yaml:"tui"`
+	Context        ContextConfig           `yaml:"context"`
+	Permissions    PermissionConfig        `yaml:"permissions"`
+	HTTPTools      []HTTPToolConfig        `yaml:"http_tools"`
+	ToolExtensions []ToolExtensionConfig   `yaml:"tool_extensions"`
+	MCPServers     []MCPServerConfig       `yaml:"mcp_servers"`
+	Hooks          HookConfig              `yaml:"hooks"`
+	Extensions     []ExtensionConfig       `yaml:"extensions"`
+	Packages       []PackageConfig         `yaml:"packages"`
+	Providers      map[string]ProviderConn `yaml:"providers"`
+	Sandbox        SandboxConfig           `yaml:"sandbox"`
+	Memory         MemoryConfig            `yaml:"memory"`
 	// Language    string                  `yaml:"language"`
 	// Catalog is the shared model metadata loaded from models.yaml (not parsed
 	// from the main config file). ModelsConfigPath is its resolved location.
@@ -157,37 +157,37 @@ func DefaultConfig() Config {
 				"bash": {
 					"*": "ask",
 					// Read-only / safe commands.
-					"ls":           "allow",
-					"ls *":         "allow",
-					"pwd":          "allow",
-					"echo *":       "allow",
-					"which *":      "allow",
-					"whoami":       "allow",
-					"uname *":      "allow",
-					"date":         "allow",
-					"stat *":       "allow",
-					"cat *":        "allow",
-					"head *":       "allow",
-					"tail *":       "allow",
-					"find *":       "allow",
-					"grep *":       "allow",
-					"git status":   "allow",
-					"git status *": "allow",
-					"git log":      "allow",
-					"git log *":    "allow",
-					"git diff":     "allow",
-					"git diff *":   "allow",
-					"git show":     "allow",
-					"git show *":   "allow",
-					"git branch":   "allow",
-					"git branch *": "allow",
-					"git remote -v": "allow",
+					"ls":             "allow",
+					"ls *":           "allow",
+					"pwd":            "allow",
+					"echo *":         "allow",
+					"which *":        "allow",
+					"whoami":         "allow",
+					"uname *":        "allow",
+					"date":           "allow",
+					"stat *":         "allow",
+					"cat *":          "allow",
+					"head *":         "allow",
+					"tail *":         "allow",
+					"find *":         "allow",
+					"grep *":         "allow",
+					"git status":     "allow",
+					"git status *":   "allow",
+					"git log":        "allow",
+					"git log *":      "allow",
+					"git diff":       "allow",
+					"git diff *":     "allow",
+					"git show":       "allow",
+					"git show *":     "allow",
+					"git branch":     "allow",
+					"git branch *":   "allow",
+					"git remote -v":  "allow",
 					"git stash list": "allow",
-					"git *":        "allow",
-					"go test *":    "allow",
-					"go vet *":     "allow",
-					"go build *":   "allow",
-					"go mod *":     "allow",
+					"git *":          "allow",
+					"go test *":      "allow",
+					"go vet *":       "allow",
+					"go build *":     "allow",
+					"go mod *":       "allow",
 					// Dangerous commands.
 					"rm -rf /":         "deny",
 					"rm -rf /*":        "deny",
@@ -204,7 +204,7 @@ func DefaultConfig() Config {
 					"reboot":           "deny",
 					"shutdown *":       "deny",
 					"halt":             "deny",
-					":(){ :|:& };:":   "deny",
+					":(){ :|:& };:":    "deny",
 				},
 			},
 		},
@@ -355,14 +355,9 @@ func Load() (Config, error) {
 		},
 	}, "."), nil)
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-
 	paths := []string{
-		filepath.Join(home, ".lcoder", "config.yaml"),
-		filepath.Join(home, ".lcoder", "config.yml"),
+		paths.LCoderHome("config.yaml"),
+		paths.LCoderHome("config.yml"),
 		"lcoder.yaml",
 	}
 

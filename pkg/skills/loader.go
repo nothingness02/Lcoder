@@ -6,18 +6,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lcoder/lcoder/internal/paths"
 	"gopkg.in/yaml.v3"
 )
 
 // DefaultPaths returns the default skill search paths relative to cwd and home.
 func DefaultPaths(cwd string) []string {
-	var paths []string
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".lcoder", "skills"))
-	}
-	paths = append(paths, filepath.Join(cwd, ".lcoder", "skills"))
-	paths = append(paths, filepath.Join(cwd, ".agents", "skills"))
-	return paths
+	var out []string
+	out = append(out, paths.LCoderHome("skills"))
+	out = append(out, filepath.Join(cwd, ".lcoder", "skills"))
+	out = append(out, filepath.Join(cwd, ".agents", "skills"))
+	return out
 }
 
 // Load discovers and parses skills from the given directories.

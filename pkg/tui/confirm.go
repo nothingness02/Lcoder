@@ -3,12 +3,11 @@ package tui
 import (
 	"context"
 	"fmt"
-	"path"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lcoder/lcoder/pkg/agent"
+	"github.com/lcoder/lcoder/pkg/permissions"
 )
 
 // confirmResult is returned to the blocked tool call goroutine.
@@ -77,7 +76,7 @@ func (p *confirmPanel) show(info agent.ToolCallInfo, resp chan confirmResult) {
 	p.selected = 0
 	p.info = info
 	p.resp = resp
-	p.ultra = isUltraDestructive(info)
+	p.ultra = permissions.IsUltraDestructiveCommand(info.BashCommand())
 	if p.ultra {
 		p.options = []string{"Deny", "Once", "Project allow"}
 	} else {
@@ -171,56 +170,4 @@ func optionStyle(selected bool) lipgloss.Style {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorDim).
 		Padding(0, 1)
-}
-
-func isUltraDestructive(info agent.ToolCallInfo) bool {
-	if info.ToolCall.Name != "bash" {
-		return false
-	}
-	cmd, _ := info.Args["command"].(string)
-	if cmd == "" {
-		cmd, _ = info.ToolCall.Arguments["command"].(string)
-	}
-	cmd = normalizeCommand(cmd)
-	if cmd == "" {
-		return false
-	}
-	// Check the built-in blacklist patterns manually; the TUI should not offer
-	// global allow for commands like rm -rf / even if the permission engine is
-	// in unsafe mode.
-	for _, p := range []string{
-		"rm -rf /",
-		"rm -rf /*",
-		"sudo *",
-		"su *",
-		"doas *",
-		"mkfs.*",
-		"fdisk *",
-		"dd *",
-		"reboot",
-		"shutdown *",
-		"halt",
-		"poweroff",
-		"systemctl *",
-		"chmod -R 777 /",
-		"chmod -R 777 /*",
-		"chown -R root /",
-	} {
-		if matched, _ := matchUltra(p, cmd); matched {
-			return true
-		}
-	}
-	return false
-}
-
-func matchUltra(pattern, target string) (bool, error) {
-	// Treat '/' as a literal character for command matching.
-	const placeholder = "\x00"
-	normPattern := strings.ReplaceAll(pattern, "/", placeholder)
-	normTarget := strings.ReplaceAll(target, "/", placeholder)
-	return path.Match(normPattern, normTarget)
-}
-
-func normalizeCommand(s string) string {
-	return strings.Join(strings.Fields(s), " ")
 }

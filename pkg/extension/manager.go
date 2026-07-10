@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/lcoder/lcoder/internal/fsutil"
+	"github.com/lcoder/lcoder/internal/paths"
 )
 
 // Manager coordinates installed extensions and packages.
@@ -23,17 +26,13 @@ func NewManager(root string) *Manager {
 
 // DefaultManager returns a manager using ~/.lcoder.
 func DefaultManager() *Manager {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return NewManager(filepath.Join(home, ".lcoder"))
+	return NewManager(paths.LCoderHome())
 }
 
 // InstallPackage installs a package from a local path or git source.
 func (m *Manager) InstallPackage(name, source string) (*Package, error) {
 	pkgRoot := filepath.Join(m.root, "packages", name)
-	if err := os.MkdirAll(filepath.Dir(pkgRoot), 0o755); err != nil {
+	if err := fsutil.EnsurePrivateDir(filepath.Dir(pkgRoot)); err != nil {
 		return nil, err
 	}
 	if _, err := os.Stat(pkgRoot); err == nil {

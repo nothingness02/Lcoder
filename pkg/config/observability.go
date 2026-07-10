@@ -3,8 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
+	"github.com/lcoder/lcoder/internal/paths"
 	"gopkg.in/yaml.v3"
 )
 
@@ -56,11 +56,7 @@ func DefaultObservabilityConfig() ObservabilityConfig {
 // DefaultObservabilityPath returns the standard location for the observability
 // configuration file.
 func DefaultObservabilityPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return filepath.Join(home, ".lcoder", "observability.yaml")
+	return paths.LCoderHome("observability.yaml")
 }
 
 // LoadObservabilityConfig reads observability settings from path. If path is

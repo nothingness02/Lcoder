@@ -3,8 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
+	"github.com/lcoder/lcoder/internal/fsutil"
+	"github.com/lcoder/lcoder/internal/paths"
 	"gopkg.in/yaml.v3"
 )
 
@@ -31,11 +32,7 @@ func LoadCredentials(path string) (map[string]ProviderConn, error) {
 
 // resolveCredentialsPath returns ~/.lcoder/credentials.yaml (empty if no home).
 func resolveCredentialsPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".lcoder", "credentials.yaml")
+	return paths.LCoderHome("credentials.yaml")
 }
 
 // CredentialsPath is the exported accessor for the TUI-managed credentials file
@@ -95,14 +92,11 @@ func mergeCredentials(providers, creds map[string]ProviderConn) map[string]Provi
 // SaveCredentials writes creds to path with 0600 permissions, creating the
 // parent directory as needed. Used by the TUI to persist entered api keys.
 func SaveCredentials(path string, creds map[string]ProviderConn) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create credentials dir: %w", err)
-	}
 	data, err := yaml.Marshal(creds)
 	if err != nil {
 		return fmt.Errorf("marshal credentials: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := fsutil.WritePrivateFile(path, data); err != nil {
 		return fmt.Errorf("write credentials %s: %w", path, err)
 	}
 	return nil
@@ -110,11 +104,7 @@ func SaveCredentials(path string, creds map[string]ProviderConn) error {
 
 // configFilePath returns ~/.lcoder/config.yaml (empty when no home dir).
 func configFilePath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".lcoder", "config.yaml")
+	return paths.LCoderHome("config.yaml")
 }
 
 // SaveProviderSelection persists the chosen provider and model id to the main
@@ -141,15 +131,12 @@ func SaveProviderSelection(provider, model string) error {
 	}
 	raw["provider"] = provider
 	raw["model"] = model
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
 	data, err := yaml.Marshal(raw)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := fsutil.WritePrivateFile(path, data); err != nil {
 		return fmt.Errorf("write config %s: %w", path, err)
 	}
-	return os.Chmod(path, 0o600)
+	return nil
 }

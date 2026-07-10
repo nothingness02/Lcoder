@@ -177,6 +177,21 @@ type ToolCallInfo struct {
 	Context          []models.AgentMessage
 }
 
+// BashCommand returns the bash command from the tool call, or an empty string
+// if the tool is not bash or has no command argument.
+func (info ToolCallInfo) BashCommand() string {
+	if info.ToolCall.Name != "bash" {
+		return ""
+	}
+	if cmd, _ := info.Args["command"].(string); cmd != "" {
+		return cmd
+	}
+	if cmd, _ := info.ToolCall.Arguments["command"].(string); cmd != "" {
+		return cmd
+	}
+	return ""
+}
+
 // BeforeToolCallResult indicates whether a tool call should be blocked.
 type BeforeToolCallResult struct {
 	Block  bool

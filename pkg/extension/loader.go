@@ -6,6 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/lcoder/lcoder/internal/fsutil"
+	"github.com/lcoder/lcoder/internal/paths"
 )
 
 // Loader installs and loads Lcoder extensions.
@@ -20,11 +23,7 @@ func NewLoader(root string) *Loader {
 
 // DefaultLoader returns a loader using ~/.lcoder/extensions.
 func DefaultLoader() *Loader {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return NewLoader(filepath.Join(home, ".lcoder", "extensions"))
+	return NewLoader(paths.LCoderHome("extensions"))
 }
 
 // Install installs an extension from a source string.
@@ -32,7 +31,7 @@ func DefaultLoader() *Loader {
 //   - Local path: ./my-ext or /abs/path/to/my-ext
 //   - Git repo: github.com/acme/lcoder-ext-tools or https://github.com/acme/lcoder-ext-tools
 func (l *Loader) Install(name, source string) (string, error) {
-	if err := os.MkdirAll(l.root, 0o755); err != nil {
+	if err := fsutil.EnsurePrivateDir(l.root); err != nil {
 		return "", err
 	}
 	target := filepath.Join(l.root, name)

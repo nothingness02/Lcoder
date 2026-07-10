@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"plugin"
 	"strings"
+
+	"github.com/lcoder/lcoder/internal/fsutil"
+	"github.com/lcoder/lcoder/internal/paths"
 )
 
 // PluginLoader loads Go extensions compiled as plugin (.so) files.
@@ -22,16 +25,12 @@ func NewPluginLoader(root string) *PluginLoader {
 
 // DefaultPluginLoader returns a plugin loader using ~/.lcoder/plugins.
 func DefaultPluginLoader() *PluginLoader {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return NewPluginLoader(filepath.Join(home, ".lcoder", "plugins"))
+	return NewPluginLoader(paths.LCoderHome("plugins"))
 }
 
 // Build compiles a Go extension directory into a plugin .so file.
 func (l *PluginLoader) Build(sourceDir, name string) (string, error) {
-	if err := os.MkdirAll(l.root, 0o755); err != nil {
+	if err := fsutil.EnsurePrivateDir(l.root); err != nil {
 		return "", err
 	}
 	out := filepath.Join(l.root, name+".so")

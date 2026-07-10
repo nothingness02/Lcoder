@@ -8,6 +8,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/permissions"
 )
 
 func TestCliConfirmParsesYesNo(t *testing.T) {
@@ -88,7 +89,7 @@ func TestIsUltraDestructiveMatchesRMRF(t *testing.T) {
 	info := agent.ToolCallInfo{
 		ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "rm -rf /"}},
 	}
-	if !isUltraDestructive(info) {
+	if !permissions.IsUltraDestructiveCommand(info.BashCommand()) {
 		t.Fatal("expected rm -rf / to be ultra-destructive")
 	}
 }

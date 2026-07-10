@@ -7,8 +7,8 @@ package agentsetup
 
 import (
 	"os"
-	"path/filepath"
 
+	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/compaction"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
@@ -31,14 +31,12 @@ func BuildSystemPrompt() string {
 	// b.WriteString("- Signal completion by replying with a final message that makes NO tool calls: a concise summary of what you did and the outcome. Do not stop early with a plain-text answer while work remains, and do not keep calling tools once the task is done.")
 	// return b.String()
 	// 开发环境用txt来快速构建和查看提示词的更改带来的效果的影响
-	paths := []string{
-		"configs/agents/system.txt",             // 从项目根目录运行
-		"../../configs/agents/system.txt",       // 从 pkg/agentsetup 测试
+	candidates := []string{
+		"configs/agents/system.txt",              // 从项目根目录运行
+		"../../configs/agents/system.txt",        // 从 pkg/agentsetup 测试
+		paths.LCoderHome("agents", "system.txt"), // 用户全局覆盖
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".lcoder", "agents", "system.txt"))
-	}
-	for _, path := range paths {
+	for _, path := range candidates {
 		if content, err := os.ReadFile(path); err == nil {
 			return string(content)
 		}

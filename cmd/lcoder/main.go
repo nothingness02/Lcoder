@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/agentsetup"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
@@ -19,8 +20,8 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/extension"
 	"github.com/lcoder/lcoder/pkg/llm"
-	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/mcp"
+	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/permissions"
@@ -113,17 +114,17 @@ func loadConfig() (config.Config, error) {
 }
 
 type agentSetup struct {
-	ag             *agent.Agent
-	sess           *session.Session
-	store          *session.Store
-	bus            *events.Bus
-	mcpRegistry    *mcp.Registry
-	cfg            agentConfig
-	cwd            string
-	llmClient      *llm.Client
+	ag              *agent.Agent
+	sess            *session.Session
+	store           *session.Store
+	bus             *events.Bus
+	mcpRegistry     *mcp.Registry
+	cfg             agentConfig
+	cwd             string
+	llmClient       *llm.Client
 	checkpointStore checkpoint.Store
-	obsWatcher     *observability.ConfigWatcher
-	cleanup        func()
+	obsWatcher      *observability.ConfigWatcher
+	cleanup         func()
 }
 
 type agentConfig struct {
@@ -213,9 +214,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 
 	permEngine := permissions.NewEngineFromRules(parsePermissionConfig(cfg.Permissions))
 	permEngine.SetUnsafeMode(cfg.Permissions.UnsafeMode)
-	if home, err := os.UserHomeDir(); err == nil {
-		_ = permEngine.LoadGlobalLearnedRules(filepath.Join(home, ".lcoder", "permissions", "global.yaml"))
-	}
+	_ = permEngine.LoadGlobalLearnedRules(paths.LCoderHome("permissions", "global.yaml"))
 	_ = permEngine.LoadProjectRules(filepath.Join(cwd, ".lcoder", "permissions.yaml"))
 
 	sessStore := session.NewStore("")
@@ -287,16 +286,16 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	chkStore := checkpoint.NewFileStore(filepath.Join(session.DefaultDir(), "checkpoints"))
 	ag, err := agent.NewBuilder().
 		WithConfig(agent.Config{
-			SystemPrompt:      "",
-			BaseSystemPrompt:  agentsetup.BuildSystemPrompt(),
-			Model:             models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
-			ToolExecutionMode: models.ExecutionParallel,
-			ContextManager:    mgr,
-			BeforeToolCall:    makeBeforeToolCall(cfg.Hooks),
-			Mode:              modeName,
-			ModeManager:       modeManager,
-			DeferredTools:     cfg.Context.DeferredTools,
-			CoreTools:         cfg.Context.CoreTools,
+			SystemPrompt:       "",
+			BaseSystemPrompt:   agentsetup.BuildSystemPrompt(),
+			Model:              models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
+			ToolExecutionMode:  models.ExecutionParallel,
+			ContextManager:     mgr,
+			BeforeToolCall:     makeBeforeToolCall(cfg.Hooks),
+			Mode:               modeName,
+			ModeManager:        modeManager,
+			DeferredTools:      cfg.Context.DeferredTools,
+			CoreTools:          cfg.Context.CoreTools,
 			CheckpointInterval: 5,
 		}).
 		WithGatewayClient(llmClient).

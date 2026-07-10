@@ -10,6 +10,7 @@ import (
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	koanf "github.com/knadh/koanf/v2"
+	"github.com/lcoder/lcoder/internal/strutil"
 )
 
 // Decision is the result of a permission evaluation.
@@ -162,24 +163,30 @@ var ultraDestructivePatterns = []string{
 // IsUltraDestructive reports whether command matches the built-in ultra-
 // destructive blacklist. This check is independent of configured rules.
 func (e *Engine) IsUltraDestructive(command string) bool {
-	norm := normalizeCommand(command)
+	return IsUltraDestructiveCommand(command)
+}
+
+// IsUltraDestructiveCommand reports whether command matches the built-in ultra-
+// destructive blacklist. It is exposed as a package-level helper so callers
+// without an Engine instance can reuse the same logic and pattern set.
+func IsUltraDestructiveCommand(command string) bool {
+	norm := strutil.CollapseSpace(command)
+	if norm == "" {
+		return false
+	}
 	for _, p := range ultraDestructivePatterns {
-		if matched, _ := matchUltraDestructive(p, norm); matched {
+		if matched, _ := MatchUltraDestructive(p, norm); matched {
 			return true
 		}
 	}
 	return false
 }
 
-func matchUltraDestructive(pattern, target string) (bool, error) {
+// MatchUltraDestructive matches a single ultra-destructive pattern against a
+// normalized command. It treats '/' as a literal character.
+func MatchUltraDestructive(pattern, target string) (bool, error) {
 	const placeholder = "\x00"
 	return path.Match(strings.ReplaceAll(pattern, "/", placeholder), strings.ReplaceAll(target, "/", placeholder))
-}
-
-// normalizeCommand trims leading/trailing whitespace and collapses any run of
-// whitespace to a single space.
-func normalizeCommand(s string) string {
-	return strings.Join(strings.Fields(s), " ")
 }
 
 // Evaluate returns the decision for a request.
@@ -307,4 +314,3 @@ func loadRulesYAML(path string) (Config, error) {
 	}
 	return cfg, nil
 }
-

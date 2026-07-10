@@ -3,9 +3,9 @@ package observability
 import (
 	"database/sql"
 	"encoding/json"
-	"os"
 	"path/filepath"
 
+	"github.com/lcoder/lcoder/internal/fsutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -16,7 +16,7 @@ type SQLiteExporter struct {
 
 // NewSQLiteExporter opens (or creates) a SQLite observability database.
 func NewSQLiteExporter(path string) (*SQLiteExporter, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := fsutil.EnsurePrivateDir(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", path)
