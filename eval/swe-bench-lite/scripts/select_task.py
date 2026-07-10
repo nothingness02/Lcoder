@@ -12,6 +12,7 @@
 """
 import argparse
 import json
+import os
 import sys
 import urllib.request
 
@@ -42,6 +43,19 @@ def fetch_rows(total=400, page=100):
         rows.extend(x["row"] for x in batch)
         off += page
     return rows
+
+
+def load_cache(path):
+    """从本地缓存读取数据集行。"""
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_cache(path, rows):
+    """把数据集行写入本地缓存。"""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(rows, f, indent=2, ensure_ascii=False)
 
 
 def as_list(v):
@@ -80,11 +94,29 @@ def main():
     ap.add_argument("--instance", default="", help="指定 instance_id(优先于 --repo 筛选)")
     ap.add_argument("--limit", type=int, default=1, help="写出规模最小的前 N 个任务")
     ap.add_argument("--out", default="/eval/data/tasks.json")
+    ap.add_argument("--cache", default="/eval/data/swe-bench-lite-cache.jsonl",
+                    help="本地数据集缓存路径")
+    ap.add_argument("--refresh", action="store_true",
+                    help="强制重新从 HuggingFace 拉取并刷新缓存")
     args = ap.parse_args()
 
-    print(f"[select] fetching {DATASET} ...", flush=True)
-    rows = fetch_rows()
-    print(f"[select] got {len(rows)} rows", flush=True)
+    rows = None
+    if not args.refresh and args.cache and os.path.isfile(args.cache):
+        print(f"[select] loading cache from {args.cache} ...", flush=True)
+        try:
+            rows = load_cache(args.cache)
+            print(f"[select] loaded {len(rows)} rows from cache", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[select] cache load failed: {e}, will fetch", file=sys.stderr, flush=True)
+            rows = None
+
+    if rows is None:
+        print(f"[select] fetching {DATASET} ...", flush=True)
+        rows = fetch_rows()
+        print(f"[select] got {len(rows)} rows", flush=True)
+        if args.cache:
+            save_cache(args.cache, rows)
+            print(f"[select] wrote cache to {args.cache}", flush=True)
 
     if args.instance:
         chosen = [r for r in rows if r["instance_id"] == args.instance]

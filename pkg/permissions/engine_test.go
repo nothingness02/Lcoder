@@ -1,8 +1,63 @@
 package permissions
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+func TestLoadProjectRules(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "permissions.yaml")
+	content := `permissions:
+  rules:
+    bash:
+      "go test *": allow
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := NewEngine(DefaultConfig())
+	if err := engine.LoadProjectRules(path); err != nil {
+		t.Fatal(err)
+	}
+	if engine.Evaluate(Request{Tool: "bash", Command: "go test ./..."}) != Allow {
+		t.Fatal("expected project rule to allow go test")
+	}
+}
+
+func TestProjectRuleOverridesGlobal(t *testing.T) {
+	engine := NewEngine(Config{
+		Rules: map[string]RuleTable{
+			"bash": {"go *": Deny},
+		},
+	})
+	engine.AddSource("project", Config{
+		Rules: map[string]RuleTable{
+			"bash": {"go test *": Allow},
+		},
+	})
+
+	if got := engine.Evaluate(Request{Tool: "bash", Command: "go test ./..."}); got != Allow {
+		t.Fatalf("expected project-specific allow, got %v", got)
+	}
+}
+
+func TestUnsafeModeAllowsAllExceptUltraDestructive(t *testing.T) {
+	engine := NewEngine(DefaultConfig())
+	engine.SetUnsafeMode(true)
+
+	if got := engine.Evaluate(Request{Tool: "bash", Command: "curl http://example.com"}); got != Allow {
+		t.Fatalf("expected unsafe allow, got %v", got)
+	}
+	if got := engine.Evaluate(Request{Tool: "bash", Command: "rm -rf /"}); got != Ask {
+		t.Fatalf("expected ultra-destructive ask, got %v", got)
+	}
+	if got := engine.Evaluate(Request{Tool: "write", Path: "/etc/passwd"}); got != Allow {
+		t.Fatalf("expected unsafe allow for write, got %v", got)
+	}
+}
 
 func TestDefaultAllow(t *testing.T) {
 	engine := NewEngine(DefaultConfig())

@@ -291,6 +291,11 @@ func (f userConfirmFunc) Confirm(ctx context.Context, info ToolCallInfo) (bool, 
 	return f(ctx, info)
 }
 
+func (f userConfirmFunc) ConfirmWithScope(ctx context.Context, info ToolCallInfo) (ConfirmResult, error) {
+	allow, err := f(ctx, info)
+	return ConfirmResult{Allow: allow, Scope: ScopeOnce}, err
+}
+
 func TestAgentPermissionAskAllowed(t *testing.T) {
 	toolMsg := models.NewAgentMessage(models.RoleAssistant, models.ToolCallContent{
 		Type: "tool_call", ID: "call_1", Name: "ls", Arguments: map[string]any{},

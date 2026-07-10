@@ -50,6 +50,49 @@ func TestCliConfirmParsesYesNo(t *testing.T) {
 	}
 }
 
+func TestParseConfirmScope(t *testing.T) {
+	cases := []struct {
+		input string
+		want  agent.ConfirmScope
+	}{
+		{"y", agent.ScopeOnce},
+		{"Y", agent.ScopeOnce},
+		{"yes", agent.ScopeOnce},
+		{"p", agent.ScopeProject},
+		{"project", agent.ScopeProject},
+		{"g", agent.ScopeGlobal},
+		{"global", agent.ScopeGlobal},
+		{"n", agent.ScopeDeny},
+		{"N", agent.ScopeDeny},
+		{"no", agent.ScopeDeny},
+		{"deny", agent.ScopeDeny},
+		{"", agent.ScopeDeny},
+	}
+	for _, c := range cases {
+		got, err := parseConfirmScope(c.input)
+		if err != nil {
+			t.Errorf("%q: unexpected error: %v", c.input, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("%q: got %v, want %v", c.input, got, c.want)
+		}
+	}
+
+	if _, err := parseConfirmScope("xyz"); err == nil {
+		t.Fatal("expected error for unknown choice")
+	}
+}
+
+func TestIsUltraDestructiveMatchesRMRF(t *testing.T) {
+	info := agent.ToolCallInfo{
+		ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "rm -rf /"}},
+	}
+	if !isUltraDestructive(info) {
+		t.Fatal("expected rm -rf / to be ultra-destructive")
+	}
+}
+
 func TestCatalogOverridesFromConfigIncludesMaxOutput(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Catalog = config.ModelCatalog{Models: []config.ModelMeta{{

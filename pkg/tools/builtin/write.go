@@ -58,8 +58,39 @@ func (w *Write) Execute(ctx context.Context, callID string, args map[string]any)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return models.ToolExecutionResult{}, err
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return models.ToolExecutionResult{}, err
+
+	// Backup existing file before overwriting.
+	var hadBackup bool
+	backupPath := path + backupSuffix
+	if _, statErr := os.Stat(path); statErr == nil {
+		original, err := os.ReadFile(path)
+		if err != nil {
+			return models.ToolExecutionResult{}, fmt.Errorf("read existing file for backup: %w", err)
+		}
+		if err := os.WriteFile(backupPath, original, 0o600); err != nil {
+			return models.ToolExecutionResult{}, fmt.Errorf("backup failed: %w", err)
+		}
+		hadBackup = true
+	}
+
+	tmpPath := path + tmpSuffix
+	if err := os.WriteFile(tmpPath, []byte(content), 0o644); err != nil {
+		if hadBackup {
+			_ = os.Remove(backupPath)
+		}
+		return models.ToolExecutionResult{}, fmt.Errorf("write temp failed: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		if hadBackup {
+			_ = os.Rename(backupPath, path)
+		}
+		_ = os.Remove(tmpPath)
+		return models.ToolExecutionResult{}, fmt.Errorf("commit failed: %w; restored from backup", err)
+	}
+
+	if hadBackup {
+		_ = os.Remove(backupPath)
 	}
 
 	return models.ToolExecutionResult{

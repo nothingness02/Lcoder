@@ -61,6 +61,50 @@ func (e *Edit) Definition() models.ToolDefinition {
 	}
 }
 
+const (
+	backupSuffix = ".lcoder.bak"
+	tmpSuffix    = ".lcoder.tmp"
+)
+
+type editOp struct {
+	oldText string
+	newText string
+}
+
+func parseEdits(args map[string]any) ([]editOp, error) {
+	editsRaw, ok := args["edits"].([]any)
+	if !ok || len(editsRaw) == 0 {
+		return nil, fmt.Errorf("missing edits")
+	}
+	out := make([]editOp, 0, len(editsRaw))
+	for _, raw := range editsRaw {
+		edit, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("invalid edit entry")
+		}
+		oldText, ok := edit["oldText"].(string)
+		if !ok {
+			return nil, fmt.Errorf("edit missing oldText")
+		}
+		newText, ok := edit["newText"].(string)
+		if !ok {
+			return nil, fmt.Errorf("edit missing newText")
+		}
+		out = append(out, editOp{oldText: oldText, newText: newText})
+	}
+	return out, nil
+}
+
+func applyEdits(text string, edits []editOp) (string, error) {
+	for _, e := range edits {
+		if !containsOnce(text, e.oldText) {
+			return "", fmt.Errorf("oldText not found or not unique")
+		}
+		text = replaceOnce(text, e.oldText, e.newText)
+	}
+	return text, nil
+}
+
 func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	path := args["path"].(string)
 	path, err := resolveAndCheck(e.cwd, e.sb, path, sandbox.FSWrite)
@@ -68,45 +112,47 @@ func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) 
 		return models.ToolExecutionResult{}, err
 	}
 
-	data, err := os.ReadFile(path)
+	edits, err := parseEdits(args)
 	if err != nil {
 		return models.ToolExecutionResult{}, err
 	}
-	text := string(data)
 
-	editsRaw, ok := args["edits"].([]any)
-	if !ok || len(editsRaw) == 0 {
-		return models.ToolExecutionResult{}, fmt.Errorf("missing edits")
-	}
-
-	for _, raw := range editsRaw {
-		edit, ok := raw.(map[string]any)
-		if !ok {
-			return models.ToolExecutionResult{}, fmt.Errorf("invalid edit entry")
-		}
-		oldText, ok := edit["oldText"].(string)
-		if !ok {
-			return models.ToolExecutionResult{}, fmt.Errorf("edit missing oldText")
-		}
-		newText, ok := edit["newText"].(string)
-		if !ok {
-			return models.ToolExecutionResult{}, fmt.Errorf("edit missing newText")
-		}
-		if !containsOnce(text, oldText) {
-			return models.ToolExecutionResult{}, fmt.Errorf("oldText not found or not unique in %s", path)
-		}
-		text = replaceOnce(text, oldText, newText)
-	}
-
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+	original, err := os.ReadFile(path)
+	if err != nil {
 		return models.ToolExecutionResult{}, err
 	}
 
+	// Stage 1: dry-run in memory.
+	newText, err := applyEdits(string(original), edits)
+	if err != nil {
+		return models.ToolExecutionResult{}, fmt.Errorf("%s: %w", path, err)
+	}
+
+	// Stage 2: commit with backup + atomic rename.
+	backupPath := path + backupSuffix
+	if err := os.WriteFile(backupPath, original, 0o600); err != nil {
+		return models.ToolExecutionResult{}, fmt.Errorf("backup failed: %w", err)
+	}
+
+	tmpPath := path + tmpSuffix
+	if err := os.WriteFile(tmpPath, []byte(newText), 0o644); err != nil {
+		_ = os.Remove(backupPath)
+		return models.ToolExecutionResult{}, fmt.Errorf("write temp failed: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Rename(backupPath, path)
+		_ = os.Remove(tmpPath)
+		return models.ToolExecutionResult{}, fmt.Errorf("commit failed: %w; restored from backup", err)
+	}
+
+	_ = os.Remove(backupPath)
+
 	return models.ToolExecutionResult{
 		Content: []models.ContentPart{
-			models.TextContent{Text: fmt.Sprintf("Applied %d edit(s) to %s", len(editsRaw), path)},
+			models.TextContent{Text: fmt.Sprintf("Applied %d edit(s) to %s", len(edits), path)},
 		},
-		Details: map[string]any{"path": path, "edits": len(editsRaw)},
+		Details: map[string]any{"path": path, "edits": len(edits)},
 	}, nil
 }
 

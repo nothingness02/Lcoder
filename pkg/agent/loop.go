@@ -31,6 +31,23 @@ type ReminderProducer func(messages []models.AgentMessage) []string
 // UserConfirmation handles interactive permission approvals for tool calls.
 type UserConfirmation interface {
 	Confirm(ctx context.Context, info ToolCallInfo) (allow bool, err error)
+	ConfirmWithScope(ctx context.Context, info ToolCallInfo) (ConfirmResult, error)
+}
+
+// ConfirmScope describes how widely a user-approved permission should apply.
+type ConfirmScope int
+
+const (
+	ScopeDeny ConfirmScope = iota
+	ScopeOnce
+	ScopeProject
+	ScopeGlobal
+)
+
+// ConfirmResult is the outcome of a scoped confirmation.
+type ConfirmResult struct {
+	Allow bool
+	Scope ConfirmScope
 }
 
 // Config controls agent behavior.

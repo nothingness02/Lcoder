@@ -144,7 +144,7 @@ def extract_agent_patch(rdir):
 def run_lcoder_agent(runtime_cfg, prompt, events_path, stderr_path, env, timeout,
                      continue_session=False, mode="a"):
     """运行 lcoder agent,将 JSON 事件写入/追加到 events_path。"""
-    cmd = ["lcoder", "--config", runtime_cfg, "--json", "-p", prompt]
+    cmd = ["lcoder", "--config", runtime_cfg, "--unsafe", "--json", "-p", prompt]
     if continue_session:
         cmd.append("--continue")
     with open(events_path, mode, encoding="utf-8") as ev, \
@@ -153,16 +153,50 @@ def run_lcoder_agent(runtime_cfg, prompt, events_path, stderr_path, env, timeout
     return p.returncode
 
 
-def build_feedback_prompt(f2p_nodes, test_output, attempt):
+def apply_patch(patch_path, cwd=WORKDIR, timeout=120):
+    """应用 patch,失败时尝试 --3way 合并。"""
+    rc, out = run(["git", "apply", patch_path], cwd=cwd, timeout=timeout)
+    if rc == 0:
+        return 0, out
+    rc2, out2 = run(["git", "apply", "--3way", patch_path], cwd=cwd, timeout=timeout)
+    if rc2 == 0:
+        return 0, out2
+    return rc2, out + "\n---3way attempt---\n" + out2
+
+
+def truncate_test_output(output, max_chars=6000, head_lines=80, tail_lines=80):
+    """智能截断 pytest 输出,保留头部和尾部。"""
+    if len(output) <= max_chars:
+        return output
+    lines = output.splitlines()
+    if len(lines) <= head_lines + tail_lines:
+        return output[:max_chars]
+    head = "\n".join(lines[:head_lines])
+    tail = "\n".join(lines[-tail_lines:])
+    omitted = len(output) - len(head) - len(tail)
+    return f"{head}\n\n... [{omitted} chars truncated] ...\n\n{tail}"
+
+
+def build_feedback_prompt(f2p_nodes, test_output, attempt, p2p_nodes=None, p2p_output=None):
     """把 pytest 失败输出组装成给 agent 的反馈 prompt。"""
-    output = test_output[-8000:] if len(test_output) > 8000 else test_output
+    output = truncate_test_output(test_output)
     nodes = "\n".join(f2p_nodes)
-    return (
-        f"反馈 #{attempt + 1}: 当前修改仍未通过以下测试:\n{nodes}\n\n"
-        f"pytest 输出(节选):\n```\n{output}\n```\n\n"
+    sections = [
+        f"反馈 #{attempt + 1}: 当前修改仍未通过以下测试:\n{nodes}",
+        f"pytest 输出(节选):\n```\n{output}\n```",
+    ]
+    if p2p_nodes:
+        p2p_out = truncate_test_output(p2p_output or "")
+        sections.append(
+            "同时以下回归测试也失败了:\n"
+            + "\n".join(p2p_nodes)
+            + f"\n\npytest 输出:\n```\n{p2p_out}\n```"
+        )
+    sections.append(
         "请分析失败原因,在源码中定位根因并继续修改。"
         "不要改动测试文件。修改完成后会再次运行这些测试。"
     )
+    return "\n\n".join(sections)
 
 
 def main():
@@ -240,7 +274,7 @@ def main():
         result["p2p_capped"] = len(p2p) < len(p2p_all)
 
         # 3) baseline:应用 test_patch,确认 F2P 失败 / P2P 通过 ----------------
-        rc, out = run(["git", "apply", test_patch_path], cwd=WORKDIR, timeout=120)
+        rc, out = apply_patch(test_patch_path, cwd=WORKDIR, timeout=120)
         if rc != 0:
             result["stages"]["baseline_apply_test_patch"] = "failed"
             with open(os.path.join(rdir, "test_patch_apply.log"), "w") as f:
@@ -317,7 +351,7 @@ def main():
         if agent_timed_out:
             eval_status = "timeout"
         else:
-            rc, out = run(["git", "apply", test_patch_path], cwd=WORKDIR, timeout=120)
+            rc, out = apply_patch(test_patch_path, cwd=WORKDIR, timeout=120)
             if rc != 0:
                 with open(os.path.join(rdir, "eval_apply.log"), "w") as f:
                     f.write(out)
@@ -329,49 +363,75 @@ def main():
                 f2p_log = os.path.join(rdir, "test_after.log")
                 f2p_after, _ = run_pytest(f2p, f2p_log, env)
 
-                # 若未通过,把 pytest 输出反馈给 agent,继续修复。
-                if not f2p_after:
-                    for fb_attempt in range(FEEDBACK_ATTEMPTS):
+                fb_attempt = 0
+                while fb_attempt < FEEDBACK_ATTEMPTS:
+                    # F2P 已通过时检查 P2P,防止回归未被发现。
+                    if f2p_after:
+                        p2p_log = (
+                            os.path.join(rdir, "test_after_p2p.log")
+                            if fb_attempt == 0
+                            else os.path.join(rdir, f"test_after_fb_{fb_attempt}_p2p.log")
+                        )
+                        p2p_after, _ = run_pytest(p2p, p2p_log, env)
+                        if p2p_after:
+                            eval_status = "resolved"
+                            break
+                        feedback_kind = "regression"
+                    else:
+                        feedback_kind = "f2p"
+
+                    # 无剩余反馈次数,直接给出当前结论。
+                    if fb_attempt >= FEEDBACK_ATTEMPTS:
+                        if feedback_kind == "regression":
+                            eval_status = "partial"
+                        else:
+                            eval_status = "failed"
+                        break
+
+                    # 撤销 test_patch,保留 agent 改动,让 agent 继续。
+                    run(["git", "apply", "-R", test_patch_path], cwd=WORKDIR, timeout=120)
+                    test_patch_applied = False
+
+                    if feedback_kind == "f2p":
                         with open(f2p_log, encoding="utf-8") as f:
                             test_output = f.read()
-
-                        # 撤销 test_patch,保留 agent 改动,再让 agent 继续。
-                        run(["git", "apply", "-R", test_patch_path], cwd=WORKDIR, timeout=120)
-                        test_patch_applied = False
-
                         fb_prompt = build_feedback_prompt(f2p, test_output, fb_attempt)
-                        stage_key = f"agent_feedback_{fb_attempt + 1}"
-                        rc, timed_out, _ = agent_round(
-                            fb_prompt, FEEDBACK_TIMEOUT_S, True, "a", stage_key,
+                    else:
+                        with open(f2p_log, encoding="utf-8") as f:
+                            f2p_output = f.read()
+                        with open(p2p_log, encoding="utf-8") as f:
+                            p2p_output = f.read()
+                        fb_prompt = build_feedback_prompt(
+                            f2p, f2p_output, fb_attempt,
+                            p2p_nodes=p2p, p2p_output=p2p_output,
                         )
-                        if timed_out:
-                            agent_timed_out = True
-                            eval_status = "timeout"
-                            break
 
-                        rc, out = run(["git", "apply", test_patch_path], cwd=WORKDIR, timeout=120)
-                        if rc != 0:
-                            with open(os.path.join(rdir, f"eval_apply_fb_{fb_attempt + 1}.log"), "w") as f:
-                                f.write(out)
-                            result["stages"][f"eval_apply_test_patch_fb_{fb_attempt + 1}"] = "failed"
-                            eval_status = "error"
-                            break
-                        test_patch_applied = True
-                        f2p_log = os.path.join(rdir, f"test_after_fb_{fb_attempt + 1}.log")
-                        f2p_after, _ = run_pytest(f2p, f2p_log, env)
-                        if f2p_after:
-                            break
+                    stage_key = f"agent_feedback_{fb_attempt + 1}"
+                    rc, timed_out, _ = agent_round(
+                        fb_prompt, FEEDBACK_TIMEOUT_S, True, "a", stage_key,
+                    )
+                    if timed_out:
+                        agent_timed_out = True
+                        eval_status = "timeout"
+                        break
 
-                if test_patch_applied:
-                    p2p_after, _ = run_pytest(p2p, os.path.join(rdir, "test_after_p2p.log"), env)
+                    rc, out = apply_patch(test_patch_path, cwd=WORKDIR, timeout=120)
+                    if rc != 0:
+                        with open(os.path.join(rdir, f"eval_apply_fb_{fb_attempt + 1}.log"), "w") as f:
+                            f.write(out)
+                        result["stages"][f"eval_apply_test_patch_fb_{fb_attempt + 1}"] = "failed"
+                        eval_status = "error"
+                        break
+                    test_patch_applied = True
+
+                    fb_attempt += 1
+                    f2p_log = os.path.join(rdir, f"test_after_fb_{fb_attempt}.log")
+                    f2p_after, _ = run_pytest(f2p, f2p_log, env)
 
                 if agent_timed_out:
                     eval_status = "timeout"
-                elif f2p_after and p2p_after:
-                    eval_status = "resolved"
-                elif f2p_after and not p2p_after:
-                    eval_status = "partial"
-                else:
+                elif eval_status not in ("resolved", "partial", "error"):
+                    # 循环结束但尚未得出结论:F2P 仍失败。
                     eval_status = "failed"
 
         result["fail_to_pass_passed"] = f2p_after
@@ -391,6 +451,12 @@ def main():
 
         # 7) 指标 -------------------------------------------------------------
         result["metrics"] = collect_metrics(events_path, env)
+        model_id = result["metrics"].get("model", "")
+        provider_id = result["metrics"].get("provider", "")
+        if provider_id and model_id:
+            result["model"] = f"{provider_id}/{model_id}"
+        elif model_id:
+            result["model"] = model_id
 
     except Exception as e:  # noqa: BLE001
         result["error"] = str(e)
@@ -405,9 +471,19 @@ def main():
 
 
 def collect_metrics(events_path, env):
-    """从 events.jsonl(权威)+ observability(尽力)采集过程指标。"""
-    m = {"turns": 0, "tool_calls": 0, "file_edits": 0, "tests_run": 0,
-         "messages": 0, "errors": 0}
+    """从 events.jsonl(权威) + 当前任务 session 的 observability 采集指标。"""
+    m = {
+        "turns": 0,
+        "tool_calls": 0,
+        "file_edits": 0,
+        "tests_run": 0,
+        "messages": 0,
+        "errors": 0,
+        "tokens": {"prompt": 0, "completion": 0, "cache_read": 0, "cache_write": 0},
+        "cost": 0.0,
+        "provider": "",
+        "model": "",
+    }
     try:
         with open(events_path, encoding="utf-8") as f:
             for line in f:
@@ -437,10 +513,25 @@ def collect_metrics(events_path, env):
     except FileNotFoundError:
         pass
 
-    # observability:尽力读取 token / cost(模型不在 catalog,cost 可能为 0)
-    obs_glob = "/root/.lcoder/observability/sessions/*.jsonl"
-    tokens = {"prompt": 0, "completion": 0, "cache_read": 0, "cache_write": 0}
-    for path in glob.glob(obs_glob):
+    # 精确读取当前任务 session 对应的 observability 文件。
+    metric_files = []
+    session_path = latest_session_path(WORKDIR)
+    if session_path:
+        sid = os.path.splitext(os.path.basename(session_path))[0]
+        scoped = os.path.join("/root/.lcoder/observability/sessions", f"{sid}.jsonl")
+        if os.path.isfile(scoped):
+            metric_files = [scoped]
+    if not metric_files:
+        # 兜底：session 未创建时仍尝试读取所有 observability 文件。
+        metric_files = glob.glob("/root/.lcoder/observability/sessions/*.jsonl")
+
+    token_map = {
+        "llm_prompt_tokens": "prompt",
+        "llm_completion_tokens": "completion",
+        "llm_cache_read_tokens": "cache_read",
+        "llm_cache_write_tokens": "cache_write",
+    }
+    for path in metric_files:
         try:
             with open(path, encoding="utf-8") as f:
                 for line in f:
@@ -448,37 +539,25 @@ def collect_metrics(events_path, env):
                         rec = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    for k_src, k_dst in (
-                        ("prompt_tokens", "prompt"),
-                        ("completion_tokens", "completion"),
-                        ("cache_read_tokens", "cache_read"),
-                        ("cache_write_tokens", "cache_write"),
-                    ):
-                        v = _deep_get(rec, k_src)
-                        if isinstance(v, (int, float)):
-                            tokens[k_dst] += int(v)
+                    if rec.get("type") != "metric":
+                        continue
+                    metric = rec.get("metric", {})
+                    name = metric.get("name", "")
+                    value = metric.get("value")
+                    if name in token_map and isinstance(value, (int, float)):
+                        m["tokens"][token_map[name]] += int(value)
+                    if name == "llm_cost_usd" and isinstance(value, (int, float)):
+                        m["cost"] += float(value)
+                    labels = metric.get("labels", {})
+                    if not m["provider"] and labels.get("provider"):
+                        m["provider"] = labels["provider"]
+                    if not m["model"] and labels.get("model"):
+                        m["model"] = labels["model"]
         except OSError:
             continue
-    m["tokens"] = tokens
+
+    m["cost"] = round(m["cost"], 6)
     return m
-
-
-def _deep_get(obj, key):
-    """在嵌套 dict 中查找某 key 的最后一个数值出现。"""
-    found = None
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if k == key and isinstance(v, (int, float)):
-                found = v
-            sub = _deep_get(v, key)
-            if sub is not None:
-                found = sub
-    elif isinstance(obj, list):
-        for v in obj:
-            sub = _deep_get(v, key)
-            if sub is not None:
-                found = sub
-    return found
 
 
 if __name__ == "__main__":

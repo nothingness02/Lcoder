@@ -118,6 +118,27 @@ Sessions are stored as JSONL in `~/.lcoder/sessions/<project-hash>/`. Each messa
 ./lcoder clone --session <id>                      # clone active branch
 ```
 
+## Security Defaults
+
+Lcoder runs with a least-privilege posture by default. Destructive tools start in
+"ask" mode and must be approved per invocation, per project, or globally.
+
+- `write` and `edit` default to **ask** for every path.
+- `bash` defaults to **ask**. A small built-in whitelist (e.g. `ls`, `pwd`,
+  `echo`, `git status`, `git log`, `git diff`, `git branch`) is allowed without
+  prompting.
+- When a command is approved interactively you can choose:
+  - **once** — allow this invocation only
+  - **project** — remember the choice in `<repo>/.lcoder/permissions.yaml`
+  - **global** — remember it in `~/.lcoder/permissions/global.yaml`
+- Run with `--unsafe` to bypass the permission engine. Ultra-destructive
+  commands such as `rm -rf /` still require approval.
+- Every permission decision is recorded in the audit log, including
+  `unsafe-allow` when `--unsafe` is active.
+
+Rules follow glob patterns; more specific patterns win over generic ones. See
+`configs/lcoder.yaml` for examples.
+
 ## Observability
 
 Lcoder writes observability data to `~/.lcoder/observability/sessions/<session-id>.jsonl`.

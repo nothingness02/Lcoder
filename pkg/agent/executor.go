@@ -3,13 +3,17 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/permissions/bashrisk"
 	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
@@ -26,6 +30,9 @@ type executor struct {
 	mu             sync.Mutex
 	activeDeferred map[string]bool
 	taskMgr        *task.Manager
+
+	dedupMu sync.Mutex
+	dedup   map[string]models.AgentMessage
 }
 
 // newExecutor creates an executor with an initialized activeDeferred map.
@@ -42,6 +49,10 @@ func newExecutor(cfg *Config, mgr *contextmgr.Manager, registry *tools.Registry,
 }
 
 func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.AgentMessage, calls []models.ToolCallContent, execMode models.ExecutionMode) ([]models.AgentMessage, bool) {
+	e.dedupMu.Lock()
+	e.dedup = make(map[string]models.AgentMessage)
+	e.dedupMu.Unlock()
+
 	sequential := execMode == models.ExecutionSequential
 	if e.cfg.ModeManager != nil {
 		mode := e.cfg.ModeManager.Get(e.cfg.Mode)
@@ -128,6 +139,17 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		}
 	}
 
+	// Same-turn deduplication for read-only idempotent tools.
+	if isCacheableTool(call.Name) {
+		key := dedupKey(call.Name, args)
+		e.dedupMu.Lock()
+		cached, ok := e.dedup[key]
+		e.dedupMu.Unlock()
+		if ok {
+			return cloneAgentMessage(cached, call.ID)
+		}
+	}
+
 	// Permission check: engine decision + optional interactive confirmation.
 	info := ToolCallInfo{
 		AssistantMessage: assistantMsg,
@@ -135,7 +157,7 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		Args:             args,
 		Context:          e.mgr.AllMessages(),
 	}
-	allowed, confirmErr := e.confirmToolCall(ctx, turn, info)
+	allowed, _, confirmErr := e.confirmToolCall(ctx, turn, info)
 	if confirmErr != nil || !allowed {
 		reason := "denied"
 		if confirmErr != nil {
@@ -219,6 +241,14 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 	})
 
 	msg := e.makeToolResultMessage(call, result, isError)
+
+	if isCacheableTool(call.Name) {
+		key := dedupKey(call.Name, args)
+		e.dedupMu.Lock()
+		e.dedup[key] = msg
+		e.dedupMu.Unlock()
+	}
+
 	e.emitter.emit(ctx, events.MessageStartEvent{
 		Base:    events.Base{Type: events.MessageStart, Turn: turn},
 		Message: msg,
@@ -375,8 +405,19 @@ func (e *executor) activeDeferredNames() []string {
 
 // confirmToolCall evaluates the permission engine and, if required, asks the
 // configured UserConfirmation handler. It returns true when the call may proceed.
-func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallInfo) (bool, error) {
+func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallInfo) (bool, ConfirmScope, error) {
 	decision := e.permissions.Decide(info.ToolCall.Name, info.Args)
+
+	// Low-risk bash commands do not need interactive approval even when no rule
+	// explicitly allows them.
+	if decision == permissions.Ask && info.ToolCall.Name == "bash" {
+		cmd, _ := info.Args["command"].(string)
+		cwd, _ := os.Getwd()
+		report := bashrisk.Classify(cmd, cwd)
+		if report.Level == bashrisk.RiskNone || report.Level == bashrisk.RiskLow {
+			decision = permissions.Allow
+		}
+	}
 
 	var blocked bool
 	var blockReason string
@@ -386,12 +427,17 @@ func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallI
 		blockReason = "denied by policy"
 	}
 
+	decisionLabel := string(decision)
+	if e.permissions.UnsafeMode() && decision == permissions.Allow {
+		decisionLabel = "unsafe-allow"
+	}
+
 	e.emitter.emit(ctx, events.AuditEvent{
 		Base:        events.Base{Type: events.Audit, Turn: turn},
 		ToolCallID:  info.ToolCall.ID,
 		ToolName:    info.ToolCall.Name,
 		Args:        info.Args,
-		Decision:    string(decision),
+		Decision:    decisionLabel,
 		Allowed:     allowed,
 		Blocked:     blocked,
 		BlockReason: blockReason,
@@ -399,14 +445,14 @@ func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallI
 
 	switch decision {
 	case permissions.Allow:
-		return true, nil
+		return true, ScopeOnce, nil
 	case permissions.Deny:
-		return false, nil
+		return false, ScopeDeny, nil
 	case permissions.Ask:
 		if e.cfg.UserConfirm == nil {
-			return false, nil
+			return false, ScopeDeny, nil
 		}
-		confirmed, err := e.cfg.UserConfirm.Confirm(ctx, info)
+		res, err := e.cfg.UserConfirm.ConfirmWithScope(ctx, info)
 		askBlockReason := ""
 		if err != nil {
 			askBlockReason = err.Error()
@@ -417,15 +463,81 @@ func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallI
 			ToolName:    info.ToolCall.Name,
 			Args:        info.Args,
 			Decision:    "ask",
-			Allowed:     err == nil && confirmed,
-			Blocked:     err != nil || !confirmed,
+			Allowed:     err == nil && res.Allow,
+			Blocked:     err != nil || !res.Allow,
 			BlockReason: askBlockReason,
 		})
 		if err != nil {
-			return false, err
+			return false, ScopeDeny, err
 		}
-		return confirmed, nil
+		if res.Allow {
+			e.learnRule(info, res.Scope)
+		}
+		return res.Allow, res.Scope, nil
 	default:
-		return true, nil
+		return true, ScopeOnce, nil
 	}
+}
+
+func (e *executor) learnRule(info ToolCallInfo, scope ConfirmScope) {
+	if scope != ScopeProject && scope != ScopeGlobal {
+		return
+	}
+
+	tool := info.ToolCall.Name
+	pattern := "*"
+	if tool == "bash" {
+		cmd, _ := info.Args["command"].(string)
+		pattern = permissions.PatternForCommand(cmd)
+	} else if path, ok := info.Args["path"].(string); ok {
+		pattern = path
+	}
+
+	var target string
+	if scope == ScopeProject {
+		cwd, _ := os.Getwd()
+		target = filepath.Join(cwd, ".lcoder", "permissions.yaml")
+		_ = e.permissions.LoadProjectRules(target)
+	} else {
+		home, _ := os.UserHomeDir()
+		target = filepath.Join(home, ".lcoder", "permissions", "global.yaml")
+		_ = e.permissions.LoadGlobalLearnedRules(target)
+	}
+	_ = permissions.SaveRule(target, tool, pattern, permissions.Allow)
+}
+
+func isCacheableTool(name string) bool {
+	switch name {
+	case "read", "ls", "grep", "find":
+		return true
+	}
+	return false
+}
+
+func dedupKey(name string, args map[string]any) string {
+	return name + "|" + tools.NormalizeArgs(args)
+}
+
+func cloneAgentMessage(msg models.AgentMessage, newToolCallID string) models.AgentMessage {
+	cloned := msg
+	cloned.ID = uuid.New().String()[:12]
+	cloned.Content = make([]models.ContentPart, len(msg.Content))
+	copy(cloned.Content, msg.Content)
+	cloned.Metadata = make(map[string]any)
+	for k, v := range msg.Metadata {
+		cloned.Metadata[k] = v
+	}
+	if len(cloned.Content) > 0 {
+		if tr, ok := cloned.Content[0].(models.ToolResultContent); ok {
+			tr.ToolCallID = newToolCallID
+			details := make(map[string]any)
+			for k, v := range tr.Details {
+				details[k] = v
+			}
+			details["deduplicated"] = true
+			tr.Details = details
+			cloned.Content[0] = tr
+		}
+	}
+	return cloned
 }

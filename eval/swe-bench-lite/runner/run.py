@@ -9,6 +9,7 @@
     python run.py                                         # 跑 tasks.json 第一个任务
 """
 import argparse
+import concurrent.futures
 import json
 import os
 import subprocess
@@ -58,15 +59,19 @@ def build_image(pyver):
         sys.exit("docker build failed")
 
 
-def select_task(repo, instance, limit):
+def select_task(repo, instance, limit, refresh=False):
     os.makedirs(DATA_DIR, exist_ok=True)
+    cache_path = os.path.join(DATA_DIR, "swe-bench-lite-cache.jsonl")
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{DATA_DIR}:/eval/data",
         image_tag(DEFAULT_PYVER),
         "python", "/eval/scripts/select_task.py",
         "--out", "/eval/data/tasks.json",
+        "--cache", "/eval/data/swe-bench-lite-cache.jsonl",
     ]
+    if refresh:
+        cmd.append("--refresh")
     if instance:
         cmd += ["--instance", instance]
     else:
@@ -121,14 +126,95 @@ def summarize():
         resolved = sum(1 for r in rows if r.get("status") == "resolved")
         print(f"\nresolved {resolved}/{len(rows)}", flush=True)
 
+    summary = build_summary(rows)
+    with open(os.path.join(RESULTS_DIR, "summary.json"), "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    with open(os.path.join(RESULTS_DIR, "summary.md"), "w", encoding="utf-8") as f:
+        f.write(render_summary_md(summary))
+    print(f"[summary] wrote {RESULTS_DIR}/summary.json and summary.md", flush=True)
+
+
+def build_summary(rows):
+    total = len(rows)
+    counts = {}
+    for r in rows:
+        counts[r.get("status", "unknown")] = counts.get(r.get("status", "unknown"), 0) + 1
+    resolved = counts.get("resolved", 0)
+
+    def avg(key, default=0):
+        vals = []
+        for r in rows:
+            v = r.get("metrics", {}).get(key)
+            if isinstance(v, (int, float)):
+                vals.append(v)
+            elif isinstance(v, str):
+                try:
+                    vals.append(float(v))
+                except ValueError:
+                    pass
+        if not vals:
+            return default
+        return round(sum(vals) / len(vals), 2)
+
+    return {
+        "total": total,
+        "resolved": resolved,
+        "resolved_rate": round(resolved / total, 4) if total else 0.0,
+        "counts": counts,
+        "avg": {
+            "turns": avg("turns"),
+            "tool_calls": avg("tool_calls"),
+            "file_edits": avg("file_edits"),
+            "cost": avg("cost"),
+            "duration_s": avg("duration_s"),
+        },
+        "tasks": rows,
+    }
+
+
+def render_summary_md(summary):
+    lines = [
+        "# SWE-bench Lite 评估汇总",
+        "",
+        f"- 任务总数: {summary['total']}",
+        f"- 已解决 (resolved): {summary['resolved']} / {summary['total']} ({summary['resolved_rate']*100:.2f}%)",
+        "- 状态分布:",
+    ]
+    for status, cnt in sorted(summary["counts"].items()):
+        lines.append(f"  - {status}: {cnt}")
+    lines.append("")
+    lines.append("| 指标 | 平均值 |")
+    lines.append("|------|--------|")
+    for k, v in summary["avg"].items():
+        lines.append(f"| {k} | {v} |")
+    lines.append("")
+    lines.append("## 任务明细")
+    lines.append("")
+    lines.append("| instance_id | status | turns | tools | edits | cost | duration_s | model |")
+    lines.append("|-------------|--------|-------|-------|-------|------|------------|-------|")
+    for r in summary["tasks"]:
+        m = r.get("metrics", {})
+        model = r.get("model", "")
+        lines.append(
+            f"| {r.get('instance_id', '')} | {r.get('status', '')} | "
+            f"{m.get('turns', '')} | {m.get('tool_calls', '')} | "
+            f"{m.get('file_edits', '')} | {m.get('cost', '')} | "
+            f"{r.get('duration_s', '')} | {model} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build", action="store_true", help="交叉编译并构建默认镜像")
     ap.add_argument("--select", action="store_true", help="从 HF 筛选任务写 tasks.json")
+    ap.add_argument("--refresh", action="store_true", help="--select 时强制刷新数据集缓存")
     ap.add_argument("--repo", default="psf/requests")
     ap.add_argument("--instance", default="")
     ap.add_argument("--limit", type=int, default=1, help="筛选/运行规模最小的前 N 个任务")
+    ap.add_argument("--sample", type=int, default=0, help="只运行 tasks.json 中的前 N 个任务(0=全部)")
+    ap.add_argument("--workers", type=int, default=1, help="并行运行任务数(默认 1)")
     ap.add_argument("--no-run", action="store_true", help="只准备,不跑任务")
     args = ap.parse_args()
 
@@ -136,7 +222,7 @@ def main():
         cross_compile()
         build_image(DEFAULT_PYVER)
     if args.select:
-        select_task(args.repo, args.instance, args.limit)
+        select_task(args.repo, args.instance, args.limit, refresh=args.refresh)
 
     if not args.no_run:
         if not os.path.isfile(TASKS_FILE):
@@ -145,13 +231,26 @@ def main():
             tasks = json.load(f)
         if args.instance:
             tasks = [t for t in tasks if t["instance_id"] == args.instance] or tasks
+        if args.sample > 0:
+            tasks = tasks[:args.sample]
         # 确保交叉编译产物存在(供按需构建其它 python 版本镜像)。
         if not os.path.isfile(BIN_PATH):
             cross_compile()
-        # 逐个跑 tasks.json 里的任务(批量测解决率)。
-        for t in tasks:
-            print(f"\n########## RUN {t['instance_id']} ##########", flush=True)
-            run_task(t)
+        # 逐个或并行跑 tasks.json 里的任务(批量测解决率)。
+        if args.workers <= 1:
+            for t in tasks:
+                print(f"\n########## RUN {t['instance_id']} ##########", flush=True)
+                run_task(t)
+        else:
+            print(f"\n########## RUN {len(tasks)} tasks with {args.workers} workers ##########", flush=True)
+
+            def run_one(t):
+                print(f"\n########## START {t['instance_id']} ##########", flush=True)
+                run_task(t)
+                print(f"\n########## END {t['instance_id']} ##########", flush=True)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
+                list(ex.map(run_one, tasks))
         summarize()
 
 
