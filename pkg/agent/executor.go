@@ -150,6 +150,11 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		return e.handleToolSearch(ctx, turn, assistantMsg, call)
 	}
 
+	// switch_mode is a meta-tool that changes the agent mode for the next turn.
+	if call.Name == switchModeToolName {
+		return e.handleSwitchMode(ctx, turn, assistantMsg, call)
+	}
+
 	// Pre-execution argument validation. On failure we do NOT emit any tool
 	// events: the failed attempt stays invisible in the live TUI, and the error
 	// tool_result is fed back so the LLM can self-correct next turn.
@@ -418,7 +423,7 @@ func (e *executor) handleSwitchMode(ctx context.Context, turn int, assistantMsg 
 // honoring deferred tool loading and any previously promoted deferred tools.
 func (e *executor) baseToolDefinitions() []models.ToolDefinition {
 	if !e.cfg.DeferredTools {
-		return e.registry.Definitions()
+		return append(e.registry.Definitions(), switchModeDefinition())
 	}
 	core := e.cfg.CoreTools
 	if len(core) == 0 {
@@ -439,7 +444,7 @@ func (e *executor) baseToolDefinitions() []models.ToolDefinition {
 		}
 	}
 
-	return append(active, deferred...)
+	return append(append(active, deferred...), switchModeDefinition())
 }
 
 func (e *executor) activateDeferredTool(name string) {
