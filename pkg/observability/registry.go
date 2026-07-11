@@ -64,6 +64,9 @@ func DefaultRegistry() *Registry {
 	r.Register("html", func(cfg map[string]any, output string) (Exporter, error) {
 		return NewHTMLExporter(), nil
 	})
+	r.Register("markdown", func(cfg map[string]any, output string) (Exporter, error) {
+		return NewMarkdownExporter(), nil
+	})
 	r.Register("prometheus", func(cfg map[string]any, output string) (Exporter, error) {
 		return NewPrometheusExporter(), nil
 	})

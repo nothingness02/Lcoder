@@ -43,11 +43,49 @@ func TestCollectorBasicFlow(t *testing.T) {
 			metrics++
 		}
 	}
-	if spanStarts != spanEnds {
-		t.Fatalf("unmatched spans: starts=%d ends=%d", spanStarts, spanEnds)
+	if spanStarts != 0 {
+		t.Fatalf("expected no span_start records, got %d", spanStarts)
+	}
+	if spanEnds == 0 {
+		t.Fatalf("expected span_end records")
 	}
 	if metrics == 0 {
 		t.Fatal("expected metrics")
+	}
+
+	// All exported spans should carry a duration (0 is acceptable for sub-ms tests).
+	for _, r := range exporter.Records {
+		if r.Type == "span_end" && r.Span != nil {
+			if r.Span.DurationMs < 0 {
+				t.Fatalf("expected non-negative DurationMs for span %s, got %d", r.Span.Name, r.Span.DurationMs)
+			}
+		}
+	}
+}
+
+func TestCollectorEmitsNoSpanStartRecords(t *testing.T) {
+	exporter := NewMemoryExporter()
+	collector := NewCollector(exporter)
+	bus := events.New()
+	defer bus.Close()
+	collector.Subscribe(bus)
+
+	ctx := context.Background()
+	_ = bus.Emit(ctx, events.AgentStartEvent{Base: events.Base{Type: events.AgentStart, Turn: 0}})
+	_ = bus.Emit(ctx, events.TurnStartEvent{Base: events.Base{Type: events.TurnStart, Turn: 0}})
+	_ = bus.Emit(ctx, events.MessageStartEvent{Base: events.Base{Type: events.MessageStart, Turn: 0}, Message: models.NewAgentMessage(models.RoleAssistant, models.TextContent{Text: "hi"})})
+	_ = bus.Emit(ctx, events.MessageEndEvent{Base: events.Base{Type: events.MessageEnd, Turn: 0}})
+	_ = bus.Emit(ctx, events.ToolExecutionStartEvent{Base: events.Base{Type: events.ToolExecutionStart, Turn: 0}, ToolCallID: "call_1", ToolName: "ls"})
+	_ = bus.Emit(ctx, events.ToolExecutionEndEvent{Base: events.Base{Type: events.ToolExecutionEnd, Turn: 0}, ToolCallID: "call_1", ToolName: "ls"})
+	_ = bus.Emit(ctx, events.TurnEndEvent{Base: events.Base{Type: events.TurnEnd, Turn: 0}})
+	_ = bus.Emit(ctx, events.AgentEndEvent{Base: events.Base{Type: events.AgentEnd, Turn: 0}})
+
+	_ = bus.Close()
+
+	for _, r := range exporter.Records {
+		if r.Type == "span_start" {
+			t.Fatalf("unexpected span_start record: %+v", r)
+		}
 	}
 }
 

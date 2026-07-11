@@ -15,13 +15,14 @@ import (
 
 // Builder constructs an Agent with a fluent, replaceable interface.
 type Builder struct {
-	cfg          Config
-	llmClient    *llm.Client
-	registry     *tools.Registry
-	permissions  *permissions.Engine
-	bus          *events.Bus
-	obsCollector *observability.Collector
-	contextMgr   *contextmgr.Manager
+	cfg                     Config
+	llmClient               *llm.Client
+	registry                *tools.Registry
+	permissions             *permissions.Engine
+	bus                     *events.Bus
+	obsCollector            *observability.Collector
+	contextSnapshotRecorder *observability.ContextSnapshotRecorder
+	contextMgr              *contextmgr.Manager
 }
 
 // NewBuilder creates a new Agent builder.
@@ -139,6 +140,12 @@ func (b *Builder) WithObservability(c *observability.Collector) *Builder {
 	return b
 }
 
+// WithContextSnapshotRecorder sets the context snapshot recorder.
+func (b *Builder) WithContextSnapshotRecorder(r *observability.ContextSnapshotRecorder) *Builder {
+	b.contextSnapshotRecorder = r
+	return b
+}
+
 // WithSessionID identifies the session the agent belongs to. Used as the
 // default key for automatic checkpoints.
 func (b *Builder) WithSessionID(id string) *Builder {
@@ -176,6 +183,9 @@ func (b *Builder) Build() (*Agent, error) {
 		ag.obsCollector = b.obsCollector
 		ag.emitter.obs = b.obsCollector
 		ag.streamer.obs = b.obsCollector
+	}
+	if b.contextSnapshotRecorder != nil {
+		ag.contextSnapshotRecorder = b.contextSnapshotRecorder
 	}
 	return ag, nil
 }

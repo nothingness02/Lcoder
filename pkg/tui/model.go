@@ -96,7 +96,7 @@ type Model struct {
 	// capabilities of the active model, shown in /status (from the catalog).
 	capabilities []string
 
-	skills      []skills.Skill
+	skills      []skills.SkillMeta
 	modeManager *agent.ModeManager
 
 	// Provider-config wizard dependencies and state.
@@ -117,7 +117,7 @@ type Model struct {
 }
 
 // NewModel keeps the exact signature the call sites and tests rely on.
-func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store SessionStore, cwd, sessionID, model, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, checkpointStore checkpoint.Store, needsProviderSetup bool, loadedSkills ...skills.Skill) *Model {
+func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store SessionStore, cwd, sessionID, model, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, checkpointStore checkpoint.Store, needsProviderSetup bool, loadedSkillCatalog ...skills.SkillMeta) *Model {
 	// Theme override: honor explicit "light"/"dark", else auto-detect.
 	switch themeStyle {
 	case "light":
@@ -145,7 +145,7 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		extPanel:           ExtensionsPanelModel{HTTPTools: httpTools, MCPServers: mcpServers(mcpRegistry)},
 		model:              model,
 		themeStyle:         themeStyle,
-		skills:             loadedSkills,
+		skills:             loadedSkillCatalog,
 		modeManager:        modeManager,
 		llmClient:          llmClient,
 		cfg:                cfg,

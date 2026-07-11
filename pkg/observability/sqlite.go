@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS spans (
 	name TEXT,
 	start_time INTEGER,
 	end_time INTEGER,
+	duration_ms INTEGER,
 	status TEXT,
 	attributes TEXT
 );
@@ -66,14 +67,15 @@ func (s *SQLiteExporter) Export(record Record) error {
 		}
 		attrs, _ := json.Marshal(record.Span.Attributes)
 		_, err := s.db.Exec(
-			`INSERT OR REPLACE INTO spans (trace_id, span_id, parent_id, name, start_time, end_time, status, attributes)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT OR REPLACE INTO spans (trace_id, span_id, parent_id, name, start_time, end_time, duration_ms, status, attributes)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			record.Span.TraceID,
 			record.Span.SpanID,
 			record.Span.ParentID,
 			record.Span.Name,
 			record.Span.StartTime,
 			record.Span.EndTime,
+			record.Span.DurationMs,
 			record.Span.Status,
 			string(attrs),
 		)

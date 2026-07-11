@@ -595,48 +595,11 @@ func (m *Model) dispatchSlash(text string) tea.Cmd {
 		m.showTextPanel(sc.Name, styleError().Render("unknown command: /"+sc.Name))
 		return nil
 	}
-	switch entry.Name {
-	case "help":
-		m.showTextPanel("help", formatCommandHelp())
-	case "new":
-		m.blocks = nil
-		m.rebuildViewport()
-	case "sessions":
-		m.openSessionPicker()
-	case "extensions":
-		m.extPanel.Visible = true
-		m.state = stateExtensions
-	case "mcp":
-		m.openMCPPanel()
-	case "tools":
-		m.toolsExpanded = !m.toolsExpanded
-		m.rebuildViewport()
-	case "tasks":
-		m.toggleTaskSidebar()
-	case "mode":
-		m.switchMode(strings.TrimSpace(sc.Args))
-	case "modes":
-		m.openModePanel()
-	case "provider":
-		m.openProviderPanel()
-	case "status":
-		m.showTextPanel("status", m.statusText())
-	case "save":
-		m.saveCheckpoint()
-	case "restore":
-		m.restoreCheckpoint()
-	case "checkpoints":
-		m.listCheckpoints()
-	case "skill":
-		m.openSkillPanel()
-	case "retry":
-		return m.retryLast()
-	case "quit":
-		return tea.Quit
-	default:
+	if entry.Handler == nil {
 		m.showTextPanel(entry.Name, styleError().Render("unhandled command: /"+entry.Name))
+		return nil
 	}
-	return nil
+	return entry.Handler(m, sc.Args)
 }
 
 // switchMode changes the agent mode if the runner supports it. An empty mode
@@ -696,7 +659,7 @@ func (m *Model) openSkillPanel() {
 	}
 	var items []cmdPanelItem
 	for _, s := range m.skills {
-		items = append(items, cmdPanelItem{label: s.Name, desc: s.WhenToUse, value: s.Name})
+		items = append(items, cmdPanelItem{label: s.Name, desc: s.Description, value: s.Name})
 	}
 	m.cmdPanel = cmdPanel{visible: true, kind: cmdPanelSelect, title: "skill", items: items, action: actionTriggerSkill}
 	m.updateSizes()

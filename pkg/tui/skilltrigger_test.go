@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,12 +12,25 @@ import (
 )
 
 // newSkillModel builds a model with one loaded skill for trigger tests.
-func newSkillModel() (*Model, *fakeAgent, *fakeSession) {
+func newSkillModel(t *testing.T) (*Model, *fakeAgent, *fakeSession) {
 	bus := events.New()
 	agent := &fakeAgent{}
 	sess := &fakeSession{ID: "abc123"}
 	store := &fakeSessionStore{}
-	skill := skills.Skill{Name: "tester", WhenToUse: "writing tests", Steps: []string{"write a test"}}
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "SKILL.md")
+	content := `---
+name: tester
+description: writing tests
+---
+Write a test for the user's request.
+`
+	if err := os.WriteFile(source, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	skill := skills.SkillMeta{Name: "tester", Description: "writing tests", Source: source}
 	m := NewModel(bus, agent, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, skill)
 	m.width = 80
 	m.height = 24
@@ -24,7 +39,7 @@ func newSkillModel() (*Model, *fakeAgent, *fakeSession) {
 }
 
 func TestSubmitManualSkillTrigger(t *testing.T) {
-	m, _, sess := newSkillModel()
+	m, _, sess := newSkillModel(t)
 
 	cmd := m.submit("/skill:tester add a case")
 	if cmd == nil {
@@ -49,7 +64,7 @@ func TestSubmitManualSkillTrigger(t *testing.T) {
 }
 
 func TestSubmitUnknownSkillTrigger(t *testing.T) {
-	m, _, _ := newSkillModel()
+	m, _, _ := newSkillModel(t)
 
 	cmd := m.submit("/skill:nope do it")
 	if cmd != nil {

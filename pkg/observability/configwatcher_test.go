@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lcoder/lcoder/pkg/config"
+	"github.com/lcoder/lcoder/pkg/contextmgr"
 )
 
 func TestConfigWatcherUpdatesSamplingRate(t *testing.T) {
@@ -20,7 +21,7 @@ func TestConfigWatcherUpdatesSamplingRate(t *testing.T) {
 	sampler := NewSamplingExporter(inner, 0)
 	defer sampler.Close()
 
-	w := NewConfigWatcher(path, sampler)
+	w := NewConfigWatcher(path, sampler, nil)
 	if err := w.Start(); err != nil {
 		t.Fatalf("start watcher: %v", err)
 	}
@@ -58,7 +59,7 @@ func TestConfigWatcherNoSamplerStillStarts(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	w := NewConfigWatcher(path, nil)
+	w := NewConfigWatcher(path, nil, nil)
 	if err := w.Start(); err != nil {
 		t.Fatalf("start watcher: %v", err)
 	}
@@ -68,6 +69,50 @@ func TestConfigWatcherNoSamplerStillStarts(t *testing.T) {
 		t.Fatalf("update config: %v", err)
 	}
 	time.Sleep(200 * time.Millisecond)
+}
+
+func TestConfigWatcherTogglesContextSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "observability.yaml")
+	if err := os.WriteFile(path, []byte("sampling:\n  enabled: true\n  rate: 1\ncontext_snapshots:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	inner := NewMemoryExporter()
+	sampler := NewSamplingExporter(inner, 1)
+	defer sampler.Close()
+
+	snapDir := filepath.Join(dir, "snapshots")
+	recorder := NewContextSnapshotRecorder("sess-cw", config.ContextSnapshotsConfig{Enabled: false, OutputDir: snapDir})
+
+	w, err := NewConfigWatcherFromConfig(path, config.ObservabilityConfig{Sampling: config.SamplingConfig{Enabled: true, Rate: 1}}, sampler, recorder)
+	if err != nil {
+		t.Fatalf("create watcher: %v", err)
+	}
+	if err := w.Start(); err != nil {
+		t.Fatalf("start watcher: %v", err)
+	}
+	defer w.Close()
+
+	state := &contextmgr.ManagerState{Blocks: []contextmgr.BlockState{}}
+	_ = recorder.Record(state, "end", 0)
+	if _, err := os.ReadFile(filepath.Join(snapDir, "context-turn-0-end.md")); err == nil {
+		t.Fatal("expected no snapshot when initially disabled")
+	}
+
+	if err := os.WriteFile(path, []byte("sampling:\n  enabled: true\n  rate: 1\ncontext_snapshots:\n  enabled: true\n"), 0o644); err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = recorder.Record(state, "end", 0)
+		if _, err := os.ReadFile(filepath.Join(snapDir, "context-turn-0-end.md")); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("expected snapshot after enabling via config watcher")
 }
 
 func TestNewConfigWatcherFromConfig(t *testing.T) {
@@ -81,7 +126,7 @@ func TestNewConfigWatcherFromConfig(t *testing.T) {
 	sampler := NewSamplingExporter(inner, 0.5)
 	defer sampler.Close()
 
-	w, err := NewConfigWatcherFromConfig(path, config.ObservabilityConfig{Sampling: config.SamplingConfig{Enabled: true, Rate: 0.5}}, sampler)
+	w, err := NewConfigWatcherFromConfig(path, config.ObservabilityConfig{Sampling: config.SamplingConfig{Enabled: true, Rate: 0.5}}, sampler, nil)
 	if err != nil {
 		t.Fatalf("create watcher: %v", err)
 	}

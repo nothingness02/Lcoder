@@ -7,35 +7,8 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
-// commandEntry describes one slash command. Dispatch lives in commands.go.
-type commandEntry struct {
-	Name        string
-	Aliases     []string
-	Description string
-	Category    string
-}
-
-// commandRegistry is the single source of truth for slash commands. Phase 9's
-// dispatch switches on Name. Keep names lowercase.
-var commandRegistry = []commandEntry{
-	{Name: "help", Aliases: []string{"?"}, Description: "Show help", Category: "System"},
-	{Name: "sessions", Aliases: []string{"resume", "continue"}, Description: "Switch session", Category: "Session"},
-	{Name: "new", Aliases: []string{"clear"}, Description: "New session / clear chat", Category: "Session"},
-	{Name: "save", Description: "Save current agent checkpoint", Category: "Session"},
-	{Name: "restore", Description: "Restore agent checkpoint", Category: "Session"},
-	{Name: "checkpoints", Description: "List saved checkpoints", Category: "Session"},
-	{Name: "mode", Description: "Switch agent mode", Category: "Agent"},
-	{Name: "modes", Description: "List available modes", Category: "Agent"},
-	{Name: "provider", Aliases: []string{"model"}, Description: "Configure LLM provider / model", Category: "Agent"},
-	{Name: "skill", Description: "Trigger a skill", Category: "Agent"},
-	{Name: "tools", Description: "Toggle detailed tool & thinking view (Ctrl+O)", Category: "View"},
-	{Name: "tasks", Description: "Toggle task sidebar (Ctrl+T)", Category: "View"},
-	{Name: "extensions", Aliases: []string{"ext"}, Description: "Toggle extensions panel", Category: "View"},
-	{Name: "mcp", Description: "Manage MCP servers", Category: "View"},
-	{Name: "retry", Description: "Retry last turn", Category: "Action"},
-	{Name: "status", Description: "View system status", Category: "System"},
-	{Name: "quit", Aliases: []string{"q"}, Description: "Quit", Category: "System"},
-}
+// commandEntry and commandRegistry now live in slash_registry.go so that
+// commands can carry an executable Handler and be extended at runtime.
 
 // menuMatch pairs a command with the fuzzy-matched rune positions for highlight.
 type menuMatch struct {

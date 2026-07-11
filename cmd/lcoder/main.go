@@ -129,8 +129,8 @@ type agentSetup struct {
 
 type agentConfig struct {
 	config.Config
-	loadedSkills []skills.Skill
-	modeManager  *agent.ModeManager
+	loadedSkillCatalog []skills.SkillMeta
+	modeManager        *agent.ModeManager
 }
 
 func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
@@ -143,8 +143,8 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	extMgr := extension.DefaultManager()
 
 	skillPaths := append(skills.DefaultPaths(cwd), extMgr.SkillDirs()...)
-	loadedSkills, _ := skills.Load(skillPaths)
-	skillsBlock := skills.ToSystemPromptBlock(loadedSkills)
+	loadedSkillCatalog, _ := skills.LoadCatalog(skillPaths)
+	skillsBlock := skills.ToCatalogBlock(loadedSkillCatalog)
 
 	// Non-fatal capability check: warn if the configured model is known not to
 	// support tool calling, since the agent relies on tools.
@@ -258,7 +258,9 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	obsCollector := observability.NewCollectorWithAudit(obsExporter, sess.ID, auditLogger)
 	obsCollector.Subscribe(bus)
 
-	obsWatcher, err := observability.NewConfigWatcherFromConfig(config.DefaultObservabilityPath(), obsCfg, obsSampler)
+	contextSnapshotRecorder := observability.NewContextSnapshotRecorder(sess.ID, obsCfg.ContextSnapshots)
+
+	obsWatcher, err := observability.NewConfigWatcherFromConfig(config.DefaultObservabilityPath(), obsCfg, obsSampler, contextSnapshotRecorder)
 	if err != nil {
 		mcpRegistry.Close()
 		return nil, fmt.Errorf("observability watcher: %w", err)
@@ -303,6 +305,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		WithPermissions(permEngine).
 		WithEventBus(bus).
 		WithObservability(obsCollector).
+		WithContextSnapshotRecorder(contextSnapshotRecorder).
 		WithSessionID(sess.ID).
 		WithCheckpointStore(chkStore).
 		Build()
@@ -327,7 +330,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		store:           sessStore,
 		bus:             bus,
 		mcpRegistry:     mcpRegistry,
-		cfg:             agentConfig{Config: cfg, loadedSkills: loadedSkills, modeManager: modeManager},
+		cfg:             agentConfig{Config: cfg, loadedSkillCatalog: loadedSkillCatalog, modeManager: modeManager},
 		cwd:             cwd,
 		llmClient:       llmClient,
 		checkpointStore: chkStore,
@@ -455,16 +458,24 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 
 	var initialMessages []models.AgentMessage
 	if name, rest, ok := skills.ParseManualTrigger(prompt); ok {
-		if skill, found := skills.FindByName(setup.cfg.loadedSkills, name); found {
+		if meta, found := skills.FindByName(setup.cfg.loadedSkillCatalog, name); found {
+			skill, err := skills.LoadSkill(meta.Source)
+			if err != nil {
+				return fmt.Errorf("load skill %q: %w", name, err)
+			}
 			initialMessages = skills.ExpandManualTrigger(skill, rest)
 		} else {
 			return fmt.Errorf("skill %q not found", name)
 		}
 	} else if setup.cfg.Context.Mode == "auto" {
 		// Auto-detect skill from prompt when no manual trigger is used.
-		if score, ok := skills.AutoDetect(prompt, setup.cfg.loadedSkills); ok {
+		if score, ok := skills.AutoDetect(prompt, setup.cfg.loadedSkillCatalog); ok {
 			fmt.Printf("[lcoder] auto-activated skill: %s\n", score.Skill.Name)
-			initialMessages = skills.ExpandManualTrigger(score.Skill, prompt)
+			skill, err := skills.LoadSkill(score.Skill.Source)
+			if err != nil {
+				return fmt.Errorf("load skill %q: %w", score.Skill.Name, err)
+			}
+			initialMessages = skills.ExpandManualTrigger(skill, prompt)
 		}
 	}
 
@@ -528,5 +539,5 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 		caps = meta.Capabilities
 	}
 	needsSetup := !config.ProviderHasKey(setup.cfg.Config, setup.cfg.Provider)
-	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup, setup.cfg.loadedSkills...)
+	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup, setup.cfg.loadedSkillCatalog...)
 }

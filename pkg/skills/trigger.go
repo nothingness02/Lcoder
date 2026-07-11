@@ -1,20 +1,19 @@
 package skills
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-// FindByName looks up a skill by name in a loaded skill list.
-func FindByName(skills []Skill, name string) (Skill, bool) {
-	for _, s := range skills {
+// FindByName looks up a skill by name in a loaded skill catalog.
+func FindByName(catalog []SkillMeta, name string) (SkillMeta, bool) {
+	for _, s := range catalog {
 		if s.Name == name {
 			return s, true
 		}
 	}
-	return Skill{}, false
+	return SkillMeta{}, false
 }
 
 // ParseManualTrigger checks if text is a manual skill trigger like "/skill:name".
@@ -38,30 +37,7 @@ func ParseManualTrigger(text string) (name string, rest string, ok bool) {
 
 // ExpandManualTrigger returns system/user messages that activate a skill.
 func ExpandManualTrigger(skill Skill, originalText string) []models.AgentMessage {
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("You are now using the %s skill.\n\n", skill.Name))
-	if skill.WhenToUse != "" {
-		b.WriteString("Purpose: ")
-		b.WriteString(skill.WhenToUse)
-		b.WriteString("\n\n")
-	}
-	if len(skill.Steps) > 0 {
-		b.WriteString("Steps:\n")
-		for _, step := range skill.Steps {
-			b.WriteString("- ")
-			b.WriteString(step)
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-	}
-	if skill.OutputFormat != "" {
-		b.WriteString("Output format: ")
-		b.WriteString(skill.OutputFormat)
-		b.WriteString("\n\n")
-	}
-	b.WriteString("Follow the above instructions for the user's request.")
-
-	system := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: b.String()})
+	system := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: RenderActiveSkill(skill)})
 	user := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: originalText})
 	return []models.AgentMessage{system, user}
 }

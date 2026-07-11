@@ -101,8 +101,11 @@ func ExportFile(path string, exporter Exporter, output string) error {
 		}
 	}
 
-	if htmlEx, ok := exporter.(*HTMLExporter); ok {
-		return htmlEx.Save(output + ".html")
+	switch ex := exporter.(type) {
+	case *HTMLExporter:
+		return ex.Save(output + ".html")
+	case *MarkdownExporter:
+		return ex.Save(output + ".md")
 	}
 	return nil
 }

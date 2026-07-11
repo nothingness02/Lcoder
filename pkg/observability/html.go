@@ -78,12 +78,12 @@ th { background: #f4f4f4; }
 <tr><th>Time</th><th>Type</th><th>Name</th><th>Status</th></tr>
 `)
 	for _, r := range h.records {
-		if r.Type != "span_start" || r.Span == nil {
+		if r.Type != "span_end" || r.Span == nil {
 			continue
 		}
 		duration := ""
-		if r.Span.EndTime > 0 {
-			duration = fmt.Sprintf("%d ms", r.Span.EndTime-r.Span.StartTime)
+		if r.Span.DurationMs > 0 {
+			duration = fmt.Sprintf("%d ms", r.Span.DurationMs)
 		}
 		buf.WriteString(fmt.Sprintf(
 			"<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",

@@ -52,12 +52,12 @@ func skillsCmd() *cobra.Command {
 				return err
 			}
 			paths := append(skills.DefaultPaths(cwd), extension.DefaultManager().SkillDirs()...)
-			loaded, err := skills.Load(paths)
+			catalog, err := skills.LoadCatalog(paths)
 			if err != nil {
 				return err
 			}
-			for _, s := range loaded {
-				fmt.Printf("- %s (%s)\n", s.Name, s.Source)
+			for _, s := range catalog {
+				fmt.Printf("- %s: %s\n", s.Name, s.Description)
 			}
 			return nil
 		},
@@ -153,6 +153,8 @@ func exportCmd() *cobra.Command {
 				}
 			case "html":
 				exporter = observability.NewHTMLExporter()
+			case "markdown":
+				exporter = observability.NewMarkdownExporter()
 			case "prometheus":
 				exporter = observability.NewPrometheusExporter()
 			default:
@@ -161,7 +163,7 @@ func exportCmd() *cobra.Command {
 			return observability.ExportFile(path, exporter, output)
 		},
 	}
-	cmd.Flags().StringVar(&format, "format", "html", "Export format: html, sqlite, prometheus")
+	cmd.Flags().StringVar(&format, "format", "html", "Export format: html, markdown, sqlite, prometheus")
 	cmd.Flags().StringVarP(&output, "output", "o", "lcoder-export", "Output file or directory")
 	return cmd
 }
@@ -232,7 +234,7 @@ func tuiCmd() *cobra.Command {
 				caps = meta.Capabilities
 			}
 			needsSetup := !config.ProviderHasKey(cfg, cfg.Provider)
-			return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, cwd, modelRef, cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, cfg, needsSetup, setup.cfg.loadedSkills...)
+			return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, cwd, modelRef, cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, cfg, needsSetup, setup.cfg.loadedSkillCatalog...)
 		},
 	}
 }

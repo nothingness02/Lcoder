@@ -26,30 +26,23 @@ func ComputeStats(records []Record) SessionStats {
 
 	for _, r := range records {
 		switch r.Type {
-		case "span_start":
-			if r.Span != nil {
-				if r.Span.Name == "agent_run" {
-					agentStart = r.Span.StartTime
-				}
-				if r.Span.ParentID != "" {
-					if _, ok := seenToolCalls[r.Span.SpanID]; !ok {
-						seenToolCalls[r.Span.SpanID] = true
-						if strings.HasPrefix(r.Span.Name, "tool_") {
-							s.ToolCalls++
-							if r.Span.Status == SpanError {
-								s.ToolErrors++
-							}
-						}
-					}
-				}
-			}
 		case "span_end":
 			if r.Span != nil {
 				if r.Span.Name == "agent_run" {
+					agentStart = r.Span.StartTime
 					agentEnd = r.Span.EndTime
 				}
 				if r.Span.Name == "llm_response" {
 					s.LLMCalls++
+				}
+				if _, ok := seenToolCalls[r.Span.SpanID]; !ok {
+					seenToolCalls[r.Span.SpanID] = true
+					if strings.HasPrefix(r.Span.Name, "tool_") {
+						s.ToolCalls++
+						if r.Span.Status == SpanError {
+							s.ToolErrors++
+						}
+					}
 				}
 			}
 		case "metric":

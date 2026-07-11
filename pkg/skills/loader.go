@@ -19,9 +19,10 @@ func DefaultPaths(cwd string) []string {
 	return out
 }
 
-// Load discovers and parses skills from the given directories.
-func Load(paths []string) ([]Skill, error) {
-	var skills []Skill
+// LoadCatalog discovers skill directories and parses only the YAML frontmatter
+// of each SKILL.md, returning lightweight metadata suitable for eager loading.
+func LoadCatalog(paths []string) ([]SkillMeta, error) {
+	var catalog []SkillMeta
 	seen := make(map[string]bool)
 
 	for _, base := range paths {
@@ -34,36 +35,84 @@ func Load(paths []string) ([]Skill, error) {
 				continue
 			}
 			skillPath := filepath.Join(base, entry.Name(), "SKILL.md")
-			data, err := os.ReadFile(skillPath)
+			meta, err := parseMeta(skillPath)
 			if err != nil {
 				continue
 			}
-			skill, err := parse(data)
-			if err != nil {
-				continue
+			if meta.Name == "" {
+				meta.Name = entry.Name()
 			}
-			if skill.Name == "" {
-				skill.Name = entry.Name()
-			}
-			skill.Source = skillPath
-			if !seen[skill.Name] {
-				seen[skill.Name] = true
-				skills = append(skills, skill)
+			if !seen[meta.Name] {
+				seen[meta.Name] = true
+				catalog = append(catalog, meta)
 			}
 		}
 	}
-	return skills, nil
+	return catalog, nil
+}
+
+// LoadSkill reads a full SKILL.md file from disk and returns the complete skill
+// including its free-form Markdown body.
+func LoadSkill(source string) (Skill, error) {
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return Skill{}, fmt.Errorf("read skill %s: %w", source, err)
+	}
+	return parse(data, source)
 }
 
 type frontMatter struct {
-	Name         string   `yaml:"name"`
-	WhenToUse    string   `yaml:"when_to_use"`
-	Steps        []string `yaml:"steps"`
-	Examples     []string `yaml:"examples"`
-	OutputFormat string   `yaml:"output_format"`
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Keywords    []string `yaml:"keywords"`
+	Tags        []string `yaml:"tags"`
 }
 
-func parse(data []byte) (Skill, error) {
+func parseMeta(source string) (SkillMeta, error) {
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return SkillMeta{}, err
+	}
+	fm, body, err := splitFrontMatter(data)
+	if err != nil {
+		return SkillMeta{}, err
+	}
+	_ = body
+	meta := SkillMeta{
+		Name:        fm.Name,
+		Description: fm.Description,
+		Keywords:    fm.Keywords,
+		Tags:        fm.Tags,
+		Source:      source,
+	}
+	if len(meta.Keywords) == 0 {
+		meta.Keywords = deriveKeywords(meta.Name, meta.Description)
+	}
+	return meta, nil
+}
+
+func parse(data []byte, source string) (Skill, error) {
+	fm, body, err := splitFrontMatter(data)
+	if err != nil {
+		return Skill{}, err
+	}
+	meta := SkillMeta{
+		Name:        fm.Name,
+		Description: fm.Description,
+		Keywords:    fm.Keywords,
+		Tags:        fm.Tags,
+		Source:      source,
+	}
+	if len(meta.Keywords) == 0 {
+		meta.Keywords = deriveKeywords(meta.Name, meta.Description)
+	}
+	return Skill{
+		SkillMeta: meta,
+		Body:      body,
+	}, nil
+}
+
+func splitFrontMatter(data []byte) (frontMatter, string, error) {
 	content := string(data)
 	var fm frontMatter
 
@@ -71,90 +120,25 @@ func parse(data []byte) (Skill, error) {
 		end := strings.Index(content[3:], "---")
 		if end != -1 {
 			if err := yaml.Unmarshal([]byte(content[3:end+3]), &fm); err != nil {
-				return Skill{}, fmt.Errorf("invalid frontmatter: %w", err)
+				return fm, "", fmt.Errorf("invalid frontmatter: %w", err)
 			}
 			content = strings.TrimSpace(content[end+6:])
 		}
 	}
-
-	sections := parseSections(content)
-
-	if len(fm.Steps) == 0 {
-		if steps, ok := sections["Steps"]; ok {
-			fm.Steps = splitLines(steps)
-		}
-	}
-	if len(fm.Examples) == 0 {
-		if examples, ok := sections["Examples"]; ok {
-			fm.Examples = splitLines(examples)
-		}
-	}
-	if fm.OutputFormat == "" {
-		fm.OutputFormat = sections["Output Format"]
-	}
-	if fm.WhenToUse == "" {
-		fm.WhenToUse = firstParagraph(content)
-	}
-
-	return Skill{
-		Name:         fm.Name,
-		WhenToUse:    fm.WhenToUse,
-		Steps:        fm.Steps,
-		Examples:     fm.Examples,
-		OutputFormat: fm.OutputFormat,
-	}, nil
+	return fm, content, nil
 }
 
-func parseSections(content string) map[string]string {
-	sections := make(map[string]string)
-	lines := strings.Split(content, "\n")
-	var current string
-	var buffer strings.Builder
-
-	flush := func() {
-		if current != "" {
-			sections[current] = strings.TrimSpace(buffer.String())
-		}
-		buffer.Reset()
-	}
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "## ") {
-			flush()
-			current = strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
-			continue
-		}
-		buffer.WriteString(line)
-		buffer.WriteByte('\n')
-	}
-	flush()
-	return sections
-}
-
-func splitLines(s string) []string {
-	var out []string
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		out = append(out, line)
-	}
-	return out
-}
-
-func firstParagraph(content string) string {
-	content = strings.TrimSpace(content)
-	if strings.HasPrefix(content, "#") {
-		idx := strings.Index(content, "\n")
-		if idx != -1 {
-			content = strings.TrimSpace(content[idx+1:])
+func deriveKeywords(name, description string) []string {
+	var tokens []string
+	tokens = append(tokens, tokenize(strings.ToLower(name))...)
+	tokens = append(tokens, tokenize(strings.ToLower(description))...)
+	seen := make(map[string]bool)
+	var keywords []string
+	for _, t := range tokens {
+		if len(t) > 3 && !seen[t] {
+			seen[t] = true
+			keywords = append(keywords, t)
 		}
 	}
-	idx := strings.Index(content, "\n\n")
-	if idx != -1 {
-		return strings.TrimSpace(content[:idx])
-	}
-	return strings.TrimSpace(content)
+	return keywords
 }

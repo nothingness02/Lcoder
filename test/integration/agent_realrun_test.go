@@ -353,8 +353,8 @@ func TestAgentRealRun(t *testing.T) {
 	// Load project context and skills from the repo, mirroring prepareAgent.
 	// Errors are non-fatal: missing files simply mean empty blocks.
 	contextText, _ := contextloader.NewLoader(repoRoot).Load()
-	loadedSkills, _ := skills.Load(skills.DefaultPaths(repoRoot))
-	skillsBlock := skills.ToSystemPromptBlock(loadedSkills)
+	loadedSkillCatalog, _ := skills.LoadCatalog(skills.DefaultPaths(repoRoot))
+	skillsBlock := skills.ToCatalogBlock(loadedSkillCatalog)
 
 	// Context manager built exactly as the real binary builds it (shared
 	// agentsetup.NewContextManager): same window policy, budget, and blocks. The

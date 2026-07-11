@@ -1,0 +1,14 @@
+services:
+  lcoder:
+    build:
+      context: ../..
+      dockerfile: docker/manual/Dockerfile
+    stdin_open: true
+    tty: true
+    volumes:
+      - ${HOME}/.lcoder:/root/.lcoder
+      - ./workspace:/workspace
+    working_dir: /workspace
+    environment:
+      - TERM=${TERM:-xterm-256color}
+      - LC_ALL=C.UTF-8

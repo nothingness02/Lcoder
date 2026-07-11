@@ -29,6 +29,7 @@ type Span struct {
 	Name       string         `json:"name"`
 	StartTime  int64          `json:"start_time"`
 	EndTime    int64          `json:"end_time,omitempty"`
+	DurationMs int64          `json:"duration_ms,omitempty"`
 	Status     SpanStatus     `json:"status"`
 	Attributes map[string]any `json:"attributes,omitempty"`
 	Events     []SpanEvent    `json:"events,omitempty"`
@@ -138,13 +139,13 @@ func (c *Collector) handle(ctx context.Context, ev events.Event) error {
 			StartTime: now,
 			Status:    SpanOK,
 		}
-		_ = c.exporter.Export(Record{Type: "span_start", Span: c.rootSpan})
 
 	case events.AgentEndEvent:
 		if c.rootSpan == nil {
 			return nil
 		}
 		c.rootSpan.EndTime = now
+		c.rootSpan.DurationMs = now - c.rootSpan.StartTime
 		_ = c.exporter.Export(Record{Type: "span_end", Span: c.rootSpan})
 
 	case events.TurnStartEvent:
@@ -161,7 +162,6 @@ func (c *Collector) handle(ctx context.Context, ev events.Event) error {
 			Status:    SpanOK,
 		}
 		c.turnSpans[e.Turn] = span
-		_ = c.exporter.Export(Record{Type: "span_start", Span: span})
 
 	case events.TurnEndEvent:
 		span, ok := c.turnSpans[e.Turn]
@@ -169,6 +169,7 @@ func (c *Collector) handle(ctx context.Context, ev events.Event) error {
 			return nil
 		}
 		span.EndTime = now
+		span.DurationMs = now - span.StartTime
 		_ = c.exporter.Export(Record{Type: "span_end", Span: span})
 
 		// Emit turn duration metric.
@@ -214,6 +215,7 @@ func (c *Collector) handle(ctx context.Context, ev events.Event) error {
 			return nil
 		}
 		target.EndTime = now
+		target.DurationMs = now - target.StartTime
 		_ = c.exporter.Export(Record{Type: "span_end", Span: target})
 
 		start := c.llmStartTimes[target.SpanID]
@@ -250,7 +252,6 @@ func (c *Collector) handle(ctx context.Context, ev events.Event) error {
 			},
 		}
 		c.toolSpans[e.ToolCallID] = span
-		_ = c.exporter.Export(Record{Type: "span_start", Span: span})
 
 	case events.ToolExecutionEndEvent:
 		span, ok := c.toolSpans[e.ToolCallID]
@@ -258,6 +259,7 @@ func (c *Collector) handle(ctx context.Context, ev events.Event) error {
 			return nil
 		}
 		span.EndTime = now
+		span.DurationMs = now - span.StartTime
 		if e.IsError {
 			span.Status = SpanError
 		}

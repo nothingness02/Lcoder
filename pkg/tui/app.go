@@ -17,10 +17,10 @@ import (
 )
 
 // Run starts the TUI application.
-func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, capabilities []string, llmClient *llm.Client, cfg config.Config, needsProviderSetup bool, loadedSkills ...skills.Skill) error {
+func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, capabilities []string, llmClient *llm.Client, cfg config.Config, needsProviderSetup bool, loadedSkillCatalog ...skills.SkillMeta) error {
 	checkpointDir := filepath.Join(session.DefaultDir(), "checkpoints")
 	checkpointStore := checkpoint.NewFileStore(checkpointDir)
-	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, httpTools, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, needsProviderSetup, loadedSkills...)
+	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, httpTools, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, needsProviderSetup, loadedSkillCatalog...)
 	model.SetCapabilities(capabilities)
 	defer model.Close()
 
@@ -41,10 +41,10 @@ func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session
 }
 
 // RunWithIO starts the TUI with custom input/output for testing.
-func RunWithIO(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, input *os.File, output *os.File, loadedSkills ...skills.Skill) (tea.Model, error) {
+func RunWithIO(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, input *os.File, output *os.File, loadedSkillCatalog ...skills.SkillMeta) (tea.Model, error) {
 	checkpointDir := filepath.Join(session.DefaultDir(), "checkpoints")
 	checkpointStore := checkpoint.NewFileStore(checkpointDir)
-	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, httpTools, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, false, loadedSkills...)
+	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, httpTools, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, false, loadedSkillCatalog...)
 	defer model.Close()
 
 	program := tea.NewProgram(

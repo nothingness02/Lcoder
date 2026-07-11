@@ -5,22 +5,20 @@ import (
 )
 
 func TestAutoDetect(t *testing.T) {
-	skills := []Skill{
+	catalog := []SkillMeta{
 		{
-			Name:      "security-review",
-			WhenToUse: "Review code for security vulnerabilities",
-			Steps:     []string{"Read the file", "Identify risks"},
-			Examples:  []string{"Review auth.ts for security issues"},
+			Name:        "security-review",
+			Description: "Review code for security vulnerabilities",
+			Keywords:    []string{"security", "review"},
 		},
 		{
-			Name:      "refactor",
-			WhenToUse: "Refactor code following project conventions",
-			Steps:     []string{"Analyze code", "Apply improvements"},
-			Examples:  []string{"Refactor this function"},
+			Name:        "refactor",
+			Description: "Refactor code following project conventions",
+			Keywords:    []string{"refactor", "improve"},
 		},
 	}
 
-	score, ok := AutoDetect("Please review auth.go for security issues", skills)
+	score, ok := AutoDetect("Please review auth.go for security issues", catalog)
 	if !ok {
 		t.Fatal("expected a skill match")
 	}
@@ -30,14 +28,14 @@ func TestAutoDetect(t *testing.T) {
 }
 
 func TestAutoDetectNoMatch(t *testing.T) {
-	skills := []Skill{
+	catalog := []SkillMeta{
 		{
-			Name:      "security-review",
-			WhenToUse: "Review code for security vulnerabilities",
+			Name:        "security-review",
+			Description: "Review code for security vulnerabilities",
 		},
 	}
 
-	_, ok := AutoDetect("What is the weather today?", skills)
+	_, ok := AutoDetect("What is the weather today?", catalog)
 	if ok {
 		t.Fatal("expected no skill match")
 	}

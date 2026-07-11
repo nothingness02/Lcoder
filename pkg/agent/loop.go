@@ -150,6 +150,8 @@ type Agent struct {
 	taskMgr   *task.Manager
 	cpMgr     *checkpointManager
 	rc        *reminderCoordinator
+
+	contextSnapshotRecorder *observability.ContextSnapshotRecorder
 }
 
 // State describes the agent runtime state.
@@ -352,17 +354,18 @@ func (a *Agent) WithMode(mode string) Runner {
 	}
 
 	fresh := &Agent{
-		cfg:          cfg,
-		mgr:          cfg.ContextManager,
-		llm:          a.llm,
-		registry:     a.registry,
-		bus:          a.bus,
-		obsCollector: a.obsCollector,
-		emitter:      emitter,
-		loopState:    newStateHolder(),
-		streamer:     &streamer{cfg: &cfg, llm: a.llm, mgr: cfg.ContextManager, obs: a.obsCollector, emitter: emitter},
-		executor:     newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter, a.taskMgr),
-		taskMgr:      a.taskMgr,
+		cfg:                     cfg,
+		mgr:                     cfg.ContextManager,
+		llm:                     a.llm,
+		registry:                a.registry,
+		bus:                     a.bus,
+		obsCollector:            a.obsCollector,
+		emitter:                 emitter,
+		loopState:               newStateHolder(),
+		streamer:                &streamer{cfg: &cfg, llm: a.llm, mgr: cfg.ContextManager, obs: a.obsCollector, emitter: emitter},
+		executor:                newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter, a.taskMgr),
+		taskMgr:                 a.taskMgr,
+		contextSnapshotRecorder: a.contextSnapshotRecorder,
 	}
 	fresh.cpMgr = newCheckpointManager(fresh)
 	fresh.rc = newReminderCoordinator(fresh.taskMgr, fresh.cfg.ReminderProducers)
@@ -459,6 +462,12 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		}
 	}
 
+	if a.contextSnapshotRecorder != nil {
+		if state, err := a.mgr.Snapshot(); err == nil {
+			_ = a.contextSnapshotRecorder.Record(state, "end", turn)
+		}
+	}
+
 	a.emit(ctx, events.AgentEndEvent{
 		Base:     events.Base{Type: events.AgentEnd, Turn: turn},
 		Reason:   endReason,
@@ -489,6 +498,11 @@ func (a *Agent) appendMessage(msg models.AgentMessage) {
 // it surfaces as an Error event and the turn proceeds with the truncation
 // backstop in BuildTurnRequest.
 func (a *Agent) maybeCompact(ctx context.Context, turn int) {
+	if a.contextSnapshotRecorder != nil {
+		if state, err := a.mgr.Snapshot(); err == nil {
+			_ = a.contextSnapshotRecorder.Record(state, "before-compact", turn)
+		}
+	}
 	level, committed, err := a.mgr.MaybeCompactLeveled()
 	if err != nil {
 		a.emit(ctx, events.ErrorEvent{

@@ -129,8 +129,21 @@ func TestCmdPanelSkillTriggers(t *testing.T) {
 	bus := events.New()
 	ag := &fakeAgent{}
 	sess := &fakeSession{ID: "abc123"}
-	loaded := []skills.Skill{
-		{Name: "security-review", WhenToUse: "Review code", Steps: []string{"Read file", "Find risks"}},
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "SKILL.md")
+	content := `---
+name: security-review
+description: Review code
+---
+Review the code for risks.
+`
+	if err := os.WriteFile(source, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded := []skills.SkillMeta{
+		{Name: "security-review", Description: "Review code", Source: source},
 	}
 	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, loaded...)
 	m.width = 80

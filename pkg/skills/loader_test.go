@@ -19,13 +19,10 @@ func TestLoadSkill(t *testing.T) {
 	}
 	content := `---
 name: security-review
-when_to_use: Review code for security vulnerabilities
-steps:
-  - Read the file
-  - Identify risks
-examples:
-  - "Review auth.ts"
-output_format: Markdown list
+description: Review code for security vulnerabilities
+keywords:
+  - security
+  - review
 ---
 # Security Review
 
@@ -35,21 +32,75 @@ Do a security review.
 		t.Fatal(err)
 	}
 
-	loaded, err := Load([]string{dir})
+	catalog, err := LoadCatalog([]string{dir})
 	if err != nil {
-		t.Fatalf("load: %v", err)
+		t.Fatalf("load catalog: %v", err)
 	}
-	if len(loaded) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(loaded))
+	if len(catalog) != 1 {
+		t.Fatalf("expected 1 skill meta, got %d", len(catalog))
 	}
-	s := loaded[0]
+	s, err := LoadSkill(catalog[0].Source)
+	if err != nil {
+		t.Fatalf("load skill: %v", err)
+	}
 	if s.Name != "security-review" {
 		t.Fatalf("expected security-review, got %s", s.Name)
 	}
-	if s.WhenToUse != "Review code for security vulnerabilities" {
-		t.Fatalf("unexpected when_to_use: %s", s.WhenToUse)
+	if s.Description != "Review code for security vulnerabilities" {
+		t.Fatalf("unexpected description: %s", s.Description)
 	}
-	if len(s.Steps) != 2 {
-		t.Fatalf("expected 2 steps, got %d", len(s.Steps))
+	if !contains(s.Keywords, "security") {
+		t.Fatalf("expected security keyword, got %v", s.Keywords)
 	}
+	if s.Body == "" {
+		t.Fatal("expected non-empty body")
+	}
+}
+
+func TestLoadCatalogSkipsBody(t *testing.T) {
+	dir, err := os.MkdirTemp("", "lcoder-skills-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	skillDir := filepath.Join(dir, "security-review")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `---
+name: security-review
+description: Review code for security vulnerabilities
+---
+# Security Review
+
+Do a security review.
+`
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := LoadCatalog([]string{dir})
+	if err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+	if len(catalog) != 1 {
+		t.Fatalf("expected 1 skill meta, got %d", len(catalog))
+	}
+	meta := catalog[0]
+	if meta.Description != "Review code for security vulnerabilities" {
+		t.Fatalf("unexpected description: %s", meta.Description)
+	}
+	if meta.Source == "" {
+		t.Fatal("expected source path")
+	}
+}
+
+func contains(items []string, target string) bool {
+	for _, it := range items {
+		if it == target {
+			return true
+		}
+	}
+	return false
 }

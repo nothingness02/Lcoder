@@ -26,10 +26,11 @@ func TestParseManualTriggerNoSkill(t *testing.T) {
 
 func TestExpandManualTrigger(t *testing.T) {
 	msgs := ExpandManualTrigger(Skill{
-		Name:         "security-review",
-		WhenToUse:    "Review code for vulnerabilities",
-		Steps:        []string{"Read file", "Identify risks"},
-		OutputFormat: "Summary + findings",
+		SkillMeta: SkillMeta{
+			Name:        "security-review",
+			Description: "Review code for vulnerabilities",
+		},
+		Body: "Read the file and identify risks.",
 	}, "/skill:security-review check auth.go")
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))

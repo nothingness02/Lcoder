@@ -12,10 +12,16 @@ import (
 // expanded prompt. Ported from the pre-rewrite TUI so manual `/skill:name`
 // triggers and auto-detection keep working under the state-machine model.
 func (m *Model) handleSkillTrigger(name, rest string) tea.Cmd {
-	skill, found := skills.FindByName(m.skills, name)
+	meta, found := skills.FindByName(m.skills, name)
 	if !found {
 		m.addSystem(styleError().Render(
 			fmt.Sprintf("skill %q not found. available: %s", name, m.availableSkillNames())))
+		return nil
+	}
+
+	skill, err := skills.LoadSkill(meta.Source)
+	if err != nil {
+		m.addSystem(styleError().Render(fmt.Sprintf("load skill %q: %v", name, err)))
 		return nil
 	}
 

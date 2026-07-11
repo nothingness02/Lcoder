@@ -18,14 +18,14 @@ func ValidateArgs(def models.ToolDefinition, args map[string]any) error {
 	if !ok {
 		return nil // not a recognizable object schema — degrade gracefully
 	}
-
+	// required fileds
 	for _, name := range requiredFields(def.Parameters) {
 		if _, present := args[name]; !present {
 			return fmt.Errorf("invalid arguments for %q: missing required field %q%s",
 				def.Name, name, expectedSuffix(props, name, args))
 		}
 	}
-
+	// type match
 	for name, value := range args {
 		spec, ok := props[name].(map[string]any)
 		if !ok {

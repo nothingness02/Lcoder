@@ -6,18 +6,18 @@ import (
 
 // MatchScore represents the relevance of a skill to a user prompt.
 type MatchScore struct {
-	Skill   Skill
+	Skill   SkillMeta
 	Score   float64
 	Reasons []string
 }
 
-// AutoDetect selects the best matching skill for a user prompt.
+// AutoDetect selects the best matching skill from a catalog for a user prompt.
 // It uses simple keyword heuristics. A value of 0 means no confident match.
-func AutoDetect(prompt string, skills []Skill) (MatchScore, bool) {
+func AutoDetect(prompt string, catalog []SkillMeta) (MatchScore, bool) {
 	lower := strings.ToLower(prompt)
 	var best MatchScore
 
-	for _, skill := range skills {
+	for _, skill := range catalog {
 		score, reasons := scoreSkill(lower, skill)
 		if score > best.Score {
 			best = MatchScore{Skill: skill, Score: score, Reasons: reasons}
@@ -31,7 +31,7 @@ func AutoDetect(prompt string, skills []Skill) (MatchScore, bool) {
 	return best, true
 }
 
-func scoreSkill(prompt string, skill Skill) (float64, []string) {
+func scoreSkill(prompt string, skill SkillMeta) (float64, []string) {
 	var score float64
 	var reasons []string
 
@@ -42,35 +42,23 @@ func scoreSkill(prompt string, skill Skill) (float64, []string) {
 		reasons = append(reasons, "name match")
 	}
 
-	// Match against when_to_use.
-	when := strings.ToLower(skill.WhenToUse)
-	for _, word := range tokenize(when) {
+	// Match against description.
+	desc := strings.ToLower(skill.Description)
+	for _, word := range tokenize(desc) {
 		if len(word) > 3 && strings.Contains(prompt, word) {
 			score += 0.2
-			reasons = append(reasons, "purpose keyword")
+			reasons = append(reasons, "description keyword")
 			break
 		}
 	}
 
-	// Match against examples.
-	for _, ex := range skill.Examples {
-		exLower := strings.ToLower(ex)
-		for _, word := range tokenize(exLower) {
+	// Match against keywords.
+	for _, kw := range skill.Keywords {
+		kwLower := strings.ToLower(kw)
+		for _, word := range tokenize(kwLower) {
 			if len(word) > 3 && strings.Contains(prompt, word) {
-				score += 0.15
-				reasons = append(reasons, "example keyword")
-				break
-			}
-		}
-	}
-
-	// Match against steps.
-	for _, step := range skill.Steps {
-		stepLower := strings.ToLower(step)
-		for _, word := range tokenize(stepLower) {
-			if len(word) > 3 && strings.Contains(prompt, word) {
-				score += 0.1
-				reasons = append(reasons, "step keyword")
+				score += 0.25
+				reasons = append(reasons, "keyword match")
 				break
 			}
 		}

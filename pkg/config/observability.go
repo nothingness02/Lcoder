@@ -21,6 +21,14 @@ type AuditConfig struct {
 	Path    string `yaml:"path"`
 }
 
+// ContextSnapshotsConfig controls full context snapshot capture for manual
+// testing and debugging. It is disabled by default to avoid production overhead.
+type ContextSnapshotsConfig struct {
+	Enabled             bool   `yaml:"enabled"`
+	OutputDir           string `yaml:"output_dir"`
+	MaxMessagesPerBlock int    `yaml:"max_messages_per_block"`
+}
+
 // SamplingConfig controls runtime sampling of observability records.
 type SamplingConfig struct {
 	Enabled bool    `yaml:"enabled"`
@@ -29,9 +37,10 @@ type SamplingConfig struct {
 
 // ObservabilityConfig holds all observability-related settings for an agent run.
 type ObservabilityConfig struct {
-	Exporter ExporterConfig `yaml:"exporter"`
-	Audit    AuditConfig    `yaml:"audit"`
-	Sampling SamplingConfig `yaml:"sampling"`
+	Exporter          ExporterConfig           `yaml:"exporter"`
+	Audit             AuditConfig              `yaml:"audit"`
+	Sampling          SamplingConfig           `yaml:"sampling"`
+	ContextSnapshots  ContextSnapshotsConfig   `yaml:"context_snapshots"`
 }
 
 // DefaultObservabilityConfig returns the default observability settings.
@@ -49,6 +58,9 @@ func DefaultObservabilityConfig() ObservabilityConfig {
 		Sampling: SamplingConfig{
 			Enabled: true,
 			Rate:    1.0,
+		},
+		ContextSnapshots: ContextSnapshotsConfig{
+			Enabled: false,
 		},
 	}
 }

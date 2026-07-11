@@ -5,50 +5,54 @@ import (
 	"strings"
 )
 
-// Skill is a reusable capability package described in Markdown.
-type Skill struct {
-	Name         string
-	WhenToUse    string
-	Steps        []string
-	Examples     []string
-	OutputFormat string
-	Source       string
+// SkillMeta is a lightweight catalog entry for a skill. It is loaded eagerly at
+// startup and stays in the context window so the agent can discover and match
+// skills without paying the token cost of the full skill body.
+type SkillMeta struct {
+	Name        string
+	Description string
+	Keywords    []string
+	Tags        []string
+	Source      string // absolute path to SKILL.md
 }
 
-// ToSystemPromptBlock renders a list of skills for the system prompt.
-func ToSystemPromptBlock(skills []Skill) string {
-	if len(skills) == 0 {
+// Skill is a fully loaded skill, including the free-form Markdown body that
+// follows the YAML frontmatter. It is only loaded on demand.
+type Skill struct {
+	SkillMeta
+	Body string
+}
+
+// ToCatalogBlock renders a list of skill metadata for the system prompt.
+func ToCatalogBlock(catalog []SkillMeta) string {
+	if len(catalog) == 0 {
 		return ""
 	}
-	var b stringsBuilder
-	b.Write("You have access to the following skills. Use them when appropriate:\n\n")
-	for _, s := range skills {
-		b.Writef("- %s: %s\n", s.Name, s.WhenToUse)
-		for _, step := range s.Steps {
-			b.Writef("  - Step: %s\n", step)
-		}
-		for _, ex := range s.Examples {
-			b.Writef("  - Example: %s\n", ex)
-		}
-		if s.OutputFormat != "" {
-			b.Writef("  - Output format: %s\n", s.OutputFormat)
+	var b strings.Builder
+	b.WriteString("You have access to the following skills. Use them when appropriate:\n\n")
+	for _, s := range catalog {
+		b.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, s.Description))
+		if len(s.Keywords) > 0 {
+			b.WriteString(fmt.Sprintf("  keywords: %s\n", strings.Join(s.Keywords, ", ")))
 		}
 	}
 	return b.String()
 }
 
-type stringsBuilder struct {
-	parts []string
-}
-
-func (sb *stringsBuilder) Write(s string) {
-	sb.parts = append(sb.parts, s)
-}
-
-func (sb *stringsBuilder) Writef(format string, args ...any) {
-	sb.parts = append(sb.parts, fmt.Sprintf(format, args...))
-}
-
-func (sb *stringsBuilder) String() string {
-	return strings.Join(sb.parts, "")
+// RenderActiveSkill renders the full content of an activated skill for injection
+// into the context window.
+func RenderActiveSkill(skill Skill) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("You are now using the %s skill.\n\n", skill.Name))
+	if skill.Description != "" {
+		b.WriteString("Purpose: ")
+		b.WriteString(skill.Description)
+		b.WriteString("\n\n")
+	}
+	if skill.Body != "" {
+		b.WriteString(skill.Body)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("Follow the above instructions for the user's request.")
+	return b.String()
 }

@@ -12,10 +12,12 @@ import (
 )
 
 // ConfigWatcher monitors the observability configuration file and applies
-// runtime changes (currently the sampling rate) to a SamplingExporter.
+// runtime changes (currently the sampling rate and context snapshot toggle) to
+// a SamplingExporter and ContextSnapshotRecorder.
 type ConfigWatcher struct {
-	path    string
-	sampler *SamplingExporter
+	path     string
+	sampler  *SamplingExporter
+	recorder *ContextSnapshotRecorder
 
 	mu       sync.Mutex
 	watcher  *fsnotify.Watcher
@@ -23,24 +25,25 @@ type ConfigWatcher struct {
 	debounce *time.Timer
 }
 
-// NewConfigWatcher creates a watcher for path that updates sampler when the
-// file changes.
-func NewConfigWatcher(path string, sampler *SamplingExporter) *ConfigWatcher {
+// NewConfigWatcher creates a watcher for path that updates sampler and recorder
+// when the file changes.
+func NewConfigWatcher(path string, sampler *SamplingExporter, recorder *ContextSnapshotRecorder) *ConfigWatcher {
 	return &ConfigWatcher{
-		path:    path,
-		sampler: sampler,
-		done:    make(chan struct{}),
+		path:     path,
+		sampler:  sampler,
+		recorder: recorder,
+		done:     make(chan struct{}),
 	}
 }
 
 // NewConfigWatcherFromConfig creates a watcher only when runtime sampling is
 // enabled. It returns nil, nil when sampling is disabled so callers can treat
 // it as optional.
-func NewConfigWatcherFromConfig(path string, cfg config.ObservabilityConfig, sampler *SamplingExporter) (*ConfigWatcher, error) {
+func NewConfigWatcherFromConfig(path string, cfg config.ObservabilityConfig, sampler *SamplingExporter, recorder *ContextSnapshotRecorder) (*ConfigWatcher, error) {
 	if !cfg.Sampling.Enabled {
 		return nil, nil
 	}
-	return NewConfigWatcher(path, sampler), nil
+	return NewConfigWatcher(path, sampler, recorder), nil
 }
 
 // Start begins watching the configuration file for changes.
@@ -129,5 +132,8 @@ func (w *ConfigWatcher) reload() {
 	}
 	if w.sampler != nil {
 		w.sampler.SetRate(cfg.Sampling.Rate)
+	}
+	if w.recorder != nil {
+		w.recorder.SetEnabled(cfg.ContextSnapshots.Enabled)
 	}
 }
