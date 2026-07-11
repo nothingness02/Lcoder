@@ -134,3 +134,16 @@ func TestValidate_InvalidPermissionDecision(t *testing.T) {
 		t.Fatalf("expected permissions error, got %v", err)
 	}
 }
+
+func TestValidate_InvalidCodeIndex(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.CodeIndex.MaxResults = -1
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "code_index") {
+		t.Fatalf("expected code_index error, got %v", err)
+	}
+	cfg = DefaultConfig()
+	cfg.CodeIndex.MaxTokens = -1
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "code_index") {
+		t.Fatalf("expected code_index error, got %v", err)
+	}
+}

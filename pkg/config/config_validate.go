@@ -25,6 +25,9 @@ func (c Config) Validate() error {
 	if err := c.Memory.Validate(); err != nil {
 		return fmt.Errorf("memory: %w", err)
 	}
+	if err := c.CodeIndex.Validate(); err != nil {
+		return fmt.Errorf("code_index: %w", err)
+	}
 	for i, ht := range c.HTTPTools {
 		if err := ht.Validate(); err != nil {
 			return fmt.Errorf("http_tools[%d]: %w", i, err)
@@ -105,6 +108,17 @@ func (c MemoryConfig) Validate() error {
 	}
 	if c.UserCharLimit < 0 {
 		return fmt.Errorf("user_char_limit must be non-negative")
+	}
+	return nil
+}
+
+// Validate checks code index settings.
+func (c CodeIndexConfig) Validate() error {
+	if c.MaxResults < 0 {
+		return fmt.Errorf("max_results must be non-negative")
+	}
+	if c.MaxTokens < 0 {
+		return fmt.Errorf("max_tokens must be non-negative")
 	}
 	return nil
 }
