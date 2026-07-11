@@ -71,8 +71,8 @@ memory:
 #   auto_inject: false
 #   max_results: 10
 #   max_tokens: 8192
-#   languages: [go]
-#   exclude: ["vendor/", "**/*_test.go"]
+#   languages: [go, python, javascript, typescript]
+#   exclude: ["vendor/", "node_modules/", "**/*_test.go"]
 
 permissions:
   # Set unsafe_mode: true to bypass the permission engine for the current run.

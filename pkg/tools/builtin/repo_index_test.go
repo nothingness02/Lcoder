@@ -26,7 +26,7 @@ func TestRepoIndexTool(t *testing.T) {
 
 	res, err := tool.Execute(context.Background(), "call-1", map[string]any{"query": "finder"})
 	require.NoError(t, err)
-	require.Contains(t, res.Text(), "Go repo context injected")
+	require.Contains(t, res.Text(), "Repository code index context injected")
 }
 
 func TestRepoIndexToolMissingQuery(t *testing.T) {

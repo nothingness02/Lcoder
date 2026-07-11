@@ -66,11 +66,11 @@ func (inj *Injector) Inject(ctx context.Context, query string, maxResults int) e
 
 	text := strings.Join(stubs, "\n\n")
 	if text != "" {
-		text = fmt.Sprintf("// Go repository index results for query %q\n\n%s", query, text)
+		text = fmt.Sprintf("// Repository code index results for query %q\n\n%s", query, text)
 	}
 	block := contextmgr.NewBlockWithCacheHint(
 		contextmgr.BlockRetrieval,
-		"go_repo_index",
+		"repo_index",
 		contextmgr.StabilityDynamic,
 		50,
 		contextmgr.CacheHintSkip,

@@ -10,7 +10,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/codeindex"
@@ -52,7 +51,7 @@ func (idx *Indexer) Update(ctx context.Context, root string) error {
 		if idx.isExcluded(rel) {
 			return nil
 		}
-		if err := idx.parseFile(snapshot, rel, path); err != nil {
+		if err := idx.ParseFile(snapshot, rel, path); err != nil {
 			snapshot.FailedFiles = append(snapshot.FailedFiles, rel)
 		}
 		return nil
@@ -72,8 +71,7 @@ func (idx *Indexer) isExcluded(rel string) bool {
 			continue
 		}
 		// Directory prefix: "dir/" matches the directory itself and anything inside.
-		if strings.HasSuffix(p, "/") {
-			dir := strings.TrimSuffix(p, "/")
+		if dir, ok := strings.CutSuffix(p, "/"); ok {
 			if rel == dir || strings.HasPrefix(rel, dir+"/") {
 				return true
 			}
@@ -90,7 +88,8 @@ func (idx *Indexer) isExcluded(rel string) bool {
 	return false
 }
 
-func (idx *Indexer) parseFile(snapshot *codeindex.Snapshot, rel, path string) error {
+// ParseFile parses a single Go source file and appends its symbols to snapshot.
+func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -273,97 +272,5 @@ func (idx *Indexer) Clear() error {
 }
 
 func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.Result, error) {
-	if idx.snapshot == nil {
-		return nil, nil
-	}
-	max := q.MaxResults
-	if max <= 0 {
-		max = 10
-	}
-	keywords := normalize(q.Keywords)
-	var results []codeindex.Result
-	emptyQuery := len(keywords) == 0 && len(q.Symbols) == 0
-	for _, sym := range idx.snapshot.Symbols {
-		score := scoreSymbol(sym, keywords, q.Symbols)
-		if emptyQuery {
-			score = 1.0
-		}
-		if score <= 0 {
-			continue
-		}
-		results = append(results, codeindex.Result{
-			Symbol:    sym,
-			Relevance: score,
-			Stub:      idx.formatStub(sym),
-		})
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Relevance > results[j].Relevance
-	})
-	if len(results) > max {
-		results = results[:max]
-	}
-	return results, nil
-}
-
-func normalize(words []string) []string {
-	var out []string
-	for _, w := range words {
-		w = strings.ToLower(strings.TrimSpace(w))
-		if w != "" {
-			out = append(out, w)
-		}
-	}
-	return out
-}
-
-func scoreSymbol(sym codeindex.Symbol, keywords []string, exact []string) float64 {
-	score := 0.0
-	text := strings.ToLower(sym.Name + " " + sym.Package + " " + sym.Doc + " " + sym.Signature)
-	for _, kw := range keywords {
-		if strings.Contains(text, kw) {
-			score += 1.0
-		}
-		if strings.EqualFold(sym.Name, kw) {
-			score += 3.0
-		}
-	}
-	for _, e := range exact {
-		if strings.EqualFold(sym.ID, e) || strings.EqualFold(sym.Name, e) {
-			score += 5.0
-		}
-	}
-	return score
-}
-
-func (idx *Indexer) formatStub(sym codeindex.Symbol) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "// %s:%d\n%s", sym.File, sym.Line, sym.Signature)
-	related := idx.relatedSymbols(sym.ID, 3)
-	if len(related) > 0 {
-		b.WriteString("\n// Related: " + strings.Join(related, ", "))
-	}
-	return b.String()
-}
-
-func (idx *Indexer) relatedSymbols(id string, max int) []string {
-	if idx.snapshot == nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	for _, r := range idx.snapshot.Relations {
-		if r.From == id && !seen[r.To] {
-			seen[r.To] = true
-			out = append(out, r.To)
-		}
-		if r.To == id && !seen[r.From] {
-			seen[r.From] = true
-			out = append(out, r.From)
-		}
-		if len(out) >= max {
-			break
-		}
-	}
-	return out
+	return codeindex.SearchSnapshot(idx.snapshot, q)
 }

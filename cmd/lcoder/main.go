@@ -16,7 +16,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/agentsetup"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/codeindex"
-	"github.com/lcoder/lcoder/pkg/codeindex/goparser"
+	"github.com/lcoder/lcoder/pkg/codeindex/multiparser"
 	"github.com/lcoder/lcoder/pkg/config"
 	contextloader "github.com/lcoder/lcoder/pkg/context"
 	"github.com/lcoder/lcoder/pkg/events"
@@ -291,7 +291,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	var reminderProducers []agent.ReminderProducer
 	var repoIndexTool *builtinTools.RepoIndex
 	if cfg.CodeIndex.Enabled {
-		indexer := goparser.NewIndexer(cfg.CodeIndex.Exclude)
+		indexer := multiparser.NewIndexer(cfg.CodeIndex.Languages, cfg.CodeIndex.Exclude)
 		injector := codeindex.NewInjector(indexer, mgr, cwd, cfg.CodeIndex.MaxTokens)
 		repoIndexTool = builtinTools.NewRepoIndex(cwd)
 		repoIndexTool.SetInjector(injector)
