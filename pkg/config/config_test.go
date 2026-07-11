@@ -283,3 +283,22 @@ mcp_servers:
 		t.Fatalf("unexpected local config: %+v", local)
 	}
 }
+
+func TestCodeIndexDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.CodeIndex.Enabled {
+		t.Fatal("expected CodeIndex.Enabled to default to false")
+	}
+	if cfg.CodeIndex.MaxResults != 10 {
+		t.Fatalf("expected MaxResults 10, got %d", cfg.CodeIndex.MaxResults)
+	}
+	if cfg.CodeIndex.MaxTokens != 8192 {
+		t.Fatalf("expected MaxTokens 8192, got %d", cfg.CodeIndex.MaxTokens)
+	}
+	if len(cfg.CodeIndex.Languages) != 1 || cfg.CodeIndex.Languages[0] != "go" {
+		t.Fatalf("expected Languages [go], got %v", cfg.CodeIndex.Languages)
+	}
+	if len(cfg.CodeIndex.Exclude) != 2 {
+		t.Fatalf("expected 2 exclude patterns, got %d", len(cfg.CodeIndex.Exclude))
+	}
+}

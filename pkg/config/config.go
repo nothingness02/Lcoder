@@ -114,6 +114,7 @@ type Config struct {
 	Providers      map[string]ProviderConn `yaml:"providers"`
 	Sandbox        SandboxConfig           `yaml:"sandbox"`
 	Memory         MemoryConfig            `yaml:"memory"`
+	CodeIndex      CodeIndexConfig         `yaml:"code_index"`
 	// Language    string                  `yaml:"language"`
 	// Catalog is the shared model metadata loaded from models.yaml (not parsed
 	// from the main config file). ModelsConfigPath is its resolved location.
@@ -145,6 +146,14 @@ func DefaultConfig() Config {
 			Enabled:         true,
 			MemoryCharLimit: 0,
 			UserCharLimit:   0,
+		},
+		CodeIndex: CodeIndexConfig{
+			Enabled:    false,
+			AutoInject: false,
+			MaxResults: 10,
+			MaxTokens:  8192,
+			Languages:  []string{"go"},
+			Exclude:    []string{"vendor/", "**/*_test.go"},
 		},
 		Permissions: PermissionConfig{
 			Rules: map[string]map[string]string{
@@ -209,6 +218,16 @@ func DefaultConfig() Config {
 			},
 		},
 	}
+}
+
+// CodeIndexConfig configures the repository code-indexing engine.
+type CodeIndexConfig struct {
+    Enabled    bool     `yaml:"enabled"`
+    AutoInject bool     `yaml:"auto_inject"`
+    MaxResults int      `yaml:"max_results"`
+    MaxTokens  int      `yaml:"max_tokens"`
+    Languages  []string `yaml:"languages"`
+    Exclude    []string `yaml:"exclude"`
 }
 
 // Budget resolution fallbacks, used only when no explicit user/catalog/discovered
