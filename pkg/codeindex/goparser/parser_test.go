@@ -52,3 +52,26 @@ var DefaultUser = NewUser("default")
 	require.Contains(t, names, "MaxCount")
 	require.Contains(t, names, "DefaultUser")
 }
+
+func TestSearchRelevance(t *testing.T) {
+	dir := t.TempDir()
+	src := `package demo
+// Manager manages things.
+type Manager struct{}
+func NewManager() *Manager { return &Manager{} }
+func (m *Manager) Run() {}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "demo.go"), []byte(src), 0o644))
+
+	idx := NewIndexer(nil)
+	require.NoError(t, idx.Update(context.Background(), dir))
+
+	results, err := idx.Search(context.Background(), codeindex.Query{
+		Keywords:   []string{"manager"},
+		MaxResults: 5,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	require.Equal(t, "Manager", results[0].Symbol.Name)
+	require.Contains(t, results[0].Stub, "type Manager")
+}
