@@ -65,11 +65,25 @@ func (idx *Indexer) Update(ctx context.Context, root string) error {
 }
 
 func (idx *Indexer) isExcluded(rel string) bool {
+	rel = filepath.ToSlash(rel)
 	for _, p := range idx.exclude {
+		p = filepath.ToSlash(p)
+		if p == "" {
+			continue
+		}
+		// Directory prefix: "dir/" matches the directory itself and anything inside.
+		if strings.HasSuffix(p, "/") {
+			dir := strings.TrimSuffix(p, "/")
+			if rel == dir || strings.HasPrefix(rel, dir+"/") {
+				return true
+			}
+			continue
+		}
+		// Glob match against the full relative path or the base name.
 		if matched, _ := filepath.Match(p, rel); matched {
 			return true
 		}
-		if strings.HasPrefix(rel, p) {
+		if matched, _ := filepath.Match(p, filepath.Base(rel)); matched {
 			return true
 		}
 	}
@@ -167,7 +181,12 @@ func funcSymbol(fset *token.FileSet, d *ast.FuncDecl, pkgPath, rel string) codei
 		id = methodID(pkgPath, recvType, name)
 		name = recvType + "." + name
 	}
-	sig := fmt.Sprintf("func %s%s", name, typeString(fset, d.Type))
+	sig := typeString(fset, d.Type)
+	if strings.HasPrefix(sig, "func") {
+		sig = "func " + name + sig[4:]
+	} else {
+		sig = "func " + name + sig
+	}
 	return codeindex.Symbol{
 		ID:        id,
 		Name:      name,

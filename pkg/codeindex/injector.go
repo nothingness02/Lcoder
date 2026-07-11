@@ -64,13 +64,17 @@ func (inj *Injector) Inject(ctx context.Context, query string, maxResults int) e
 		used += cost
 	}
 
+	text := strings.Join(stubs, "\n\n")
+	if text != "" {
+		text = fmt.Sprintf("// Go repository index results for query %q\n\n%s", query, text)
+	}
 	block := contextmgr.NewBlockWithCacheHint(
 		contextmgr.BlockRetrieval,
-		"repo_index",
+		"go_repo_index",
 		contextmgr.StabilityDynamic,
 		50,
 		contextmgr.CacheHintSkip,
-		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: strings.Join(stubs, "\n\n")}),
+		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: text}),
 	)
 	inj.manager.SetBlock(block)
 	return nil

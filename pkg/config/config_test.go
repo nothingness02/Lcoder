@@ -298,7 +298,7 @@ func TestCodeIndexDefaults(t *testing.T) {
 	if len(cfg.CodeIndex.Languages) != 1 || cfg.CodeIndex.Languages[0] != "go" {
 		t.Fatalf("expected Languages [go], got %v", cfg.CodeIndex.Languages)
 	}
-	if len(cfg.CodeIndex.Exclude) != 2 {
-		t.Fatalf("expected 2 exclude patterns, got %d", len(cfg.CodeIndex.Exclude))
+	if len(cfg.CodeIndex.Exclude) != 7 {
+		t.Fatalf("expected 7 exclude patterns, got %d", len(cfg.CodeIndex.Exclude))
 	}
 }

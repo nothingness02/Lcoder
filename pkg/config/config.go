@@ -153,7 +153,7 @@ func DefaultConfig() Config {
 			MaxResults: 10,
 			MaxTokens:  8192,
 			Languages:  []string{"go"},
-			Exclude:    []string{"vendor/", "**/*_test.go"},
+			Exclude:    []string{".git/", ".claude/", ".worktrees/", "reference/", "vendor/", "node_modules/", "*_test.go"},
 		},
 		Permissions: PermissionConfig{
 			Rules: map[string]map[string]string{

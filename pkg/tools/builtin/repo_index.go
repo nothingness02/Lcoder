@@ -28,7 +28,7 @@ func (r *RepoIndex) SetInjector(inj *codeindex.Injector) {
 func (r *RepoIndex) Definition() models.ToolDefinition {
 	return models.ToolDefinition{
 		Name:        "repo_index",
-		Description: "Search the repository code index and inject relevant symbol stubs into the context. Use this when you need to understand code relationships without reading whole files.",
+		Description: "Search the Go repository code index and inject relevant Go symbol stubs into the context. Only Go source files are currently indexed.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -65,7 +65,7 @@ func (r *RepoIndex) Execute(ctx context.Context, callID string, args map[string]
 	}
 	return models.ToolExecutionResult{
 		Content: []models.ContentPart{
-			models.TextContent{Text: fmt.Sprintf("Repo context injected for query %q", query)},
+			models.TextContent{Text: fmt.Sprintf("Go repo context injected for query %q", query)},
 		},
 		Details: map[string]any{"query": query, "max_results": maxResults},
 	}, nil

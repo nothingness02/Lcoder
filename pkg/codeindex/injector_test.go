@@ -35,7 +35,7 @@ func TestInjectorWritesBlock(t *testing.T) {
 
 	require.NoError(t, inj.Inject(context.Background(), "engine", 5))
 
-	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "repo_index")
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "go_repo_index")
 	require.True(t, ok)
 	text := block.Text()
 	require.Contains(t, text, "Engine")
