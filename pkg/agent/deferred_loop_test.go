@@ -127,10 +127,19 @@ func TestBaseToolDefinitions_NonDeferred(t *testing.T) {
 	ag := &Agent{cfg: Config{}, registry: r}
 	ag.executor = &executor{cfg: &ag.cfg, registry: r, emitter: &eventEmitter{bus: ag.bus}}
 	defs := ag.executor.baseToolDefinitions()
-	if len(defs) != 1 {
-		t.Fatalf("expected 1 def without deferral, got %d", len(defs))
+	if len(defs) != 2 {
+		t.Fatalf("expected 2 defs without deferral (read + switch_mode), got %d", len(defs))
 	}
-	if defs[0].Parameters == nil {
-		t.Fatalf("expected full schema without deferral")
+	found := false
+	for _, d := range defs {
+		if d.Name == switchModeToolName {
+			found = true
+		}
+		if d.Parameters == nil {
+			t.Fatalf("expected full schema without deferral")
+		}
+	}
+	if !found {
+		t.Fatal("expected switch_mode definition to be included")
 	}
 }
