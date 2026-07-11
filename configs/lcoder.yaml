@@ -63,6 +63,17 @@ memory:
   # memory_char_limit: 2200
   # user_char_limit: 1375
 
+# Repository-level code indexing. When enabled, `repo_index` can search the
+# codebase and inject symbol stubs into the context. Auto-inject runs on every
+# user turn using the first sentence of the user message as the query.
+# code_index:
+#   enabled: true
+#   auto_inject: false
+#   max_results: 10
+#   max_tokens: 8192
+#   languages: [go]
+#   exclude: ["vendor/", "**/*_test.go"]
+
 permissions:
   # Set unsafe_mode: true to bypass the permission engine for the current run.
   # Ultra-destructive commands (e.g. "rm -rf /") still require approval.

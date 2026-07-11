@@ -15,6 +15,8 @@ import (
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/agentsetup"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
+	"github.com/lcoder/lcoder/pkg/codeindex"
+	"github.com/lcoder/lcoder/pkg/codeindex/goparser"
 	"github.com/lcoder/lcoder/pkg/config"
 	contextloader "github.com/lcoder/lcoder/pkg/context"
 	"github.com/lcoder/lcoder/pkg/events"
@@ -285,7 +287,26 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		fmt.Fprintf(os.Stderr, "warning: 未能自动获取模型 %q 的上下文窗口,回退默认 %d\n", cfg.Model, budget.MaxTotal)
 	}
 	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.ActiveMessages(), memStore)
+
+	var reminderProducers []agent.ReminderProducer
+	var repoIndexTool *builtinTools.RepoIndex
+	if cfg.CodeIndex.Enabled {
+		indexer := goparser.NewIndexer(cfg.CodeIndex.Exclude)
+		injector := codeindex.NewInjector(indexer, mgr, cwd, cfg.CodeIndex.MaxTokens)
+		repoIndexTool = builtinTools.NewRepoIndex(cwd)
+		repoIndexTool.SetInjector(injector)
+		registry.Register("repo_index", repoIndexTool)
+		if cfg.CodeIndex.AutoInject {
+			reminderProducers = append(reminderProducers, autoInjectReminder(injector))
+		}
+	}
+
 	chkStore := checkpoint.NewFileStore(filepath.Join(session.DefaultDir(), "checkpoints"))
+	coreTools := cfg.Context.CoreTools
+	if repoIndexTool != nil && cfg.Context.DeferredTools {
+		coreTools = appendCoreTool(coreTools, "repo_index")
+	}
+
 	ag, err := agent.NewBuilder().
 		WithConfig(agent.Config{
 			SystemPrompt:       "",
@@ -297,7 +318,8 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			Mode:               modeName,
 			ModeManager:        modeManager,
 			DeferredTools:      cfg.Context.DeferredTools,
-			CoreTools:          cfg.Context.CoreTools,
+			CoreTools:          coreTools,
+			ReminderProducers:  reminderProducers,
 			CheckpointInterval: 5,
 		}).
 		WithGatewayClient(llmClient).
@@ -344,6 +366,45 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			mcpRegistry.Close()
 		},
 	}, nil
+}
+
+func appendCoreTool(existing []string, name string) []string {
+	for _, n := range existing {
+		if n == name {
+			return existing
+		}
+	}
+	return append(existing, name)
+}
+
+func autoInjectReminder(inj *codeindex.Injector) agent.ReminderProducer {
+	return func(msgs []models.AgentMessage) []string {
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Role == models.RoleUser {
+				query := extractAutoInjectQuery(msgs[i].Text())
+				if query == "" {
+					return nil
+				}
+				ctx := context.Background()
+				if err := inj.Inject(ctx, query, 0); err != nil {
+					return nil
+				}
+				return []string{fmt.Sprintf("[repo_index auto-injected context for: %s]", query)}
+			}
+		}
+		return nil
+	}
+}
+
+func extractAutoInjectQuery(text string) string {
+	text = strings.TrimSpace(text)
+	if idx := strings.IndexAny(text, "\n.?!"); idx > 0 {
+		text = text[:idx]
+	}
+	if len(text) > 200 {
+		text = text[:200]
+	}
+	return text
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
