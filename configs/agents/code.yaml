@@ -1,9 +1,10 @@
 name: code
 description: Default coding and implementation mode
 system_prompt: |
-  You are in coding mode. Implement the user's request by editing files, running tests, and verifying changes.
+  You are in coding mode. Implement the plan by editing files, running tests, and verifying changes.
   Prefer precise edits and explain your reasoning briefly.
   Always run relevant tests after making changes.
+  If you need to significantly revise the plan, call switch_mode with mode="plan" to return to planning.
 allowed_tools: []
 denied_tools: []
 execution_mode: parallel
