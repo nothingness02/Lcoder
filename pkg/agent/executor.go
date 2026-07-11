@@ -19,6 +19,25 @@ import (
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
+const switchModeToolName = "switch_mode"
+
+func switchModeDefinition() models.ToolDefinition {
+	return models.ToolDefinition{
+		Name:        switchModeToolName,
+		Description: "Switch the agent to a different mode for subsequent turns. Use this to move from planning to implementation or back.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"mode": map[string]any{
+					"type":        "string",
+					"description": "Target mode name, e.g. code or plan",
+				},
+			},
+			"required": []string{"mode"},
+		},
+	}
+}
+
 // executor owns tool-call execution: validation, permission checks, registry
 // dispatch, hooks, and deferred tool promotion.
 type executor struct {
@@ -355,6 +374,44 @@ func toolSearchResultText(hits []models.ToolDefinition) string {
 		return "Matched tools: " + strings.Join(parts, ", ") + ". You may now call them directly."
 	}
 	return "Matched tools (full schemas below):\n" + string(schemas) + "\nYou may now call them directly."
+}
+
+func (e *executor) handleSwitchMode(ctx context.Context, turn int, assistantMsg models.AgentMessage, call models.ToolCallContent) models.AgentMessage {
+	e.emitter.emit(ctx, events.ToolExecutionStartEvent{
+		Base:       events.Base{Type: events.ToolExecutionStart, Turn: turn},
+		ToolCallID: call.ID,
+		ToolName:   call.Name,
+		Args:       call.Arguments,
+	})
+
+	args := call.Arguments
+	if args == nil {
+		args = make(map[string]any)
+	}
+
+	target, _ := args["mode"].(string)
+	var result models.ToolExecutionResult
+	isError := false
+	if target == "" {
+		result = models.NewToolExecutionResultError("missing mode argument")
+		isError = true
+	} else if e.cfg.ModeManager == nil || e.cfg.ModeManager.Get(target).Name != target {
+		result = models.NewToolExecutionResultError("unknown mode: " + target)
+		isError = true
+	} else {
+		e.cfg.Mode = target
+		result = models.NewToolExecutionResultText("Switched to " + target + " mode")
+	}
+
+	e.emitter.emit(ctx, events.ToolExecutionEndEvent{
+		Base:       events.Base{Type: events.ToolExecutionEnd, Turn: turn},
+		ToolCallID: call.ID,
+		ToolName:   call.Name,
+		Result:     result,
+		IsError:    isError,
+	})
+
+	return e.makeToolResultMessage(call, result, isError)
 }
 
 // baseToolDefinitions returns the tool definitions for the upcoming turn,
