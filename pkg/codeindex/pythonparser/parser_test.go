@@ -37,7 +37,7 @@ def helper():
 
 	names := make(map[string]codeindex.SymbolKind)
 	for _, r := range res {
-		names[r.Symbol.Name] = r.Symbol.Kind
+		names[r.Node.Name] = r.Node.Kind
 	}
 	require.Contains(t, names, "Calculator")
 	require.Equal(t, codeindex.SymbolKindType, names["Calculator"])
@@ -50,24 +50,24 @@ def helper():
 
 	var calc *codeindex.Result
 	for i := range res {
-		if res[i].Symbol.Name == "Calculator" {
+		if res[i].Node.Name == "Calculator" {
 			calc = &res[i]
 			break
 		}
 	}
 	require.NotNil(t, calc)
 	require.Contains(t, calc.Stub, "class Calculator")
-	require.Contains(t, calc.Symbol.Doc, "Performs basic arithmetic")
+	require.Contains(t, calc.Node.Docstring, "Performs basic arithmetic")
 
 	var add *codeindex.Result
 	for i := range res {
-		if res[i].Symbol.Name == "Calculator.add" {
+		if res[i].Node.Name == "Calculator.add" {
 			add = &res[i]
 			break
 		}
 	}
 	require.NotNil(t, add)
-	require.Equal(t, "def add(self, a, b)", add.Symbol.Signature)
+	require.Equal(t, "def add(self, a, b)", add.Node.Signature)
 }
 
 func TestPythonIndexerRespectsExcludes(t *testing.T) {
@@ -81,5 +81,5 @@ func TestPythonIndexerRespectsExcludes(t *testing.T) {
 	res, err := idx.Search(context.Background(), codeindex.Query{Keywords: []string{"def"}})
 	require.NoError(t, err)
 	require.Len(t, res, 1)
-	require.Equal(t, "kept", res[0].Symbol.Name)
+	require.Equal(t, "kept", res[0].Node.Name)
 }

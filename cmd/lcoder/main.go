@@ -16,7 +16,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/agentsetup"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/codeindex"
-	"github.com/lcoder/lcoder/pkg/codeindex/multiparser"
+	"github.com/lcoder/lcoder/pkg/codeindex/sqlitestore"
 	"github.com/lcoder/lcoder/pkg/config"
 	contextloader "github.com/lcoder/lcoder/pkg/context"
 	"github.com/lcoder/lcoder/pkg/events"
@@ -116,17 +116,18 @@ func loadConfig() (config.Config, error) {
 }
 
 type agentSetup struct {
-	ag              *agent.Agent
-	sess            *session.Session
-	store           *session.Store
-	bus             *events.Bus
-	mcpRegistry     *mcp.Registry
-	cfg             agentConfig
-	cwd             string
-	llmClient       *llm.Client
-	checkpointStore checkpoint.Store
-	obsWatcher      *observability.ConfigWatcher
-	cleanup         func()
+	ag               *agent.Agent
+	sess             *session.Session
+	store            *session.Store
+	bus              *events.Bus
+	mcpRegistry      *mcp.Registry
+	cfg              agentConfig
+	cwd              string
+	llmClient        *llm.Client
+	checkpointStore  checkpoint.Store
+	obsWatcher       *observability.ConfigWatcher
+	codeIndexWatcher *codeindex.Watcher
+	cleanup          func()
 }
 
 type agentConfig struct {
@@ -290,14 +291,38 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 
 	var reminderProducers []agent.ReminderProducer
 	var repoIndexTool *builtinTools.RepoIndex
+	var repoIndexer *sqlitestore.Indexer
+	var codeIndexWatcher *codeindex.Watcher
 	if cfg.CodeIndex.Enabled {
-		indexer := multiparser.NewIndexer(cfg.CodeIndex.Languages, cfg.CodeIndex.Exclude)
-		injector := codeindex.NewInjector(indexer, mgr, cwd, cfg.CodeIndex.MaxTokens)
+		var err error
+		repoIndexer, err = sqlitestore.NewIndexer(
+			cfg.CodeIndex.Languages,
+			cfg.CodeIndex.Exclude,
+			sqlitestore.DefaultPath(cwd),
+		)
+		if err != nil {
+			mcpRegistry.Close()
+			return nil, fmt.Errorf("init code index: %w", err)
+		}
+		injector := codeindex.NewInjector(repoIndexer, mgr, cwd, cfg.CodeIndex.MaxTokens)
 		repoIndexTool = builtinTools.NewRepoIndex(cwd)
 		repoIndexTool.SetInjector(injector)
 		registry.Register("repo_index", repoIndexTool)
 		if cfg.CodeIndex.AutoInject {
 			reminderProducers = append(reminderProducers, autoInjectReminder(injector))
+		}
+		if cfg.CodeIndex.Watch {
+			codeIndexWatcher, err = codeindex.NewWatcher(repoIndexer, cwd, cfg.CodeIndex.Exclude)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to start code index watcher: %v\n", err)
+				codeIndexWatcher = nil
+			} else {
+				go func() {
+					if err := codeIndexWatcher.Start(context.Background()); err != nil && err != context.Canceled {
+						fmt.Fprintf(os.Stderr, "warning: code index watcher exited: %v\n", err)
+					}
+				}()
+			}
 		}
 	}
 
@@ -358,6 +383,12 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		checkpointStore: chkStore,
 		obsWatcher:      obsWatcher,
 		cleanup: func() {
+			if codeIndexWatcher != nil {
+				_ = codeIndexWatcher.Close()
+			}
+			if repoIndexer != nil {
+				_ = repoIndexer.Close()
+			}
 			if obsWatcher != nil {
 				_ = obsWatcher.Close()
 			}

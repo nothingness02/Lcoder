@@ -85,6 +85,25 @@ func (idx *Indexer) Update(ctx context.Context, root string) error {
 	return nil
 }
 
+// ParseFile dispatches a single file to the appropriate language parser and
+// appends its nodes to snapshot. It is exported so higher-level stores can
+// perform incremental updates without re-walking the entire tree.
+func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) error {
+	ext := strings.ToLower(filepath.Ext(path))
+	p, ok := idx.parsers[ext]
+	if !ok {
+		return nil
+	}
+	return p.ParseFile(snapshot, rel, path)
+}
+
+// HandlesExtension reports whether the indexer has a parser for the given file
+// extension (including the leading dot).
+func (idx *Indexer) HandlesExtension(ext string) bool {
+	_, ok := idx.parsers[strings.ToLower(ext)]
+	return ok
+}
+
 func (idx *Indexer) isExcluded(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	for _, p := range idx.exclude {

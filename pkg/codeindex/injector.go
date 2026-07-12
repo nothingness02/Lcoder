@@ -13,6 +13,7 @@ import (
 // Injector writes repo-index stubs into the context manager as a BlockRetrieval block.
 type Injector struct {
 	indexer   Indexer
+	builder   *ContextBuilder
 	manager   *contextmgr.Manager
 	root      string
 	maxTokens int
@@ -24,12 +25,16 @@ func NewInjector(idx Indexer, mgr *contextmgr.Manager, root string, maxTokens in
 	if maxTokens <= 0 {
 		maxTokens = 8192
 	}
-	return &Injector{
+	inj := &Injector{
 		indexer:   idx,
 		manager:   mgr,
 		root:      root,
 		maxTokens: maxTokens,
 	}
+	if gs, ok := idx.(GraphStore); ok {
+		inj.builder = NewContextBuilder(gs)
+	}
+	return inj
 }
 
 // Inject searches the index for query and writes matching stubs into context.
@@ -43,10 +48,20 @@ func (inj *Injector) Inject(ctx context.Context, query string, maxResults int) e
 	if maxResults <= 0 {
 		maxResults = 10
 	}
-	results, err := inj.indexer.Search(ctx, Query{
-		Keywords:   splitQuery(query),
-		MaxResults: maxResults,
-	})
+	var results []Result
+	var err error
+	if inj.builder != nil {
+		results, err = inj.builder.Build(ctx, query, BuildOptions{
+			MaxSeeds: maxResults,
+			MaxDepth: 1,
+			MaxNodes: maxResults,
+		})
+	} else {
+		results, err = inj.indexer.Search(ctx, Query{
+			Keywords:   splitQuery(query),
+			MaxResults: maxResults,
+		})
+	}
 	if err != nil {
 		return err
 	}

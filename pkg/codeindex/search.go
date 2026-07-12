@@ -22,7 +22,10 @@ func SearchSnapshot(snapshot *Snapshot, q Query) ([]Result, error) {
 	emptyQuery := len(keywords) == 0 && len(exact) == 0
 
 	var results []Result
-	for _, sym := range snapshot.Symbols {
+	for _, sym := range snapshot.Nodes {
+		if sym.Kind == NodeKindFile {
+			continue
+		}
 		score := scoreSymbol(sym, keywords, exact)
 		if emptyQuery {
 			score = 1.0
@@ -31,7 +34,7 @@ func SearchSnapshot(snapshot *Snapshot, q Query) ([]Result, error) {
 			continue
 		}
 		results = append(results, Result{
-			Symbol:    sym,
+			Node:      sym,
 			Relevance: score,
 			Stub:      formatStub(snapshot, sym),
 		})
@@ -70,7 +73,7 @@ func normalizeSymbols(syms []string) []string {
 
 func scoreSymbol(sym Symbol, keywords []string, exact []string) float64 {
 	score := 0.0
-	text := strings.ToLower(sym.Name + " " + sym.Package + " " + sym.Doc + " " + sym.Signature)
+	text := strings.ToLower(sym.Name + " " + sym.QualifiedName + " " + sym.Docstring + " " + sym.Signature)
 	for _, kw := range keywords {
 		if strings.Contains(text, kw) {
 			score += 1.0
@@ -89,7 +92,7 @@ func scoreSymbol(sym Symbol, keywords []string, exact []string) float64 {
 
 func formatStub(snapshot *Snapshot, sym Symbol) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "// %s:%d\n%s", sym.File, sym.Line, sym.Signature)
+	fmt.Fprintf(&b, "// %s:%d\n%s", sym.FilePath, sym.StartLine, sym.Signature)
 	related := relatedSymbols(snapshot, sym.ID, 3)
 	if len(related) > 0 {
 		b.WriteString("\n// Related: " + strings.Join(related, ", "))
@@ -103,14 +106,14 @@ func relatedSymbols(snapshot *Snapshot, id string, max int) []string {
 	}
 	seen := map[string]bool{}
 	var out []string
-	for _, r := range snapshot.Relations {
-		if r.From == id && !seen[r.To] {
-			seen[r.To] = true
-			out = append(out, r.To)
+	for _, r := range snapshot.Edges {
+		if r.Source == id && !seen[r.Target] {
+			seen[r.Target] = true
+			out = append(out, r.Target)
 		}
-		if r.To == id && !seen[r.From] {
-			seen[r.From] = true
-			out = append(out, r.From)
+		if r.Target == id && !seen[r.Source] {
+			seen[r.Source] = true
+			out = append(out, r.Source)
 		}
 		if len(out) >= max {
 			break

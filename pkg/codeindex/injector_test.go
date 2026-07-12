@@ -28,7 +28,7 @@ func TestInjectorWritesBlock(t *testing.T) {
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
 	idx := &fakeIndexer{
 		results: []Result{
-			{Symbol: Symbol{Name: "Engine"}, Stub: "// demo.go:1\ntype Engine struct{}"},
+			{Node: Node{Name: "Engine"}, Stub: "// demo.go:1\ntype Engine struct{}"},
 		},
 	}
 	inj := NewInjector(idx, mgr, "/tmp/demo", 2000)

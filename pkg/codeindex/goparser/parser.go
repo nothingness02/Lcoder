@@ -30,7 +30,7 @@ func NewIndexer(exclude []string) *Indexer {
 	}
 }
 
-// Update performs a full re-parse of root. Incremental updates are left for later optimization.
+// Update performs a full re-parse of root.
 func (idx *Indexer) Update(ctx context.Context, root string) error {
 	idx.root = root
 	snapshot := codeindex.NewSnapshot()
@@ -70,14 +70,12 @@ func (idx *Indexer) isExcluded(rel string) bool {
 		if p == "" {
 			continue
 		}
-		// Directory prefix: "dir/" matches the directory itself and anything inside.
 		if dir, ok := strings.CutSuffix(p, "/"); ok {
 			if rel == dir || strings.HasPrefix(rel, dir+"/") {
 				return true
 			}
 			continue
 		}
-		// Glob match against the full relative path or the base name.
 		if matched, _ := filepath.Match(p, rel); matched {
 			return true
 		}
@@ -88,7 +86,7 @@ func (idx *Indexer) isExcluded(rel string) bool {
 	return false
 }
 
-// ParseFile parses a single Go source file and appends its symbols to snapshot.
+// ParseFile parses a single Go source file and appends its nodes and edges to snapshot.
 func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
@@ -113,46 +111,151 @@ func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) er
 	}
 
 	pkgSymbol := codeindex.Symbol{
-		ID:      pkgPath,
-		Name:    f.Name.Name,
-		Kind:    codeindex.SymbolKindPackage,
-		Package: pkgPath,
-		File:    rel,
-		Line:    fset.Position(f.Package).Line,
-		Doc:     firstSentence(docText(f.Doc)),
+		ID:            pkgPath,
+		Name:          f.Name.Name,
+		Kind:          codeindex.SymbolKindPackage,
+		QualifiedName: pkgPath,
+		FilePath:      rel,
+		Language:      "go",
+		StartLine:     fset.Position(f.Package).Line,
+		Docstring:     firstSentence(docText(f.Doc)),
 	}
-	snapshot.Symbols = append(snapshot.Symbols, pkgSymbol)
+	snapshot.Nodes = append(snapshot.Nodes, pkgSymbol)
+	snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+		Source: pkgPath,
+		Target: rel,
+		Kind:   codeindex.EdgeKindContains,
+	})
+
+	fileNode := codeindex.Node{
+		ID:            rel,
+		Name:          filepath.Base(rel),
+		Kind:          codeindex.NodeKindFile,
+		QualifiedName: pkgPath,
+		FilePath:      rel,
+		Language:      "go",
+		StartLine:     1,
+	}
+	snapshot.Nodes = append(snapshot.Nodes, fileNode)
+
+	funcIDs := make(map[string]string)
+	typeIDs := make(map[string]string)
+	funcDecls := make(map[string]*ast.FuncDecl)
 
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			snapshot.Symbols = append(snapshot.Symbols, funcSymbol(fset, d, pkgPath, rel))
+			sym := funcSymbol(fset, d, pkgPath, rel)
+			snapshot.Nodes = append(snapshot.Nodes, sym)
+			snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+				Source: rel,
+				Target: sym.ID,
+				Kind:   codeindex.EdgeKindContains,
+			})
+			funcIDs[sym.Name] = sym.ID
+			funcDecls[sym.ID] = d
 		case *ast.GenDecl:
 			for _, spec := range d.Specs {
 				switch s := spec.(type) {
 				case *ast.TypeSpec:
-					snapshot.Symbols = append(snapshot.Symbols, typeSymbol(fset, d, s, pkgPath, rel))
+					sym := typeSymbol(fset, d, s, pkgPath, rel)
+					snapshot.Nodes = append(snapshot.Nodes, sym)
+					snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+						Source: rel,
+						Target: sym.ID,
+						Kind:   codeindex.EdgeKindContains,
+					})
+					typeIDs[sym.Name] = sym.ID
 				case *ast.ValueSpec:
 					kind := codeindex.SymbolKindVar
 					if d.Tok == token.CONST {
 						kind = codeindex.SymbolKindConst
 					}
 					for _, name := range s.Names {
-						snapshot.Symbols = append(snapshot.Symbols, codeindex.Symbol{
-							ID:        symbolID(pkgPath, name.Name),
-							Name:      name.Name,
-							Kind:      kind,
-							Package:   pkgPath,
-							File:      rel,
-							Line:      fset.Position(name.Pos()).Line,
-							Signature: fmt.Sprintf("%s %s", name.Name, typeString(fset, s.Type)),
-							Doc:       firstSentence(valueSpecDoc(d, s)),
+						sym := codeindex.Symbol{
+							ID:            symbolID(pkgPath, name.Name),
+							Name:          name.Name,
+							Kind:          kind,
+							QualifiedName: pkgPath,
+							FilePath:      rel,
+							Language:      "go",
+							StartLine:     fset.Position(name.Pos()).Line,
+							Signature:     fmt.Sprintf("%s %s", name.Name, typeString(fset, s.Type)),
+							Docstring:     firstSentence(valueSpecDoc(d, s)),
+						}
+						snapshot.Nodes = append(snapshot.Nodes, sym)
+						snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+							Source: rel,
+							Target: sym.ID,
+							Kind:   codeindex.EdgeKindContains,
 						})
+						if kind == codeindex.SymbolKindConst {
+							funcIDs[sym.Name] = sym.ID
+						}
 					}
 				}
 			}
 		}
 	}
+
+	// Record imports as edges from the package node.
+	for _, imp := range f.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+		snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+			Source: pkgPath,
+			Target: path,
+			Kind:   codeindex.EdgeKindImports,
+		})
+	}
+
+	// Extract same-package call edges from function bodies.
+	for id, d := range funcDecls {
+		if d.Body == nil {
+			continue
+		}
+		ast.Inspect(d.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			switch fun := call.Fun.(type) {
+			case *ast.Ident:
+				if callee, ok := funcIDs[fun.Name]; ok {
+					snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+						Source: id,
+						Target: callee,
+						Kind:   codeindex.EdgeKindCalls,
+						Line:   fset.Position(fun.Pos()).Line,
+					})
+				}
+			case *ast.SelectorExpr:
+				if xIdent, ok := fun.X.(*ast.Ident); ok {
+					key := xIdent.Name + "." + fun.Sel.Name
+					if callee, ok := funcIDs[key]; ok {
+						snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+							Source: id,
+							Target: callee,
+							Kind:   codeindex.EdgeKindCalls,
+							Line:   fset.Position(fun.Pos()).Line,
+						})
+					} else if _, isType := typeIDs[xIdent.Name]; isType {
+						// Method-style call on a package-level type, e.g. Type.Method().
+						// Already covered if the method was indexed.
+					} else {
+						// Cross-package or unresolved reference.
+						snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+							Source: id,
+							Target: key,
+							Kind:   codeindex.EdgeKindReferences,
+							Line:   fset.Position(fun.Pos()).Line,
+						})
+					}
+				}
+			}
+			return true
+		})
+	}
+
 	return nil
 }
 
@@ -187,14 +290,15 @@ func funcSymbol(fset *token.FileSet, d *ast.FuncDecl, pkgPath, rel string) codei
 		sig = "func " + name + sig
 	}
 	return codeindex.Symbol{
-		ID:        id,
-		Name:      name,
-		Kind:      kind,
-		Package:   pkgPath,
-		File:      rel,
-		Line:      fset.Position(d.Pos()).Line,
-		Signature: sig,
-		Doc:       firstSentence(docText(d.Doc)),
+		ID:            id,
+		Name:          name,
+		Kind:          kind,
+		QualifiedName: pkgPath,
+		FilePath:      rel,
+		Language:      "go",
+		StartLine:     fset.Position(d.Pos()).Line,
+		Signature:     sig,
+		Docstring:     firstSentence(docText(d.Doc)),
 	}
 }
 
@@ -204,14 +308,15 @@ func typeSymbol(fset *token.FileSet, gd *ast.GenDecl, s *ast.TypeSpec, pkgPath, 
 		doc = gd.Doc
 	}
 	return codeindex.Symbol{
-		ID:        symbolID(pkgPath, s.Name.Name),
-		Name:      s.Name.Name,
-		Kind:      codeindex.SymbolKindType,
-		Package:   pkgPath,
-		File:      rel,
-		Line:      fset.Position(s.Pos()).Line,
-		Signature: fmt.Sprintf("type %s %s", s.Name.Name, typeString(fset, s.Type)),
-		Doc:       firstSentence(docText(doc)),
+		ID:            symbolID(pkgPath, s.Name.Name),
+		Name:          s.Name.Name,
+		Kind:          codeindex.SymbolKindType,
+		QualifiedName: pkgPath,
+		FilePath:      rel,
+		Language:      "go",
+		StartLine:     fset.Position(s.Pos()).Line,
+		Signature:     fmt.Sprintf("type %s %s", s.Name.Name, typeString(fset, s.Type)),
+		Docstring:     firstSentence(docText(doc)),
 	}
 }
 

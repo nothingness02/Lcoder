@@ -150,6 +150,7 @@ func DefaultConfig() Config {
 		CodeIndex: CodeIndexConfig{
 			Enabled:    false,
 			AutoInject: false,
+			Watch:      true,
 			MaxResults: 10,
 			MaxTokens:  8192,
 			Languages:  []string{"go"},
@@ -224,6 +225,7 @@ func DefaultConfig() Config {
 type CodeIndexConfig struct {
     Enabled    bool     `yaml:"enabled"`
     AutoInject bool     `yaml:"auto_inject"`
+    Watch      bool     `yaml:"watch"`
     MaxResults int      `yaml:"max_results"`
     MaxTokens  int      `yaml:"max_tokens"`
     Languages  []string `yaml:"languages"`

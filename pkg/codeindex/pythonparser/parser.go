@@ -113,6 +113,16 @@ func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) er
 		pkgPath = ""
 	}
 
+	snapshot.Nodes = append(snapshot.Nodes, codeindex.Node{
+		ID:            rel,
+		Name:          filepath.Base(rel),
+		Kind:          codeindex.NodeKindFile,
+		QualifiedName: pkgPath,
+		FilePath:      rel,
+		Language:      "python",
+		StartLine:     1,
+	})
+
 	lines := strings.Split(string(src), "\n")
 
 	type scope struct {
@@ -184,15 +194,21 @@ func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) er
 		}
 
 		doc := firstSentence(extractDocstring(lines, i))
-		snapshot.Symbols = append(snapshot.Symbols, codeindex.Symbol{
-			ID:        id,
-			Name:      displayName,
-			Kind:      kind,
-			Package:   pkgPath,
-			File:      rel,
-			Line:      lineNo,
-			Signature: sig,
-			Doc:       doc,
+		snapshot.Nodes = append(snapshot.Nodes, codeindex.Symbol{
+			ID:            id,
+			Name:          displayName,
+			Kind:          kind,
+			QualifiedName: pkgPath,
+			FilePath:      rel,
+			Language:      "python",
+			StartLine:     lineNo,
+			Signature:     sig,
+			Docstring:     doc,
+		})
+		snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+			Source: rel,
+			Target: id,
+			Kind:   codeindex.EdgeKindContains,
 		})
 	}
 

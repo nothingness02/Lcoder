@@ -48,7 +48,7 @@ export async function fetchData(url) {
 
 	names := make(map[string]codeindex.SymbolKind)
 	for _, r := range res {
-		names[r.Symbol.Name] = r.Symbol.Kind
+		names[r.Node.Name] = r.Node.Kind
 	}
 	require.Contains(t, names, "Widget")
 	require.Equal(t, codeindex.SymbolKindType, names["Widget"])
@@ -65,14 +65,14 @@ export async function fetchData(url) {
 
 	var render *codeindex.Result
 	for i := range res {
-		if res[i].Symbol.Name == "Widget.render" {
+		if res[i].Node.Name == "Widget.render" {
 			render = &res[i]
 			break
 		}
 	}
 	require.NotNil(t, render)
-	require.Equal(t, "render()", render.Symbol.Signature)
-	require.Contains(t, render.Symbol.Doc, "Render the widget")
+	require.Equal(t, "render()", render.Node.Signature)
+	require.Contains(t, render.Node.Docstring, "Render the widget")
 }
 
 func TestTSIndexerExtractsClasses(t *testing.T) {
@@ -101,5 +101,5 @@ func TestJSIndexerRespectsExcludes(t *testing.T) {
 	res, err := idx.Search(context.Background(), codeindex.Query{})
 	require.NoError(t, err)
 	require.Len(t, res, 1)
-	require.Equal(t, "kept", res[0].Symbol.Name)
+	require.Equal(t, "kept", res[0].Node.Name)
 }

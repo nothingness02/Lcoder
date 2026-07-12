@@ -22,8 +22,8 @@ type Snapshot struct {
 	Version     string              `json:"version"`
 	UpdatedAt   time.Time           `json:"updated_at"`
 	Files       map[string]FileMeta `json:"files"`
-	Symbols     []Symbol            `json:"symbols"`
-	Relations   []Relation          `json:"relations"`
+	Nodes       []Node              `json:"nodes"`
+	Edges       []Edge              `json:"edges"`
 	FailedFiles []string            `json:"failed_files"`
 }
 

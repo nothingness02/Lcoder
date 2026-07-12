@@ -13,7 +13,7 @@ type fakeRepoIndexer struct{}
 
 func (f *fakeRepoIndexer) Update(ctx context.Context, root string) error { return nil }
 func (f *fakeRepoIndexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.Result, error) {
-	return []codeindex.Result{{Symbol: codeindex.Symbol{Name: "Finder"}, Stub: "type Finder struct{}"}}, nil
+	return []codeindex.Result{{Node: codeindex.Node{Name: "Finder"}, Stub: "type Finder struct{}"}}, nil
 }
 func (f *fakeRepoIndexer) Clear() error { return nil }
 

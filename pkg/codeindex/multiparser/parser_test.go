@@ -25,7 +25,7 @@ func TestMultiparserIndexesMixedLanguages(t *testing.T) {
 
 	names := make(map[string]bool)
 	for _, r := range res {
-		names[r.Symbol.Name] = true
+		names[r.Node.Name] = true
 	}
 	require.Contains(t, names, "main")
 	require.Contains(t, names, "App.run")

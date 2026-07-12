@@ -71,6 +71,15 @@ func isJSFile(path string) bool {
 	return false
 }
 
+func languageForPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ts", ".tsx":
+		return "typescript"
+	default:
+		return "javascript"
+	}
+}
+
 func (idx *Indexer) isExcluded(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	for _, p := range idx.exclude {
@@ -125,6 +134,17 @@ func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) er
 	if pkgPath == "." {
 		pkgPath = ""
 	}
+	lang := languageForPath(path)
+
+	snapshot.Nodes = append(snapshot.Nodes, codeindex.Node{
+		ID:            rel,
+		Name:          filepath.Base(rel),
+		Kind:          codeindex.NodeKindFile,
+		QualifiedName: pkgPath,
+		FilePath:      rel,
+		Language:      lang,
+		StartLine:     1,
+	})
 
 	lines := strings.Split(string(src), "\n")
 
@@ -151,15 +171,21 @@ func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) er
 				sig = fmt.Sprintf("class %s extends %s", name, base)
 			}
 			id := symbolID(pkgPath, name)
-			snapshot.Symbols = append(snapshot.Symbols, codeindex.Symbol{
-				ID:        id,
-				Name:      name,
-				Kind:      codeindex.SymbolKindType,
-				Package:   pkgPath,
-				File:      rel,
-				Line:      i + 1,
-				Signature: sig,
-				Doc:       firstSentence(extractDocComment(lines, i)),
+			snapshot.Nodes = append(snapshot.Nodes, codeindex.Symbol{
+				ID:            id,
+				Name:          name,
+				Kind:          codeindex.SymbolKindType,
+				QualifiedName: pkgPath,
+				FilePath:      rel,
+				Language:      lang,
+				StartLine:     i + 1,
+				Signature:     sig,
+				Docstring:     firstSentence(extractDocComment(lines, i)),
+			})
+			snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+				Source: rel,
+				Target: id,
+				Kind:   codeindex.EdgeKindContains,
 			})
 			stack = append(stack, scope{indent: indent, className: name, classID: id, isClass: true})
 			continue
@@ -181,15 +207,21 @@ func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) er
 				prefix = "async function"
 			}
 			sig := fmt.Sprintf("%s %s%s", prefix, name, params)
-			snapshot.Symbols = append(snapshot.Symbols, codeindex.Symbol{
-				ID:        symbolID(pkgPath, name),
-				Name:      name,
-				Kind:      codeindex.SymbolKindFunc,
-				Package:   pkgPath,
-				File:      rel,
-				Line:      i + 1,
-				Signature: sig,
-				Doc:       firstSentence(extractDocComment(lines, i)),
+			snapshot.Nodes = append(snapshot.Nodes, codeindex.Symbol{
+				ID:            symbolID(pkgPath, name),
+				Name:          name,
+				Kind:          codeindex.SymbolKindFunc,
+				QualifiedName: pkgPath,
+				FilePath:      rel,
+				Language:      lang,
+				StartLine:     i + 1,
+				Signature:     sig,
+				Docstring:     firstSentence(extractDocComment(lines, i)),
+			})
+			snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+				Source: rel,
+				Target: symbolID(pkgPath, name),
+				Kind:   codeindex.EdgeKindContains,
 			})
 			continue
 		}
@@ -214,15 +246,21 @@ func (idx *Indexer) ParseFile(snapshot *codeindex.Snapshot, rel, path string) er
 			}
 			sig := fmt.Sprintf("%s%s%s", prefix, name, params)
 			parent := stack[len(stack)-1]
-			snapshot.Symbols = append(snapshot.Symbols, codeindex.Symbol{
-				ID:        methodID(pkgPath, parent.className, name),
-				Name:      parent.className + "." + name,
-				Kind:      codeindex.SymbolKindMethod,
-				Package:   pkgPath,
-				File:      rel,
-				Line:      i + 1,
-				Signature: sig,
-				Doc:       firstSentence(extractDocComment(lines, i)),
+			snapshot.Nodes = append(snapshot.Nodes, codeindex.Symbol{
+				ID:            methodID(pkgPath, parent.className, name),
+				Name:          parent.className + "." + name,
+				Kind:          codeindex.SymbolKindMethod,
+				QualifiedName: pkgPath,
+				FilePath:      rel,
+				Language:      lang,
+				StartLine:     i + 1,
+				Signature:     sig,
+				Docstring:     firstSentence(extractDocComment(lines, i)),
+			})
+			snapshot.Edges = append(snapshot.Edges, codeindex.Edge{
+				Source: rel,
+				Target: methodID(pkgPath, parent.className, name),
+				Kind:   codeindex.EdgeKindContains,
 			})
 		}
 	}
