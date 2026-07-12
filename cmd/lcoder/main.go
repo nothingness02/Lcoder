@@ -61,7 +61,7 @@ func main() {
 	root.Flags().StringVar(&modeName, "mode", "", "Agent mode: plan, code, explore, review, test")
 	root.Flags().StringVarP(&promptText, "prompt", "p", "", "Single prompt to run and exit")
 	root.Flags().Bool("json", false, "Output events as JSONL instead of TUI/text")
-	root.Flags().BoolVar(&unsafeMode, "unsafe", false, "Bypass permission engine (ultra-destructive commands still require approval)")
+	root.PersistentFlags().BoolVar(&unsafeMode, "unsafe", false, "Bypass permission engine (ultra-destructive commands still require approval)")
 
 	root.AddCommand(modelsCmd())
 	root.AddCommand(skillsCmd())
