@@ -1,5 +1,7 @@
 # Lcoder
 
+[中文版本](README.md)
+
 A minimal, extensible SWE agent harness.
 
 - **Core**: Go
