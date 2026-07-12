@@ -28,3 +28,21 @@ func TestRenderMarkdownEmpty(t *testing.T) {
 		t.Fatalf("empty input render = %q, want empty", out)
 	}
 }
+
+func TestRenderMarkdownEscapesNewlines(t *testing.T) {
+	out := renderMarkdown("line one\\nline two\\nline three", 80)
+	if !strings.Contains(out, "line one") || !strings.Contains(out, "line two") {
+		t.Fatalf("expected escaped newlines to render as line breaks, got %q", out)
+	}
+	// After unescaping, the three lines should no longer contain the literal \n sequence.
+	if strings.Contains(out, "\\n") {
+		t.Fatalf("output still contains literal \\n: %q", out)
+	}
+}
+
+func TestRenderMarkdownEscapesTabs(t *testing.T) {
+	out := renderMarkdown("col1\\tcol2", 80)
+	if strings.Contains(out, "\\t") {
+		t.Fatalf("output still contains literal \\t: %q", out)
+	}
+}

@@ -128,6 +128,12 @@ func buildRenderer(width int, dark bool) (*glamour.TermRenderer, error) {
 
 // renderMarkdown renders markdown to ANSI, falling back to plain text on error.
 func renderMarkdown(text string, width int) string {
+	// Some providers/models return literal "\n" / "\t" sequences in the content
+	// string instead of actual control characters. Convert them before markdown
+	// rendering so the TUI shows real line breaks and tabs.
+	text = strings.ReplaceAll(text, "\\n", "\n")
+	text = strings.ReplaceAll(text, "\\t", "\t")
+
 	r := getRenderer(width)
 	if r == nil || text == "" {
 		return text
