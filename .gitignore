@@ -9,6 +9,7 @@ reference/*
 .claude/
 .superpowers/
 /lcoder
+/bin/
 /credentials.yaml
 .lcoder/credentials.yaml
 __pycache__/

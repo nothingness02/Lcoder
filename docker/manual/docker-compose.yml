@@ -8,7 +8,12 @@ services:
     volumes:
       - ${HOME}/.lcoder:/root/.lcoder
       - ./workspace:/workspace
+      # 持久化人工测试产生的数据变化（命名卷，独立于容器生命周期）
+      - lcoder_manual_data:/data
     working_dir: /workspace
     environment:
       - TERM=${TERM:-xterm-256color}
       - LC_ALL=C.UTF-8
+
+volumes:
+  lcoder_manual_data:
