@@ -268,7 +268,42 @@ See `eval/swe-bench-lite/README.md` (Chinese) or `eval/swe-bench-lite/README_EN.
 
 ## Architecture
 
-See `.claude/CLAUDE.md` for project conventions and `docs/` for design notes and reports.
+```
+cmd/lcoder/main.go
+ └─ prepareAgent: config → LLM client → sandbox → tool registry → MCP registry
+                 → session store → observability → mode manager → context manager → Agent
+ └─ runRoot: one-shot / JSON / TUI dispatch; writes a ReasonCrash checkpoint on SIGINT/SIGTERM
+
+pkg/agent
+ ├─ loop.go            Orchestrate turns: drain steering → compact → stream → execute tools → persist checkpoint
+ ├─ streamer.go        Build turn requests, stream LLM events, assemble assistant messages
+ ├─ executor.go        Validate, permission-check, and execute tool calls; owns deferred tool promotion
+ └─ state.go           Runtime state, turn counter, steering/follow-up queues, abort
+
+pkg/contextmgr
+ └─ Manager            Organizes conversation into system/mode/skills/project_docs/recent blocks;
+                       BuildTurnRequest selects blocks within TokenBudget, computes cache breakpoints,
+                       injects ephemeral reminders, and MaybeCompactLeveled
+
+pkg/llm
+ ├─ engine             Routing and retry logic
+ ├─ catalog            Model catalog and window/capability discovery
+ ├─ provider           OpenAI-compatible and Anthropic HTTP+SSE adapters
+ └─ client.go          Client facade exposed to the agent
+
+pkg/tools
+ └─ Registry           Collects tool definitions; built-ins live in pkg/tools/builtin;
+                       HTTP/MCP tools are registered from config; supports deferred loading
+
+pkg/events            Event bus: TurnStart/End, MessageStart/End, ToolExecutionStart/End, CompactionCommitted, etc.
+pkg/session           JSONL session storage; reconstructs active branch via parent_id
+pkg/checkpoint        Lightweight runtime snapshots (mode, model, turn, context budget/policy, steering queues);
+                       does not store full messages
+pkg/tui               Bubble Tea terminal UI; subscribes to the same event bus and handles permission Ask
+pkg/config            koanf-based loading of ~/.lcoder/config.yaml with environment-variable overrides
+```
+
+For project conventions see `.claude/CLAUDE.md`; design notes and reports are in `docs/`.
 
 ## License
 

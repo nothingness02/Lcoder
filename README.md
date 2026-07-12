@@ -262,7 +262,39 @@ go test ./pkg/codeindex/...
 
 ## 架构
 
-项目约定见 `.claude/CLAUDE.md`，设计笔记与报告见 `docs/`。
+```
+cmd/lcoder/main.go
+ └─ prepareAgent: 配置 → LLM 客户端 → 沙箱 → 工具注册表 → MCP 注册表
+                 → 会话存储 → 可观测性 → 模式管理器 → 上下文管理器 → Agent
+ └─ runRoot: 单次 / JSON / TUI 模式分发，SIGINT/SIGTERM 时写 ReasonCrash checkpoint
+
+pkg/agent
+ ├─ loop.go            编排多轮对话：drain steering → compact → 流式生成 → 执行工具 → 持久化 checkpoint
+ ├─ streamer.go        构建 turn 请求、流式接收 LLM 事件、组装 assistant 消息
+ ├─ executor.go        验证、权限检查、执行工具调用；负责 deferred tool 提升
+ └─ state.go           运行时状态、turn 计数、steering/follow-up 队列、abort
+
+pkg/contextmgr
+ └─ Manager            将对话组织为 system/mode/skills/project_docs/recent 等 block
+                       BuildTurnRequest 在 TokenBudget 内选块、计算 cache 断点、注入临时提醒、 MaybeCompactLeveled
+
+pkg/llm
+ ├─ engine             路由与重试
+ ├─ catalog            模型目录、窗口与能力发现
+ ├─ provider           OpenAI 兼容 / Anthropic 的 HTTP+SSE 适配器
+ └─ client.go          面向 agent 的客户端门面
+
+pkg/tools
+ └─ Registry           收集工具定义；内置工具在 pkg/tools/builtin，HTTP/MCP 工具从配置注册；支持 deferred 加载
+
+pkg/events            事件总线：TurnStart/End、MessageStart/End、ToolExecutionStart/End、CompactionCommitted 等
+pkg/session           JSONL 会话存储，基于 parent_id 重建活动分支
+pkg/checkpoint        轻量级运行时快照（模式、模型、turn、上下文预算/策略、steering 队列等），不存完整消息
+pkg/tui               基于 Bubble Tea 的终端 UI，订阅同一事件总线并处理权限 Ask
+pkg/config            koanf 加载 ~/.lcoder/config.yaml，支持环境变量覆盖
+```
+
+更详细的项目约定见 `.claude/CLAUDE.md`，设计笔记与报告见 `docs/`。
 
 ## 许可证
 
