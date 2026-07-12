@@ -3,18 +3,18 @@
 
 在容器内运行(需要外网访问 datasets-server.huggingface.co)。
 
-筛选策略(MVP):
-- 默认锁定一个轻量、纯 Python、依赖简单的仓库(psf/requests)。
-- 在该仓库的任务中,选 FAIL_TO_PASS + PASS_TO_PASS 规模最小者,降低运行与环境风险。
-- 也可用 --instance 指定具体 instance_id。
-
-字段说明:HF 行里的 FAIL_TO_PASS / PASS_TO_PASS 既可能是 list,也可能是 JSON 字符串,这里统一解析为 list。
+筛选策略:
+- 默认覆盖多个常见轻量仓库,按仓库分层采样,避免只测单一仓库。
+- 在每个仓库内按 FAIL_TO_PASS + PASS_TO_PASS 规模升序,优先选择测试少、
+  环境风险低的任务。
+- 支持 --repo 单仓库 / 多仓库(逗号分隔),以及 --instance 指定具体任务。
 """
 import argparse
 import json
 import os
 import sys
 import urllib.request
+from datetime import datetime, timezone
 
 DATASET = "princeton-nlp/SWE-bench_Lite"
 ROWS_URL = (
@@ -22,10 +22,28 @@ ROWS_URL = (
     "?dataset={ds}&config=default&split=test&offset={off}&length={ln}"
 )
 
+# 默认评估仓库集合(轻量或代表性)。逗号分隔,可在命令行覆盖。
+DEFAULT_REPOS = [
+    "psf/requests",
+    "sympy/sympy",
+    "pallets/flask",
+    "pytest-dev/pytest",
+]
+
 # 仓库 -> 适配的 Python 版本(对齐各任务代码的时代依赖)。未列出者默认 3.11。
 REPO_PYVER = {
     "psf/requests": "3.9",
     "sympy/sympy": "3.9",
+    "pallets/flask": "3.9",
+    "pytest-dev/pytest": "3.9",
+    "django/django": "3.9",
+    "scikit-learn/scikit-learn": "3.9",
+    "matplotlib/matplotlib": "3.9",
+    "numpy/numpy": "3.9",
+    "pandas-dev/pandas": "3.9",
+    "sphinx-doc/sphinx": "3.9",
+    "astropy/astropy": "3.9",
+    "scipy/scipy": "3.9",
 }
 
 
@@ -70,7 +88,12 @@ def as_list(v):
     return []
 
 
-def to_task(row):
+def difficulty(row):
+    """以测试规模作为任务难度/耗时代理。"""
+    return len(as_list(row.get("FAIL_TO_PASS"))) + len(as_list(row.get("PASS_TO_PASS")))
+
+
+def to_task(row, rank=0):
     return {
         "instance_id": row["instance_id"],
         "repo": row["repo"],
@@ -79,25 +102,82 @@ def to_task(row):
         "test_patch": row.get("test_patch", ""),
         "fail_to_pass": as_list(row.get("FAIL_TO_PASS")),
         "pass_to_pass": as_list(row.get("PASS_TO_PASS")),
-        # 适配的 Python 版本(决定容器基础镜像)。
         "python_version": REPO_PYVER.get(row["repo"], "3.11"),
-        # MVP 默认测试命令;复杂仓库可在此覆盖。
         "test_cmd": "python -m pytest",
-        # 默认安装命令。
         "install_cmd": "pip install -e .",
+        "difficulty": difficulty(row),
+        "rank": rank,
     }
+
+
+def parse_repos(s):
+    """解析逗号分隔的仓库列表,支持额外空格。"""
+    return [r.strip() for r in s.split(",") if r.strip()]
+
+
+def select_tasks(rows, repos, per_repo, total_limit, instance=None):
+    if instance:
+        chosen = [r for r in rows if r["instance_id"] == instance]
+        if not chosen:
+            raise ValueError(f"instance {instance} not found")
+        return [to_task(chosen[0], rank=1)]
+
+    tasks = []
+    for repo in repos:
+        candidates = [r for r in rows if r["repo"] == repo]
+        if not candidates:
+            print(f"[select] warning: no tasks for repo {repo}", file=sys.stderr, flush=True)
+            continue
+        candidates.sort(key=difficulty)
+        picked = candidates[: max(1, per_repo)]
+        for rank, row in enumerate(picked, start=1):
+            tasks.append(to_task(row, rank=rank))
+        print(
+            f"[select] repo={repo}: {len(candidates)} candidates, picked {len(picked)}",
+            flush=True,
+        )
+
+    if total_limit > 0 and len(tasks) > total_limit:
+        # 截断时仍保持各仓库分布(已按每仓库升序,简单取前 N)。
+        tasks = tasks[:total_limit]
+    return tasks
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repo", default="psf/requests", help="筛选目标仓库")
-    ap.add_argument("--instance", default="", help="指定 instance_id(优先于 --repo 筛选)")
-    ap.add_argument("--limit", type=int, default=1, help="写出规模最小的前 N 个任务")
+    ap.add_argument(
+        "--repo",
+        default=",".join(DEFAULT_REPOS),
+        help="目标仓库,逗号分隔(默认: %(default)s)",
+    )
+    ap.add_argument(
+        "--instance",
+        default="",
+        help="指定 instance_id(优先于 --repo 筛选)",
+    )
+    ap.add_argument(
+        "--per-repo",
+        type=int,
+        default=5,
+        help="每个仓库选规模最小的前 N 个任务",
+    )
+    ap.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="最终写出的总任务数上限(0=不限制)",
+    )
     ap.add_argument("--out", default="/eval/data/tasks.json")
-    ap.add_argument("--cache", default="/eval/data/swe-bench-lite-cache.jsonl",
-                    help="本地数据集缓存路径")
-    ap.add_argument("--refresh", action="store_true",
-                    help="强制重新从 HuggingFace 拉取并刷新缓存")
+    ap.add_argument(
+        "--cache",
+        default="/eval/data/swe-bench-lite-cache.jsonl",
+        help="本地数据集缓存路径",
+    )
+    ap.add_argument(
+        "--refresh",
+        action="store_true",
+        help="强制重新从 HuggingFace 拉取并刷新缓存",
+    )
     args = ap.parse_args()
 
     rows = None
@@ -118,31 +198,22 @@ def main():
             save_cache(args.cache, rows)
             print(f"[select] wrote cache to {args.cache}", flush=True)
 
-    if args.instance:
-        chosen = [r for r in rows if r["instance_id"] == args.instance]
-        if not chosen:
-            print(f"[select] instance {args.instance} not found", file=sys.stderr)
-            sys.exit(1)
-        tasks = [to_task(chosen[0])]
-    else:
-        candidates = [r for r in rows if r["repo"] == args.repo]
-        if not candidates:
-            print(f"[select] no tasks for repo {args.repo}", file=sys.stderr)
-            sys.exit(1)
-        # 按测试规模升序,挑最小的前 N 个
-        candidates.sort(
-            key=lambda r: len(as_list(r.get("FAIL_TO_PASS"))) + len(as_list(r.get("PASS_TO_PASS")))
-        )
-        tasks = [to_task(r) for r in candidates[: max(1, args.limit)]]
-        print(
-            f"[select] repo={args.repo}: {len(candidates)} candidates, "
-            f"picked {len(tasks)}: "
-            + ", ".join(t["instance_id"] for t in tasks),
-            flush=True,
-        )
+    repos = parse_repos(args.repo)
+    tasks = select_tasks(rows, repos, args.per_repo, args.limit, args.instance)
 
+    output = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dataset": DATASET,
+        "repos": repos,
+        "per_repo": args.per_repo,
+        "limit": args.limit,
+        "count": len(tasks),
+        "tasks": tasks,
+    }
+
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, indent=2, ensure_ascii=False)
+        json.dump(output, f, indent=2, ensure_ascii=False)
     print(f"[select] wrote {len(tasks)} task(s) to {args.out}", flush=True)
 
 

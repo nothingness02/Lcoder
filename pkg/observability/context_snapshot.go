@@ -2,6 +2,7 @@ package observability
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
+	"github.com/lcoder/lcoder/pkg/models"
 )
 
 // ContextSnapshotRecorder writes full context snapshots to independent Markdown
@@ -95,11 +97,7 @@ func (r *ContextSnapshotRecorder) render(state *contextmgr.ManagerState, phase s
 			}
 			for i := 0; i < limit; i++ {
 				msg := block.Messages[i]
-				text := msg.Text()
-				if text == "" {
-					text = "(non-text content)"
-				}
-				b.WriteString(fmt.Sprintf("**%s**: %s\n\n", msg.Role, text))
+				b.WriteString(fmt.Sprintf("**%s**:\n\n%s\n\n", msg.Role, r.renderMessage(msg)))
 			}
 			if limit < len(block.Messages) {
 				b.WriteString(fmt.Sprintf("_... and %d more messages_\n\n", len(block.Messages)-limit))
@@ -116,4 +114,55 @@ func (r *ContextSnapshotRecorder) render(state *contextmgr.ManagerState, phase s
 	}
 
 	return b.String()
+}
+
+func (r *ContextSnapshotRecorder) renderMessage(msg models.AgentMessage) string {
+	if len(msg.Content) == 0 {
+		return "(empty message)"
+	}
+	return r.renderContentParts(msg.Content, 0)
+}
+
+func (r *ContextSnapshotRecorder) renderContentParts(parts []models.ContentPart, indent int) string {
+	if len(parts) == 0 {
+		return "(no content)"
+	}
+	prefix := ""
+	for i := 0; i < indent; i++ {
+		prefix += "> "
+	}
+	var out bytes.Buffer
+	for _, part := range parts {
+		out.WriteString(prefix)
+		switch p := part.(type) {
+		case models.TextContent:
+			out.WriteString(p.Text)
+		case models.ThinkingContent:
+			out.WriteString("**[thinking]**\n")
+			if prefix != "" {
+				out.WriteString(prefix)
+			}
+			out.WriteString(p.Text)
+		case models.ToolCallContent:
+			args, _ := json.Marshal(p.Arguments)
+			out.WriteString(fmt.Sprintf("**[tool_call: %s]** id=%s args=%s", p.Name, p.ID, string(args)))
+		case models.ToolResultContent:
+			out.WriteString(fmt.Sprintf("**[tool_result: %s/%s]**", p.ToolCallID, p.Name))
+			if p.IsError {
+				out.WriteString(" (error)")
+			}
+			if len(p.Details) > 0 {
+				details, _ := json.Marshal(p.Details)
+				out.WriteString(fmt.Sprintf(" details=%s", string(details)))
+			}
+			out.WriteString("\n")
+			out.WriteString(r.renderContentParts(p.Content, indent+1))
+		case models.ImageContent:
+			out.WriteString(fmt.Sprintf("**[image/%s]**", p.MimeType))
+		default:
+			out.WriteString(fmt.Sprintf("**[unknown content part: %T]**", part))
+		}
+		out.WriteString("\n\n")
+	}
+	return out.String()
 }

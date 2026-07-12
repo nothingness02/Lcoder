@@ -61,9 +61,8 @@ def build_image(pyver):
         sys.exit("docker build failed")
 
 
-def select_task(repo, instance, limit, refresh=False):
+def select_task(repo, instance, per_repo, limit, refresh=False):
     os.makedirs(DATA_DIR, exist_ok=True)
-    cache_path = os.path.join(DATA_DIR, "swe-bench-lite-cache.jsonl")
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{DATA_DIR}:/eval/data",
@@ -77,7 +76,7 @@ def select_task(repo, instance, limit, refresh=False):
     if instance:
         cmd += ["--instance", instance]
     else:
-        cmd += ["--repo", repo, "--limit", str(limit)]
+        cmd += ["--repo", repo, "--per-repo", str(per_repo), "--limit", str(limit)]
     r = sh(cmd)
     if r.returncode != 0:
         sys.exit("select_task failed")
@@ -124,7 +123,9 @@ def summarize():
         m = res.get("metrics", {})
         print(f"- {iid}: {res.get('status')}  "
               f"turns={m.get('turns')} tools={m.get('tool_calls')} "
-              f"edits={m.get('file_edits')} dur={res.get('duration_s')}s "
+              f"edits={m.get('file_edits')} f2p={res.get('f2p_passed_count', 0)}/{res.get('f2p_total', 0)} "
+              f"p2p={res.get('p2p_passed_count', 0)}/{res.get('p2p_evaluated', 0)} "
+              f"dur={res.get('duration_s')}s "
               f"patch={'Y' if res.get('patch_nonempty') else 'N'}", flush=True)
     if rows:
         resolved = sum(1 for r in rows if r.get("status") == "resolved")
@@ -137,6 +138,9 @@ def summarize():
         f.write(render_summary_md(summary))
     print(f"[summary] wrote {RESULTS_DIR}/summary.json and summary.md", flush=True)
 
+    report_script = os.path.join(EVAL_DIR, "scripts", "report.py")
+    sh(["python", report_script, "--results-dir", RESULTS_DIR, "--out-prefix", "report"])
+
 
 def build_summary(rows):
     total = len(rows)
@@ -145,10 +149,15 @@ def build_summary(rows):
         counts[r.get("status", "unknown")] = counts.get(r.get("status", "unknown"), 0) + 1
     resolved = counts.get("resolved", 0)
 
-    def avg(key, default=0):
+    def avg(key, subkey=None, root=False, default=0):
         vals = []
         for r in rows:
-            v = r.get("metrics", {}).get(key)
+            if root:
+                v = r.get(key)
+            elif subkey:
+                v = r.get(key, {}).get(subkey)
+            else:
+                v = r.get("metrics", {}).get(key)
             if isinstance(v, (int, float)):
                 vals.append(v)
             elif isinstance(v, str):
@@ -170,7 +179,11 @@ def build_summary(rows):
             "tool_calls": avg("tool_calls"),
             "file_edits": avg("file_edits"),
             "cost": avg("cost"),
-            "duration_s": avg("duration_s"),
+            "duration_s": avg("duration_s", root=True),
+            "f2p_passed_count": avg("f2p_passed_count", root=True),
+            "p2p_passed_count": avg("p2p_passed_count", root=True),
+            "total_tokens": avg("total_tokens"),
+            "patch_files_changed": avg("patch_stats", "files_changed"),
         },
         "tasks": rows,
     }
@@ -194,16 +207,19 @@ def render_summary_md(summary):
     lines.append("")
     lines.append("## 任务明细")
     lines.append("")
-    lines.append("| instance_id | status | turns | tools | edits | cost | duration_s | model |")
-    lines.append("|-------------|--------|-------|-------|-------|------|------------|-------|")
+    lines.append("| instance_id | status | turns | tools | edits | f2p | p2p | files | cost | duration_s | model |")
+    lines.append("|-------------|--------|-------|-------|-------|-----|-----|-------|------|------------|-------|")
     for r in summary["tasks"]:
         m = r.get("metrics", {})
         model = r.get("model", "")
+        f2p = f"{r.get('f2p_passed_count', 0)}/{r.get('f2p_total', 0)}"
+        p2p = f"{r.get('p2p_passed_count', 0)}/{r.get('p2p_evaluated', 0)}"
+        files = r.get("patch_stats", {}).get("files_changed", 0)
         lines.append(
             f"| {r.get('instance_id', '')} | {r.get('status', '')} | "
             f"{m.get('turns', '')} | {m.get('tool_calls', '')} | "
-            f"{m.get('file_edits', '')} | {m.get('cost', '')} | "
-            f"{r.get('duration_s', '')} | {model} |"
+            f"{m.get('file_edits', '')} | {f2p} | {p2p} | {files} | "
+            f"{m.get('cost', '')} | {r.get('duration_s', '')} | {model} |"
         )
     lines.append("")
     return "\n".join(lines)
@@ -214,11 +230,17 @@ def main():
     ap.add_argument("--build", action="store_true", help="交叉编译并构建默认镜像")
     ap.add_argument("--select", action="store_true", help="从 HF 筛选任务写 tasks.json")
     ap.add_argument("--refresh", action="store_true", help="--select 时强制刷新数据集缓存")
-    ap.add_argument("--repo", default="psf/requests")
+    ap.add_argument("--repo", default="psf/requests,sympy/sympy,pallets/flask,pytest-dev/pytest",
+                    help="逗号分隔的目标仓库(默认覆盖多个轻量仓库)")
     ap.add_argument("--instance", default="")
-    ap.add_argument("--limit", type=int, default=1, help="筛选/运行规模最小的前 N 个任务")
-    ap.add_argument("--sample", type=int, default=0, help="只运行 tasks.json 中的前 N 个任务(0=全部)")
-    ap.add_argument("--workers", type=int, default=1, help="并行运行任务数(默认 1)")
+    ap.add_argument("--per-repo", type=int, default=5,
+                    help="每个仓库筛选规模最小的前 N 个任务")
+    ap.add_argument("--limit", type=int, default=50,
+                    help="筛选任务总数上限(0=不限制)")
+    ap.add_argument("--sample", type=int, default=0,
+                    help="只运行 tasks.json 中的前 N 个任务(0=全部)")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="并行运行任务数(默认 1)")
     ap.add_argument("--no-run", action="store_true", help="只准备,不跑任务")
     args = ap.parse_args()
 
@@ -226,13 +248,18 @@ def main():
         cross_compile()
         build_image(DEFAULT_PYVER)
     if args.select:
-        select_task(args.repo, args.instance, args.limit, refresh=args.refresh)
+        select_task(args.repo, args.instance, args.per_repo, args.limit,
+                    refresh=args.refresh)
 
     if not args.no_run:
         if not os.path.isfile(TASKS_FILE):
             sys.exit("tasks.json missing — run with --select first")
         with open(TASKS_FILE, encoding="utf-8") as f:
-            tasks = json.load(f)
+            data = json.load(f)
+        # select_task.py 新格式把任务列表放在 tasks 字段;旧格式直接是列表。
+        tasks = data.get("tasks", data) if isinstance(data, dict) else data
+        if isinstance(data, dict):
+            print(f"[run] loaded {len(tasks)} task(s) from {data.get('repos', [])}", flush=True)
         if args.instance:
             tasks = [t for t in tasks if t["instance_id"] == args.instance] or tasks
         if args.sample > 0:

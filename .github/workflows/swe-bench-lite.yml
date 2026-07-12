@@ -10,11 +10,11 @@ on:
       sample:
         description: 'Number of tasks to run (0 = all)'
         required: true
-        default: '4'
+        default: '50'
       workers:
         description: 'Parallel workers'
         required: true
-        default: '1'
+        default: '2'
 
 jobs:
   eval:
@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.25.4"
 
       - uses: actions/setup-python@v5
         with:

@@ -44,7 +44,7 @@ func TestAgentEmitsCompactionCommitted(t *testing.T) {
 	}
 }
 
-func TestAgentRecordsContextSnapshotBeforeCompact(t *testing.T) {
+func TestAgentRecordsContextSnapshotOnCompaction(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
 		contextmgr.WithSummarizer(func(msgs []models.AgentMessage) (string, error) { return "s", nil }),
@@ -66,10 +66,10 @@ func TestAgentRecordsContextSnapshotBeforeCompact(t *testing.T) {
 	a := &Agent{mgr: mgr, bus: events.New(), contextSnapshotRecorder: recorder}
 	a.maybeCompact(context.Background(), 1)
 
-	path := filepath.Join(dir, "context-turn-1-before-compact.md")
+	path := filepath.Join(dir, "context-turn-1-compaction.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("expected before-compact snapshot at %s: %v", path, err)
+		t.Fatalf("expected compaction snapshot at %s: %v", path, err)
 	}
 	if !strings.Contains(string(data), "Block: recent") {
 		t.Fatal("snapshot missing recent block")

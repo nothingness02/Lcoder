@@ -27,7 +27,14 @@ context:
   compact_threshold: 0.9
   cache_hint_policy: default
 
-# 非交互(--json/-p)模式下没有人工审批通道,使用 unsafe_mode 放行所有工具。
-# 评估场景在隔离容器内运行,超危命令(如 rm -rf /)仍会被拦截。
+# 非交互(--json/-p)模式下没有人工审批通道。
+# 评估场景在隔离容器内运行,通过显式 rules 放行所有工具(包括 write/edit/bash)。
 permissions:
-  unsafe_mode: true
+  unsafe_mode: false
+  rules:
+    bash:
+      "*": allow
+    write:
+      "*": allow
+    edit:
+      "*": allow
