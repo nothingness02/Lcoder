@@ -25,6 +25,10 @@ func testRegistry(root string) *tools.Registry {
 	return registry
 }
 
+// abortTestToolStarted is closed by blockingToolExec when it starts, so tests
+// can wait for the tool to be in-flight before calling Abort.
+var abortTestToolStarted = make(chan struct{}, 1)
+
 func TestAgentOneTurn(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(
 		llmtest.Start(),
@@ -522,5 +526,71 @@ func TestAgentTransformContextRecomputesMaxTokens(t *testing.T) {
 	req := adapter.LastRequest()
 	if req.Generation.MaxTokens <= 0 {
 		t.Fatalf("expected MaxTokens to be recomputed, got %d", req.Generation.MaxTokens)
+	}
+}
+
+// blockingToolExec blocks until its context is canceled, letting us verify that
+// Agent.Abort() cancels the whole run, not just the LLM stream.
+type blockingToolExec struct{}
+
+func (blockingToolExec) Definition() models.ToolDefinition {
+	return models.ToolDefinition{
+		Name:        "blocker",
+		Description: "Blocks until aborted.",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}
+}
+
+func (blockingToolExec) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
+	// This global signal is ugly but sufficient for the single-test scenario.
+	abortTestToolStarted <- struct{}{}
+	<-ctx.Done()
+	return models.NewToolExecutionResultError("aborted by cancel"), nil
+}
+
+func TestAgentAbortCancelsRunningTool(t *testing.T) {
+	abortTestToolStarted = make(chan struct{})
+
+	registry := tools.NewRegistry(t.TempDir())
+	registry.Register("blocker", blockingToolExec{})
+
+	toolCallMsg := models.NewAgentMessage(models.RoleAssistant, models.ToolCallContent{
+		Type: "tool_call", ID: "call_1", Name: "blocker", Arguments: map[string]any{},
+	})
+	client := llmtest.Client(llmtest.Turn(llmtest.Done(toolCallMsg, nil)))
+
+	obs := observability.NewCollector(observability.NewMemoryExporter())
+	ag := NewWithObservability(Config{
+		SystemPrompt:      "You are helpful.",
+		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		ToolExecutionMode: models.ExecutionParallel,
+	}, client, registry, permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ag.Prompt(ctx, models.UserMessage("run blocker"))
+	}()
+
+	select {
+	case <-abortTestToolStarted:
+		// Tool started; abort the run.
+		ag.Abort()
+	case <-time.After(2 * time.Second):
+		t.Fatal("tool did not start")
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected clean return after abort, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Prompt did not return after Abort")
 	}
 }

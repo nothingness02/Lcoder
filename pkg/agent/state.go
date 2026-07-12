@@ -24,6 +24,9 @@ type stateHolder struct {
 
 	// In-flight stream abort (set by the current turn's streamer).
 	streamAbort context.CancelFunc
+
+	// runCancel cancels the entire agent run context (stream + tools + compaction).
+	runCancel context.CancelFunc
 }
 
 func newStateHolder() *stateHolder {
@@ -111,6 +114,8 @@ func (s *stateHolder) FollowUp(msg models.AgentMessage) {
 
 // Abort signals the current run to stop gracefully. Safe to call multiple times.
 func (s *stateHolder) Abort() {
+	s.CancelRun()
+
 	s.mu.Lock()
 	cancel := s.streamAbort
 	s.mu.Unlock()
@@ -134,6 +139,23 @@ func (s *stateHolder) ClearStreamAbort() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.streamAbort = nil
+}
+
+// SetRunCancel registers the cancel function for the whole run.
+func (s *stateHolder) SetRunCancel(cancel context.CancelFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runCancel = cancel
+}
+
+// CancelRun cancels the active run context, if any.
+func (s *stateHolder) CancelRun() {
+	s.mu.Lock()
+	cancel := s.runCancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // DrainSteeringQueue returns and clears the steering queue.

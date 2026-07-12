@@ -376,6 +376,15 @@ func (a *Agent) WithMode(mode string) Runner {
 }
 
 func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) error {
+	// Derive a cancelable context for this run so Abort() can stop not just the
+	// LLM stream but also in-flight tool calls, compaction, and checkpoint I/O.
+	ctx, cancel := context.WithCancel(ctx)
+	a.loopState.SetRunCancel(cancel)
+	defer func() {
+		cancel()
+		a.loopState.SetRunCancel(nil)
+	}()
+
 	a.loopState.SetState(StateStreaming)
 	a.loopState.ResetAbort()
 
