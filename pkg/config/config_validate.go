@@ -98,6 +98,9 @@ func (c ContextConfig) Validate() error {
 	if c.MinRecent < 0 {
 		return fmt.Errorf("min_recent must be non-negative")
 	}
+	if c.KeepRecentTokens < 0 {
+		return fmt.Errorf("keep_recent_tokens must be non-negative")
+	}
 	return nil
 }
 

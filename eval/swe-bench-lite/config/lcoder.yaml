@@ -24,6 +24,7 @@ context:
   max_output: 16384
   static_ratio: 60
   min_recent: 10
+  keep_recent_tokens: 20000
   compact_threshold: 0.9
   cache_hint_policy: default
 

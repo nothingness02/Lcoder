@@ -52,6 +52,7 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, llmClient *
 	opts := []contextmgr.Option{
 		contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(cfg.Context.MinRecent)),
 		contextmgr.WithMinRecent(cfg.Context.MinRecent),
+		contextmgr.WithKeepRecentTokens(cfg.Context.KeepRecentTokens),
 		contextmgr.WithCacheHintPolicy(contextmgr.ParseCacheHintPolicy(cfg.Context.CacheHintPolicy)),
 		contextmgr.WithSummarizer(contextmgr.SummarizeFunc(compaction.NewCircuitBreaker(0).Wrap(compaction.NewLLMSummarizer(llmClient, models.ModelRef{Provider: cfg.Provider, ID: cfg.Model})))),
 	}

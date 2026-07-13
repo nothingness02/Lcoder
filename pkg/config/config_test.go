@@ -302,3 +302,17 @@ func TestCodeIndexDefaults(t *testing.T) {
 		t.Fatalf("expected 7 exclude patterns, got %d", len(cfg.CodeIndex.Exclude))
 	}
 }
+
+func TestContextConfigKeepRecentTokens(t *testing.T) {
+	// 默认值。
+	cfg := DefaultConfig()
+	if cfg.Context.KeepRecentTokens != 20000 {
+		t.Fatalf("default keep_recent_tokens = %d, want 20000", cfg.Context.KeepRecentTokens)
+	}
+	// 校验:负数拒绝。
+	bad := DefaultConfig()
+	bad.Context.KeepRecentTokens = -1
+	if err := bad.Context.Validate(); err == nil {
+		t.Fatal("negative keep_recent_tokens must be rejected")
+	}
+}

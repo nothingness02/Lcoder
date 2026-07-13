@@ -84,6 +84,7 @@ type ContextConfig struct {
 	MaxOutput        int      `yaml:"max_output"`        // user cap on single-response output tokens (0 = no cap)
 	StaticRatio      int      `yaml:"static_ratio"`      // ratio percentage for static/stable blocks
 	MinRecent        int      `yaml:"min_recent"`        // minimum recent messages to keep
+	KeepRecentTokens int      `yaml:"keep_recent_tokens"` // token budget for the kept tail at proactive pressure (0 = default 20000)
 	CompactThreshold float64  `yaml:"compact_threshold"` // ratio of target at which compaction starts
 	CacheHintPolicy  string   `yaml:"cache_hint_policy"` // "default", "aggressive", "none"
 	DeferredTools    bool     `yaml:"deferred_tools"`    // ship only core tools + tool_search
@@ -136,6 +137,7 @@ func DefaultConfig() Config {
 			MaxOutput:        0, // 0 = unset; no user cap on output tokens
 			StaticRatio:      60,
 			MinRecent:        10,
+			KeepRecentTokens: 20000,
 			CompactThreshold: 0.9,
 			CacheHintPolicy:  "default",
 			DeferredTools:    false,
@@ -362,8 +364,9 @@ func Load() (Config, error) {
 			"reserve_output":    cfg.Context.ReserveOutput,
 			"max_output":        cfg.Context.MaxOutput,
 			"static_ratio":      cfg.Context.StaticRatio,
-			"min_recent":        cfg.Context.MinRecent,
-			"compact_threshold": cfg.Context.CompactThreshold,
+			"min_recent":         cfg.Context.MinRecent,
+			"keep_recent_tokens": cfg.Context.KeepRecentTokens,
+			"compact_threshold":  cfg.Context.CompactThreshold,
 			"cache_hint_policy": cfg.Context.CacheHintPolicy,
 			"deferred_tools":    cfg.Context.DeferredTools,
 			"core_tools":        cfg.Context.CoreTools,
