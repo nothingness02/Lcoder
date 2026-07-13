@@ -119,8 +119,17 @@ type ErrorEvent struct {
 
 // CompactionCommittedEvent signals that the context manager folded older
 // messages into a summary and committed the compacted window in place. The
-// persistence layer reacts by rewriting the session to the compacted state.
-type CompactionCommittedEvent struct{ Base }
+// persistence layer reacts by appending a CompactionEntry to the session
+// (append-only; raw messages are never discarded). Degraded=true means the
+// circuit breaker was open and older messages were truncated without a
+// summary — persistence must skip the entry in that case.
+type CompactionCommittedEvent struct {
+	Base
+	Summary      string `json:"summary,omitempty"`
+	FirstKeptID  string `json:"first_kept_entry_id,omitempty"`
+	TokensBefore int    `json:"tokens_before,omitempty"`
+	Degraded     bool   `json:"degraded,omitempty"`
+}
 
 // AuditEvent records a security/permission decision or tool invocation audit.
 type AuditEvent struct {

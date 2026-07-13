@@ -502,31 +502,49 @@ func (a *Agent) appendMessage(msg models.AgentMessage) {
 }
 
 // maybeCompact asks the context manager to commit a compaction at a turn
-// boundary. On commit it emits CompactionCommitted so the persistence layer can
-// rewrite the session to the compacted state. A summarizer error is non-fatal:
-// it surfaces as an Error event and the turn proceeds with the truncation
-// backstop in BuildTurnRequest.
+// boundary. On commit it emits CompactionCommitted (with the summary payload)
+// so the persistence layer can append a CompactionEntry. A summarizer error
+// is non-fatal; a canceled context (abort) is silent.
 func (a *Agent) maybeCompact(ctx context.Context, turn int) {
 	level, res, err := a.mgr.MaybeCompactLeveled(ctx)
-	committed := res.Committed
-	if committed && a.contextSnapshotRecorder != nil {
-		if state, err := a.mgr.Snapshot(); err == nil {
-			_ = a.contextSnapshotRecorder.Record(state, "compaction", turn)
-		}
-	}
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		a.emit(ctx, events.ErrorEvent{
 			Base:    events.Base{Type: events.Error, Turn: turn},
 			Message: "compaction: " + err.Error(),
 		})
 		return
 	}
-	if committed {
-		a.emit(ctx, events.CompactionCommittedEvent{
-			Base: events.Base{Type: events.CompactionCommitted, Turn: turn},
+	if res.Committed && a.contextSnapshotRecorder != nil {
+		if state, err := a.mgr.Snapshot(); err == nil {
+			_ = a.contextSnapshotRecorder.Record(state, "compaction", turn)
+		}
+	}
+	if res.Degraded {
+		a.emit(ctx, events.ErrorEvent{
+			Base:    events.Base{Type: events.Error, Turn: turn},
+			Message: "compaction degraded: summarizer circuit open; older messages truncated without summary",
 		})
 	}
-	_ = level
+	if res.Committed {
+		a.emit(ctx, events.CompactionCommittedEvent{
+			Base:         events.Base{Type: events.CompactionCommitted, Turn: turn},
+			Summary:      res.Summary,
+			FirstKeptID:  res.FirstKeptID,
+			TokensBefore: res.TokensBefore,
+			Degraded:     res.Degraded,
+		})
+		if level == contextmgr.CompactionReactive {
+			if total := a.mgr.Stats()["total"]; total > a.mgr.Budget().DropLimit() {
+				a.emit(ctx, events.ErrorEvent{
+					Base:    events.Base{Type: events.Error, Turn: turn},
+					Message: "context still over drop limit after compaction; truncation backstop active",
+				})
+			}
+		}
+	}
 }
 
 // Stats returns context manager statistics if available.

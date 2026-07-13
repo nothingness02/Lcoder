@@ -97,3 +97,40 @@ func TestAgentDoesNotRecordContextSnapshotWhenDisabled(t *testing.T) {
 		t.Fatal("expected no snapshot when disabled")
 	}
 }
+
+// 压缩提交时事件携带 summary、firstKeptID、tokensBefore。
+func TestAgentCompactionEventCarriesPayload(t *testing.T) {
+	mgr := contextmgr.NewManager(
+		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
+		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithMinRecent(2),
+	)
+	var recent []models.AgentMessage
+	for i := 0; i < 20; i++ {
+		recent = append(recent, models.UserMessage(strings.Repeat("u", 200)))
+		recent = append(recent, models.AssistantMessage(strings.Repeat("a", 200)))
+	}
+	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockRecent, "recent", contextmgr.StabilityDynamic, 100, recent...))
+
+	a := &Agent{mgr: mgr, bus: events.New()}
+	var got events.CompactionCommittedEvent
+	var saw bool
+	unsub := a.bus.Subscribe(func(ctx context.Context, ev events.Event) error {
+		if e, ok := ev.(events.CompactionCommittedEvent); ok {
+			got, saw = e, true
+		}
+		return nil
+	})
+	defer unsub()
+
+	a.maybeCompact(context.Background(), 1)
+	if !saw {
+		t.Fatal("expected CompactionCommittedEvent")
+	}
+	if got.Summary == "" || got.FirstKeptID == "" || got.TokensBefore <= 0 {
+		t.Fatalf("event payload incomplete: %+v", got)
+	}
+	if got.Degraded {
+		t.Fatal("healthy summarizer must not degrade")
+	}
+}
