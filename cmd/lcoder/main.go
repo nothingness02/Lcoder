@@ -287,7 +287,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	if source == "default" {
 		fmt.Fprintf(os.Stderr, "warning: 未能自动获取模型 %q 的上下文窗口,回退默认 %d\n", cfg.Model, budget.MaxTotal)
 	}
-	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.ActiveMessages(), memStore)
+	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.EffectiveMessages(), memStore)
 
 	var reminderProducers []agent.ReminderProducer
 	var repoIndexTool *builtinTools.RepoIndex
@@ -364,7 +364,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	// The session store owns the message history; load it first. The checkpoint
 	// only carries runtime state, so it is applied afterwards without overwriting
 	// the conversation.
-	ag.SetMessages(sess.ActiveMessages())
+	ag.SetMessages(sess.EffectiveMessages())
 	if cp, err := chkStore.Load(sess.ID); err == nil {
 		if err := ag.Restore(cp); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to restore checkpoint: %v; continuing with session messages only\n", err)
@@ -543,12 +543,13 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 
 	// Persist after each assistant/tool message turn.
 	persistHandler := func(ctx context.Context, ev events.Event) error {
-		switch ev.(type) {
+		switch e := ev.(type) {
 		case events.CompactionCommittedEvent:
-			// Compaction committed in the manager: reset the on-disk session to
-			// the compacted runtime state (summary + recent tail), discarding the
-			// older raw messages.
-			_ = setup.sess.Replace(setup.ag.AllMessages())
+			// Append-only: record the compaction entry; raw messages stay on disk.
+			// Degraded folds (breaker open) carry no summary and persist nothing.
+			if !e.Degraded && e.Summary != "" {
+				_ = setup.sess.AppendCompactionEntry(e.Summary, e.FirstKeptID, e.TokensBefore)
+			}
 		case events.MessageEndEvent, events.ToolExecutionEndEvent, events.AgentEndEvent:
 			_ = setup.sess.Save()
 		}
@@ -624,9 +625,13 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 
 	// Persist after each assistant/tool message turn.
 	persistHandler := func(ctx context.Context, ev events.Event) error {
-		switch ev.(type) {
+		switch e := ev.(type) {
 		case events.CompactionCommittedEvent:
-			_ = setup.sess.Replace(setup.ag.AllMessages())
+			// Append-only: record the compaction entry; raw messages stay on disk.
+			// Degraded folds (breaker open) carry no summary and persist nothing.
+			if !e.Degraded && e.Summary != "" {
+				_ = setup.sess.AppendCompactionEntry(e.Summary, e.FirstKeptID, e.TokensBefore)
+			}
 		case events.MessageEndEvent, events.ToolExecutionEndEvent, events.AgentEndEvent:
 			_ = setup.sess.Save()
 		}
