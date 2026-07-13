@@ -313,12 +313,12 @@ func TestCompactionMechanisms(t *testing.T) {
 		}
 		reports = append(reports, mechanismReport{
 			Name:         "CircuitBreaker 降级",
-			Detail:       "`CircuitBreaker.Wrap` 连续 3 次失败后返回 `ErrCompactionSkipped`;装进 Manager 后,`MaybeCompact` 把摘要错误作为非致命 error 返回且不改动状态,agent loop 视为非致命继续。`BuildTurnRequest` 与压缩解耦,失败时仅截断、不注入摘要、不报错。",
+			Detail:       "`CircuitBreaker.Wrap` 连续 3 次失败后返回 `ErrCompactionSkipped`;装进 Manager 后,`MaybeCompactLeveled` 走降级路径:截断旧消息但不注入摘要(committed + degraded),agent loop 视为非致命继续。真正的摘要器错误(非 breaker 开路)则原样返回、不改动状态。`BuildTurnRequest` 与压缩解耦,失败时仅截断、不注入摘要、不报错。",
 			Before:       renderMsgs(before),
 			After:        renderMsgs(req.Messages),
 			BeforeTokens: contextmgr.DefaultEstimator(before),
 			AfterTokens:  contextmgr.DefaultEstimator(req.Messages),
-			Verdict:      fmt.Sprintf("PASS —— 断路器 3 次后开路;摘要失败时 MaybeCompact 返回错误且不 mutate,BuildTurnRequest 仍截断为 %d 条尾部、无摘要、无错误", len(req.Messages)),
+			Verdict:      fmt.Sprintf("PASS —— 断路器 3 次后开路;breaker 开路时降级截断(无摘要),真实摘要错误不 mutate,BuildTurnRequest 仍截断为 %d 条尾部、无摘要、无错误", len(req.Messages)),
 		})
 	})
 

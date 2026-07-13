@@ -86,6 +86,9 @@ func (m *Manager) findCutPoint(msgs []models.AgentMessage, tokenBudget int, allo
 		}
 	}
 
+	if cut >= n {
+		return 0, false // empty kept tail: nothing worth folding
+	}
 	if cut <= 0 {
 		return 0, false
 	}

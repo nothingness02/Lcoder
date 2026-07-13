@@ -84,9 +84,9 @@ func TestMaybeCompactLeveled_FoldsUnderPressure(t *testing.T) {
 	recent, _ := m.GetBlock(BlockRecent, "recent")
 	// The fold always preserves the last user message and stays within the
 	// reactive token budget, so the result is a drastic shrink from 20 messages
-	// down to a summary plus a small tail.
-	if len(recent.Messages) >= 20 {
-		t.Fatalf("expected reactive fold to shrink the conversation, got %d", len(recent.Messages))
+	// down to a summary plus a small tail — at most half the original count.
+	if len(recent.Messages) > 10 {
+		t.Fatalf("expected reactive fold to shrink 20 messages to at most half, got %d", len(recent.Messages))
 	}
 	if v, ok := recent.Messages[0].Metadata["compacted"].(bool); !ok || !v {
 		t.Fatalf("expected folded summary at head with compacted=true")
