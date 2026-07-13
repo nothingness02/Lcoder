@@ -18,6 +18,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/session"
 )
 
 // mechanismReport captures the before/after state of one compaction mechanism so
@@ -68,6 +69,23 @@ func hasSummaryMessage(msgs []models.AgentMessage) bool {
 		}
 	}
 	return false
+}
+
+// countFileLines counts the non-empty lines in a file (used to assert the
+// append-only session file grew by exactly one line per compaction entry).
+func countFileLines(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	n := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func renderCompactionMarkdown(generatedAt, provider, model string, reports []mechanismReport) string {
@@ -269,7 +287,62 @@ func TestCompactionMechanisms(t *testing.T) {
 		})
 	})
 
-	// 5. Circuit breaker: trips after repeated failures; manager degrades gracefully.
+	// 5. Append-only persistence round-trip: 压缩后磁盘保留全部原始消息 + 条目,
+	// 重载后 EffectiveMessages 重建压缩视图。
+	t.Run("AppendOnlyPersistence_RoundTrip", func(t *testing.T) {
+		store := session.NewStore(t.TempDir())
+		sess, err := store.Create("/tmp/proj")
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		before := convo(20)
+		for _, m := range before {
+			if err := sess.Append(m); err != nil {
+				t.Fatalf("append: %v", err)
+			}
+		}
+		linesBefore := countFileLines(t, sess.Path)
+
+		firstKept := before[14].ID
+		if err := sess.AppendCompactionEntry("[Summary of earlier conversation]\n\nround-trip summary", firstKept, 999); err != nil {
+			t.Fatalf("append entry: %v", err)
+		}
+		if got := countFileLines(t, sess.Path); got != linesBefore+1 {
+			t.Fatalf("file must grow by exactly 1 line, got %d (was %d)", got, linesBefore)
+		}
+
+		// 模拟崩溃重启:重新加载,视图必须 = 摘要 + before[14:]。
+		loaded, err := store.Load(sess.Path)
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		view := loaded.EffectiveMessages()
+		if len(view) != 1+(len(before)-14) {
+			t.Fatalf("view length = %d, want %d", len(view), 1+(len(before)-14))
+		}
+		if v, ok := view[0].Metadata["compacted"].(bool); !ok || !v {
+			t.Fatal("view head must be compacted summary")
+		}
+		if view[1].ID != firstKept {
+			t.Fatalf("view must resume at firstKept, got %q", view[1].ID)
+		}
+		// 磁盘原始消息一条不少。
+		if len(loaded.Messages) != len(before)+1 {
+			t.Fatalf("disk messages = %d, want %d", len(loaded.Messages), len(before)+1)
+		}
+
+		reports = append(reports, mechanismReport{
+			Name:         "Append-only 持久化 round-trip",
+			Detail:       "`Session.AppendCompactionEntry` 追加条目(原始消息不删);重载后 `EffectiveMessages` 重建 摘要+kept 视图。",
+			Before:       renderMsgs(before),
+			After:        renderMsgs(view),
+			BeforeTokens: contextmgr.DefaultEstimator(before),
+			AfterTokens:  contextmgr.DefaultEstimator(view),
+			Verdict:      "PASS —— 磁盘 21 行(20 原始 + 1 条目),视图 = 1 摘要 + 6 kept",
+		})
+	})
+
+	// 6. Circuit breaker: trips after repeated failures; manager degrades gracefully.
 	t.Run("CircuitBreaker_Fallback", func(t *testing.T) {
 		// (a) Direct breaker behavior.
 		cb := compaction.NewCircuitBreaker(0) // default max = 3
@@ -322,7 +395,7 @@ func TestCompactionMechanisms(t *testing.T) {
 		})
 	})
 
-	// 6. Real LLM summarizer eager compaction (gated on a live provider).
+	// 7. Real LLM summarizer eager compaction (gated on a live provider).
 	t.Run("RealLLMSummarizer_EagerCompaction", func(t *testing.T) {
 		if provider == "" || model == "" {
 			reports = append(reports, mechanismReport{
