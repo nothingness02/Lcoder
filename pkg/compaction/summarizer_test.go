@@ -104,3 +104,32 @@ func TestLLMSummarizerSendsSerializedTruncatedInput(t *testing.T) {
 		t.Fatalf("serialized input %d chars exceeds cap %d", len(text), summaryMaxInputChars)
 	}
 }
+
+func TestLLMSummarizerCapsWholeInput(t *testing.T) {
+	client, adapter := llmtest.NewScript(llmtest.Turn(
+		llmtest.Done(models.AssistantMessage("<summary>ok</summary>"), nil),
+	))
+	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
+
+	// User messages bypass the per-tool-result cap, so ~30 messages of 2000
+	// chars each push the serialized input well past summaryMaxInputChars.
+	msgs := make([]models.AgentMessage, 0, 30)
+	for i := 0; i < 30; i++ {
+		msgs = append(msgs, models.UserMessage(strings.Repeat("u", 2000)))
+	}
+	if _, err := summarize(context.Background(), msgs); err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+
+	req := adapter.LastRequest()
+	if len(req.Messages) != 1 || req.Messages[0].Role != models.RoleUser {
+		t.Fatalf("expected a single synthetic user message, got %+v", req.Messages)
+	}
+	text := req.Messages[0].Text()
+	if !strings.Contains(text, "[input truncated]") {
+		t.Fatal("whole-input truncation marker missing")
+	}
+	if len(text) > summaryMaxInputChars {
+		t.Fatalf("serialized input %d chars exceeds hard cap %d", len(text), summaryMaxInputChars)
+	}
+}

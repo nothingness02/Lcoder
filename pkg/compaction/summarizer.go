@@ -22,6 +22,10 @@ const summaryToolResultChars = 2000
 // chars/token), keeping the summarization request far below any model window.
 const summaryMaxInputChars = 48000
 
+// summaryInputTruncatedSuffix marks that the serialized input was cut to fit
+// the whole-input cap.
+const summaryInputTruncatedSuffix = "\n...[input truncated]"
+
 // summaryInstruction is the dual-stage system prompt. The model first drafts an
 // <analysis> block (scratch reasoning, discarded) and then emits a <summary>
 // block, which is the only part injected back into the live context.
@@ -64,7 +68,7 @@ func NewLLMSummarizer(client *llm.Client, model models.ModelRef) SummarizeFunc {
 
 		serialized := SerializeConversation(messages, summaryToolResultChars)
 		if len(serialized) > summaryMaxInputChars {
-			serialized = serialized[:summaryMaxInputChars] + "\n...[input truncated]"
+			serialized = serialized[:summaryMaxInputChars-len(summaryInputTruncatedSuffix)] + summaryInputTruncatedSuffix
 		}
 
 		req := models.TurnRequest{
