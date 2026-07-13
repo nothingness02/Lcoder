@@ -43,6 +43,25 @@ func TestSerializeConversationTruncatesToolResults(t *testing.T) {
 	}
 }
 
+func TestSerializeConversationMultiPartToolResult(t *testing.T) {
+	msgs := []models.AgentMessage{
+		models.NewAgentMessage(models.RoleToolResult,
+			models.ToolResultContent{
+				ToolCallID: "c1", Name: "read",
+				Content: []models.ContentPart{models.TextContent{Text: "AAA"}},
+			},
+			models.ToolResultContent{
+				ToolCallID: "c2", Name: "read",
+				Content: []models.ContentPart{models.TextContent{Text: "BBB"}},
+			},
+		),
+	}
+	out := SerializeConversation(msgs, 2000)
+	if !strings.Contains(out, "AAABBB") {
+		t.Fatalf("expected concatenated tool result text %q, got:\n%s", "AAABBB", out)
+	}
+}
+
 func TestSerializeConversationThinking(t *testing.T) {
 	msgs := []models.AgentMessage{
 		models.NewAgentMessage(models.RoleAssistant, models.ThinkingContent{Text: "hmm"}),
