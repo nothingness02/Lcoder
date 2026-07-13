@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,7 +59,7 @@ func renderFeature1MultiLevelCompaction(t *testing.T, b *strings.Builder) {
 	b.WriteString("## 一、多级压缩 (multi-level compaction)\n\n")
 	b.WriteString("`TokenBudget.PressureLevel` 把 prompt token 占用映射到四个压力档:")
 	b.WriteString("`none(<90%)` / `proactive(>=90%)` / `preflight(>=95%)` / `reactive(>=100%)`;")
-	b.WriteString("`Manager.MaybeCompactLeveled` 按档位用不同 keep 条数折叠旧消息(档位越高,保留越少)。\n\n")
+	b.WriteString("`Manager.MaybeCompactLeveled` 按档位用不同 token 预算折叠旧消息(档位越高,保留尾部越小)。\n\n")
 
 	// Probe the heuristic token total of a fixed 20-message conversation.
 	probe := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 1 << 30})
@@ -79,8 +80,8 @@ func renderFeature1MultiLevelCompaction(t *testing.T, b *strings.Builder) {
 		{"reactive", int(float64(total) / 1.05), contextmgr.CompactionReactive},
 	}
 
-	b.WriteString("| 预算 EffectiveInput | total/eff | 命中档位 | 触发折叠 | keep 条数 | 压缩前 | 压缩后 |\n")
-	b.WriteString("|---|---|---|---|---|---|---|\n")
+	b.WriteString("| 预算 EffectiveInput | total/eff | 命中档位 | 触发折叠 | 压缩前 | 压缩后 |\n")
+	b.WriteString("|---|---|---|---|---|---|\n")
 	for _, bd := range bands {
 		budget := contextmgr.TokenBudget{MaxTotal: bd.maxTotal, ReserveOutput: 0}
 		mgr := contextmgr.NewManager(budget,
@@ -94,15 +95,16 @@ func renderFeature1MultiLevelCompaction(t *testing.T, b *strings.Builder) {
 			t.Fatalf("band %s: PressureLevel(%d) over eff=%d = %v, want %v", bd.name, total, bd.maxTotal, gotLevel, bd.want)
 		}
 
-		level, committed, err := mgr.MaybeCompactLeveled()
+		level, res, err := mgr.MaybeCompactLeveled(context.Background())
 		if err != nil {
 			t.Fatalf("band %s: MaybeCompactLeveled: %v", bd.name, err)
 		}
+		committed := res.Committed
 		recent, _ := mgr.GetBlock(contextmgr.BlockRecent, "recent")
 		after := len(recent.Messages)
 		ratio := float64(total) / float64(bd.maxTotal)
-		b.WriteString(fmt.Sprintf("| %d | %.2f | **%s** | %v | %d | 20 | %d |\n",
-			bd.maxTotal, ratio, level, committed, keepForLevelProbe(level), after))
+		b.WriteString(fmt.Sprintf("| %d | %.2f | **%s** | %v | 20 | %d |\n",
+			bd.maxTotal, ratio, level, committed, after))
 
 		// Assertions: only the no-pressure band leaves the conversation untouched;
 		// every pressure band must commit a fold that shrinks the message count.
@@ -117,20 +119,6 @@ func renderFeature1MultiLevelCompaction(t *testing.T, b *strings.Builder) {
 		}
 	}
 	b.WriteString("\n> 结论:PASS —— 同一对话在四种预算下分别命中 none/proactive/preflight/reactive,压力档越高折叠后保留越少。\n\n---\n\n")
-}
-
-// keepForLevelProbe mirrors Manager.keepForLevel for display (keepRecent=8).
-func keepForLevelProbe(level contextmgr.CompactionLevel) int {
-	switch level {
-	case contextmgr.CompactionProactive:
-		return 8
-	case contextmgr.CompactionPreflight:
-		return 4
-	case contextmgr.CompactionReactive:
-		return 1
-	default:
-		return 8
-	}
 }
 
 // ---- Feature 2: ephemeral system-reminders --------------------------------

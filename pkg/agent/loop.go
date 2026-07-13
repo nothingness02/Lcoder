@@ -507,7 +507,8 @@ func (a *Agent) appendMessage(msg models.AgentMessage) {
 // it surfaces as an Error event and the turn proceeds with the truncation
 // backstop in BuildTurnRequest.
 func (a *Agent) maybeCompact(ctx context.Context, turn int) {
-	level, committed, err := a.mgr.MaybeCompactLeveled()
+	level, res, err := a.mgr.MaybeCompactLeveled(ctx)
+	committed := res.Committed
 	if committed && a.contextSnapshotRecorder != nil {
 		if state, err := a.mgr.Snapshot(); err == nil {
 			_ = a.contextSnapshotRecorder.Record(state, "compaction", turn)

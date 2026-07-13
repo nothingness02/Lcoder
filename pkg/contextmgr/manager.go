@@ -98,6 +98,9 @@ type Manager struct {
 	summarizer SummarizeFunc
 	policy     WindowPolicy
 	keepRecent int
+	// keepRecentTokens is the token budget for the kept tail at proactive
+	// pressure; tighter levels derive from it in keepTokensForLevel.
+	keepRecentTokens   int
 	modePromptPriority config.ModePromptPriority
 
 	// ephemeralReminders are injected into the next BuildTurnRequest only and
@@ -143,6 +146,17 @@ func WithMinRecent(n int) Option {
 	}
 }
 
+// WithKeepRecentTokens sets the token budget for the kept tail. Zero or
+// negative falls back to the default of 20000 (pi's keepRecentTokens).
+func WithKeepRecentTokens(n int) Option {
+	return func(m *Manager) {
+		if n <= 0 {
+			n = defaultKeepRecentTokens
+		}
+		m.keepRecentTokens = n
+	}
+}
+
 // WithCacheHintPolicy sets the cache breakpoint policy for BuildTurnRequest.
 func WithCacheHintPolicy(p CacheHintPolicy) Option {
 	return func(m *Manager) { m.cachePolicy = p }
@@ -163,11 +177,12 @@ func (m *Manager) ModePromptPriority() config.ModePromptPriority {
 // NewManager creates a context manager with the given budget.
 func NewManager(budget TokenBudget, opts ...Option) *Manager {
 	m := &Manager{
-		budget:     budget,
-		estimator:  DefaultEstimator,
-		summarizer: nil,
-		policy:     &KeepRecentInBudget{},
-		keepRecent: 10,
+		budget:           budget,
+		estimator:        DefaultEstimator,
+		summarizer:       nil,
+		policy:           &KeepRecentInBudget{},
+		keepRecent:       10,
+		keepRecentTokens: defaultKeepRecentTokens,
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -387,59 +402,8 @@ func (m *Manager) ReplaceRecent(msgs []models.AgentMessage) {
 // MaybeCompact is the legacy threshold-based compaction entry point. It now
 // delegates to MaybeCompactLeveled so only one compaction policy remains.
 func (m *Manager) MaybeCompact() (bool, error) {
-	_, committed, err := m.MaybeCompactLeveled()
-	return committed, err
-}
-
-// foldOlder folds all but the trailing `keep` messages of the recent block into
-// a single summary message, committed in place. It guarantees the last user
-// message stays in the retained tail and strips orphan tool_results at the tail
-// head. Returns (false, nil) when there is nothing to fold or no summarizer is
-// configured; a summarizer error is returned without mutating state. Shared by
-// MaybeCompact (delegated) and MaybeCompactLeveled (pressure tiers).
-func (m *Manager) foldOlder(ctx context.Context, keep int) (bool, error) {
-	if m.summarizer == nil {
-		return false, nil
-	}
-	recent, ok := m.GetBlock(BlockRecent, "recent")
-	if !ok || len(recent.Messages) == 0 {
-		return false, nil
-	}
-
-	if keep < 1 {
-		keep = 1
-	}
-	if keep > len(recent.Messages) {
-		keep = len(recent.Messages)
-	}
-	// Ensure the last user message stays within the retained tail.
-	lastUserIdx := -1
-	for i := len(recent.Messages) - 1; i >= 0; i-- {
-		if recent.Messages[i].Role == models.RoleUser {
-			lastUserIdx = i
-			break
-		}
-	}
-	if lastUserIdx >= 0 && lastUserIdx < len(recent.Messages)-keep {
-		keep = len(recent.Messages) - lastUserIdx
-	}
-
-	older := recent.Messages[:len(recent.Messages)-keep]
-	tail := stripLeadingOrphanToolResults(recent.Messages[len(recent.Messages)-keep:])
-	if len(older) == 0 {
-		return false, nil
-	}
-
-	summaryText, err := m.summarizer(ctx, older)
-	if err != nil {
-		return false, err
-	}
-	summary := models.NewAgentMessage(models.RoleSystem, models.TextContent{
-		Text: "[Summary of earlier conversation]\n\n" + summaryText,
-	}).WithMetadata("compacted", true)
-
-	m.ReplaceRecent(append([]models.AgentMessage{summary}, tail...))
-	return true, nil
+	_, res, err := m.MaybeCompactLeveled(context.Background())
+	return res.Committed, err
 }
 
 // ClearRecent removes all messages from the recent block.

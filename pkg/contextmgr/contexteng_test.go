@@ -50,42 +50,43 @@ func TestPressureLevel_Thresholds(t *testing.T) {
 	}
 }
 
-func TestKeepForLevel_ScalesWithPressure(t *testing.T) {
-	m := NewManager(TokenBudget{}, WithMinRecent(8))
-	if got := m.keepForLevel(CompactionProactive); got != 8 {
-		t.Errorf("proactive keep = %d, want 8", got)
+func TestKeepTokensForLevel_ScalesWithPressure(t *testing.T) {
+	// Large window so the 30% cap does not bind; budget derives from base.
+	m := NewManager(TokenBudget{MaxTotal: 1_000_000, ReserveOutput: 0}, WithKeepRecentTokens(1000))
+	if got := m.keepTokensForLevel(CompactionProactive); got != 1000 {
+		t.Errorf("proactive keep tokens = %d, want 1000", got)
 	}
-	if got := m.keepForLevel(CompactionPreflight); got != 4 {
-		t.Errorf("preflight keep = %d, want 4", got)
+	if got := m.keepTokensForLevel(CompactionPreflight); got != 500 {
+		t.Errorf("preflight keep tokens = %d, want 500", got)
 	}
-	if got := m.keepForLevel(CompactionReactive); got != 1 {
-		t.Errorf("reactive keep = %d, want 1", got)
+	if got := m.keepTokensForLevel(CompactionReactive); got != 256 {
+		t.Errorf("reactive keep tokens = %d, want 256 (1000/5=200 floored to 256)", got)
 	}
 }
 
 func TestMaybeCompactLeveled_FoldsUnderPressure(t *testing.T) {
-	// EffectiveInput = 400. 20 msgs ≈ 1000 tokens → reactive (keep=1).
+	// EffectiveInput = 400. 20 msgs ≈ 1000 tokens → reactive.
 	budget := TokenBudget{MaxTotal: 400, ReserveOutput: 0}
 	m := NewManager(budget, WithSummarizer(stubSummarizer), WithMinRecent(8))
 	m.SetSystemPrompt("sys")
 	m.ReplaceRecent(convoMsgs(20))
 
-	level, committed, err := m.MaybeCompactLeveled()
+	level, res, err := m.MaybeCompactLeveled(context.Background())
 	if err != nil {
 		t.Fatalf("MaybeCompactLeveled: %v", err)
 	}
 	if level != CompactionReactive {
 		t.Fatalf("expected reactive level, got %v", level)
 	}
-	if !committed {
+	if !res.Committed {
 		t.Fatalf("expected a committed fold under reactive pressure")
 	}
 	recent, _ := m.GetBlock(BlockRecent, "recent")
-	// reactive keep=1, but the fold always preserves the last user message, so
-	// the tail may extend to include it. The result is still a drastic shrink
-	// from 20 messages down to a summary plus a tiny tail.
-	if len(recent.Messages) > 3 {
-		t.Fatalf("expected reactive fold to shrink to <=3 messages, got %d", len(recent.Messages))
+	// The fold always preserves the last user message and stays within the
+	// reactive token budget, so the result is a drastic shrink from 20 messages
+	// down to a summary plus a small tail.
+	if len(recent.Messages) >= 20 {
+		t.Fatalf("expected reactive fold to shrink the conversation, got %d", len(recent.Messages))
 	}
 	if v, ok := recent.Messages[0].Metadata["compacted"].(bool); !ok || !v {
 		t.Fatalf("expected folded summary at head with compacted=true")
@@ -100,15 +101,15 @@ func TestMaybeCompactLeveled_ShortSessionAndNoPressure(t *testing.T) {
 	// Short session: fewer than minLeveledMessages → never compacts.
 	m := NewManager(TokenBudget{MaxTotal: 10, ReserveOutput: 0}, WithSummarizer(stubSummarizer))
 	m.ReplaceRecent(convoMsgs(3))
-	if level, committed, _ := m.MaybeCompactLeveled(); committed || level != CompactionNone {
-		t.Fatalf("short session must not compact, got level=%v committed=%v", level, committed)
+	if level, res, _ := m.MaybeCompactLeveled(context.Background()); res.Committed || level != CompactionNone {
+		t.Fatalf("short session must not compact, got level=%v committed=%v", level, res.Committed)
 	}
 
 	// No pressure: huge budget → none.
 	big := NewManager(TokenBudget{MaxTotal: 1_000_000, ReserveOutput: 0}, WithSummarizer(stubSummarizer))
 	big.ReplaceRecent(convoMsgs(20))
-	if level, committed, _ := big.MaybeCompactLeveled(); committed || level != CompactionNone {
-		t.Fatalf("no pressure must not compact, got level=%v committed=%v", level, committed)
+	if level, res, _ := big.MaybeCompactLeveled(context.Background()); res.Committed || level != CompactionNone {
+		t.Fatalf("no pressure must not compact, got level=%v committed=%v", level, res.Committed)
 	}
 }
 
