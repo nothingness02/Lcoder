@@ -191,6 +191,15 @@ func (s *Session) AppendMissing(msgs []models.AgentMessage) error {
 // The new message's ParentID is set to the current branch head when empty,
 // establishing the parent_id tree used by Fork and ActiveMessages.
 func (s *Session) Append(msg models.AgentMessage) error {
+	if err := s.stage(msg); err != nil {
+		return err
+	}
+	return s.Save()
+}
+
+// stage applies the common metadata/parent wiring and appends the message to
+// the in-memory list (shared by Append and AppendCompactionEntry).
+func (s *Session) stage(msg models.AgentMessage) error {
 	if msg.Metadata == nil {
 		msg.Metadata = make(map[string]any)
 	}
@@ -210,8 +219,66 @@ func (s *Session) Append(msg models.AgentMessage) error {
 
 	s.Messages = append(s.Messages, msg)
 	s.branchHeads[s.activeBranch] = msg.ID
+	return nil
+}
 
-	return s.Save()
+// Metadata keys for compaction entries.
+const (
+	MetaType             = "type"
+	MetaTypeCompaction   = "compaction"
+	MetaFirstKeptEntryID = "first_kept_entry_id"
+	MetaTokensBefore     = "tokens_before"
+)
+
+// IsCompactionEntry reports whether m is an append-only compaction entry.
+func IsCompactionEntry(m models.AgentMessage) bool {
+	if m.Metadata == nil {
+		return false
+	}
+	v, ok := m.Metadata[MetaType].(string)
+	return ok && v == MetaTypeCompaction
+}
+
+// AppendCompactionEntry appends a compaction entry to the session without
+// rewriting existing lines: raw history is never discarded. The entry carries
+// the summary text and the id of the first kept message; EffectiveMessages
+// uses it to rebuild the compacted view. Parent is the current branch head,
+// so the branch chain stays continuous through the entry.
+func (s *Session) AppendCompactionEntry(summary, firstKeptEntryID string, tokensBefore int) error {
+	msg := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: summary})
+	msg.Metadata[MetaType] = MetaTypeCompaction
+	msg.Metadata[MetaFirstKeptEntryID] = firstKeptEntryID
+	msg.Metadata[MetaTokensBefore] = tokensBefore
+
+	if err := s.stage(msg); err != nil {
+		return err
+	}
+	return s.appendLine(s.Messages[len(s.Messages)-1])
+}
+
+// appendLine persists exactly one message by appending it to the session file,
+// preserving every existing byte. Falls back to a full atomic Save when the
+// file does not exist yet.
+func (s *Session) appendLine(msg models.AgentMessage) error {
+	if err := fsutil.EnsurePrivateDir(filepath.Dir(s.Path)); err != nil {
+		return err
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(s.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(s.Path, 0o600)
 }
 
 // Fork creates a new branch starting at msgID and switches the session to it.
@@ -270,8 +337,10 @@ func (s *Session) Save() error {
 }
 
 // Replace overwrites the session's entire conversation with msgs and persists
-// it. Used when compaction commits: the runtime context (summary + recent tail)
-// becomes the new on-disk state and the older raw messages are discarded.
+// it.
+//
+// Deprecated: compaction persistence now uses AppendCompactionEntry, which is
+// append-only and never discards raw messages. Replace is kept for tests.
 func (s *Session) Replace(msgs []models.AgentMessage) error {
 	s.Messages = append([]models.AgentMessage(nil), msgs...)
 	s.initBranchState()
@@ -319,6 +388,57 @@ func (s *Session) ActiveMessages() []models.AgentMessage {
 		branch[i], branch[j] = branch[j], branch[i]
 	}
 	return branch
+}
+
+// EffectiveMessages returns the compacted view of the active branch: the
+// newest compaction entry's summary plus the branch messages from its
+// first_kept_entry_id onwards (falling back to all post-entry messages when
+// that id is not on the branch). Without any compaction entry it is identical
+// to ActiveMessages. Raw messages always remain on disk; this is only the
+// view fed to the runtime context.
+func (s *Session) EffectiveMessages() []models.AgentMessage {
+	active := s.ActiveMessages()
+	entryIdx := -1
+	for i := len(active) - 1; i >= 0; i-- {
+		if IsCompactionEntry(active[i]) {
+			entryIdx = i
+			break
+		}
+	}
+	if entryIdx < 0 {
+		return active
+	}
+
+	entry := active[entryIdx]
+	after := active[entryIdx+1:]
+
+	// The kept tail normally starts at first_kept_entry_id, which may sit
+	// before the entry (the entry is appended after the messages it
+	// summarizes). Search the whole branch for it and take everything from
+	// there up to the entry, then the post-entry messages. When the id is not
+	// on the branch, fall back to the post-entry messages only.
+	kept := after
+	if firstKept, _ := entry.Metadata[MetaFirstKeptEntryID].(string); firstKept != "" {
+		for i := 0; i < entryIdx; i++ {
+			if active[i].ID == firstKept {
+				kept = append(append([]models.AgentMessage(nil), active[i:entryIdx]...), after...)
+				break
+			}
+		}
+	}
+
+	summary := entry
+	summary.Metadata = make(map[string]any, len(entry.Metadata)+1)
+	for k, v := range entry.Metadata {
+		summary.Metadata[k] = v
+	}
+	delete(summary.Metadata, MetaType)
+	summary.Metadata["compacted"] = true
+
+	out := make([]models.AgentMessage, 0, len(kept)+1)
+	out = append(out, summary)
+	out = append(out, kept...)
+	return out
 }
 
 // SwitchBranch changes the active branch. It returns an error if the branch
