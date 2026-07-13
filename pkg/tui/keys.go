@@ -57,7 +57,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AgentDoneMsg:
 		m.onAgentDone(msg.Err)
-		return m, nil
+		return m, waitForRunnerResultCmd(m.runner.Results())
 
 	case mcpActionMsg:
 		if msg.err != nil {

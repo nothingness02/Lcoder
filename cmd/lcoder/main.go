@@ -345,7 +345,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			DeferredTools:      cfg.Context.DeferredTools,
 			CoreTools:          coreTools,
 			ReminderProducers:  reminderProducers,
-			CheckpointInterval: 5,
+			CheckpointInterval: 1,
 		}).
 		WithGatewayClient(llmClient).
 		WithRegistry(registry).
@@ -473,8 +473,27 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 	if ctx.Err() != nil {
 		writeCrashCheckpoint(setup)
+	} else if runErr == nil {
+		writeBestEffortCheckpoint(setup, checkpoint.ReasonManual)
 	}
 	return runErr
+}
+
+// writeBestEffortCheckpoint captures and persists the current agent state.
+// It is used for both crash recovery and clean-exit snapshots. Errors are
+// logged to stderr and do not affect the exit path.
+func writeBestEffortCheckpoint(setup *agentSetup, reason string) {
+	if setup.checkpointStore == nil || setup.sess == nil {
+		return
+	}
+	cp, err := setup.ag.CheckpointWithReason(reason)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to capture %s checkpoint: %v\n", reason, err)
+		return
+	}
+	if err := setup.checkpointStore.Save(setup.sess.ID, cp); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to save %s checkpoint: %v\n", reason, err)
+	}
 }
 
 // writeCrashCheckpoint captures the current agent state as a crash checkpoint
@@ -482,17 +501,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 // the checkpoint may reflect a partial turn, but it still preserves more state
 // than losing everything since the last auto-checkpoint.
 func writeCrashCheckpoint(setup *agentSetup) {
-	if setup.checkpointStore == nil || setup.sess == nil {
-		return
-	}
-	cp, err := setup.ag.CheckpointWithReason(checkpoint.ReasonCrash)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to capture crash checkpoint: %v\n", err)
-		return
-	}
-	if err := setup.checkpointStore.Save(setup.sess.ID, cp); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to save crash checkpoint: %v\n", err)
-	}
+	writeBestEffortCheckpoint(setup, checkpoint.ReasonCrash)
 }
 
 func runJSONMode(ctx context.Context, setup *agentSetup, prompt string) error {
