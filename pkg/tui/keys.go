@@ -761,7 +761,7 @@ func (m *Model) loadSession(sess *session.Session) {
 	msgs := sess.ActiveMessages()
 	m.blocks = blocksFromMessages(msgs)
 	m.tasks = tasksFromMessages(msgs)
-	m.agent.SetMessages(msgs)
+	m.agent.SetMessages(sess.EffectiveMessages())
 	m.updateSizes()
 }
 

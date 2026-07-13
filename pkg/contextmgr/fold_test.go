@@ -2,6 +2,7 @@ package contextmgr
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -251,5 +252,54 @@ func TestSummarizeForFoldSplitTurn(t *testing.T) {
 	}
 	if !strings.HasPrefix(res.Summary, "[Summary of earlier conversation]\n\n") {
 		t.Fatalf("committed summary must carry the foldOlder prefix, got %q", res.Summary)
+	}
+}
+
+// D: 取消传播 —— 摘要器在 ctx 取消后返回 ctx.Err(),foldOlder 必须原样上抛,
+// 不得 commit,recent 块保持调用前逐字节不变。
+func TestFoldOlderHonorsContextCancellation(t *testing.T) {
+	budget := TokenBudget{MaxTotal: 400, ReserveOutput: 0} // EffectiveInput=400
+	m := NewManager(budget,
+		WithMinRecent(1),
+		WithSummarizer(SummarizeFunc(func(ctx context.Context, _ []models.AgentMessage) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		})))
+	m.SetSystemPrompt("sys")
+	// 20 条 × 50 token ≈ 1000 token → 压力触发压缩,非零 cut。
+	m.ReplaceRecent(convoMsgs(20))
+
+	// 快照调用前的 recent 块(消息 ID 顺序)。
+	before, ok := m.GetBlock(BlockRecent, "recent")
+	if !ok {
+		t.Fatal("recent block missing before call")
+	}
+	beforeIDs := make([]string, len(before.Messages))
+	for i, msg := range before.Messages {
+		beforeIDs[i] = msg.ID
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 调用前取消:摘要器立即返回 ctx.Err()
+
+	_, res, err := m.MaybeCompactLeveled(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if res.Committed {
+		t.Fatal("expected no commit on cancellation")
+	}
+
+	after, ok := m.GetBlock(BlockRecent, "recent")
+	if !ok {
+		t.Fatal("recent block missing after call")
+	}
+	if len(after.Messages) != len(beforeIDs) {
+		t.Fatalf("recent block changed on cancellation: %d msgs, want %d", len(after.Messages), len(beforeIDs))
+	}
+	for i, msg := range after.Messages {
+		if msg.ID != beforeIDs[i] {
+			t.Fatalf("recent block msg %d changed on cancellation: id %q, want %q", i, msg.ID, beforeIDs[i])
+		}
 	}
 }
