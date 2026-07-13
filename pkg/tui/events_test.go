@@ -8,6 +8,29 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
+func TestCompactionIndicatorLifecycle(t *testing.T) {
+	m, _, _ := newTestModel()
+
+	m.handleEvent(events.CompactionStartedEvent{})
+	if !m.compacting {
+		t.Fatal("CompactionStartedEvent must set compacting")
+	}
+
+	m.state = stateProcessing
+	m.mainWidth = 80
+	if view := m.statusLineView(); !strings.Contains(view, "压缩中") {
+		t.Fatalf("status line must show compacting indicator, got %q", view)
+	}
+
+	m.handleEvent(events.CompactionCommittedEvent{})
+	if m.compacting {
+		t.Fatal("CompactionCommittedEvent must clear compacting")
+	}
+	if view := m.statusLineView(); strings.Contains(view, "压缩中") {
+		t.Fatalf("indicator must be gone after commit, got %q", view)
+	}
+}
+
 func TestTurnEndEventAddsToolSummaryBelowToolCalls(t *testing.T) {
 	m, _, _ := newTestModel()
 

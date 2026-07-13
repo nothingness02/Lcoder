@@ -23,6 +23,7 @@ const (
 	Audit               EventType = "audit"
 	Error               EventType = "error"
 	CompactionCommitted EventType = "compaction_committed"
+	CompactionStarted   EventType = "compaction_started"
 )
 
 // Event is the interface implemented by all agent events.
@@ -116,6 +117,11 @@ type ErrorEvent struct {
 	Base
 	Message string `json:"message"`
 }
+
+// CompactionStartedEvent signals that a blocking compaction is about to run.
+// The agent loop emits it right before MaybeCompactLeveled (which runs
+// synchronously), so UIs can show a "compacting" indicator for the duration.
+type CompactionStartedEvent struct{ Base }
 
 // CompactionCommittedEvent signals that the context manager folded older
 // messages into a summary and committed the compacted window in place. The

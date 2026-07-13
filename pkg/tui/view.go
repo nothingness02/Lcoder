@@ -68,6 +68,9 @@ func (m *Model) statusLineView() string {
 	switch m.state {
 	case stateProcessing:
 		left = m.spinner.view()
+		if m.compacting {
+			left += styleDim().Render(" 压缩中…")
+		}
 	default:
 		left = styleDim().Render(m.modeLabel())
 	}

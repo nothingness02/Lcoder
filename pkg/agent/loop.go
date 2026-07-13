@@ -502,10 +502,15 @@ func (a *Agent) appendMessage(msg models.AgentMessage) {
 }
 
 // maybeCompact asks the context manager to commit a compaction at a turn
-// boundary. On commit it emits CompactionCommitted (with the summary payload)
-// so the persistence layer can append a CompactionEntry. A summarizer error
-// is non-fatal; a canceled context (abort) is silent.
+// boundary. The call is synchronous: when a compaction will run, a
+// CompactionStarted event is emitted first so UIs can show an indicator for
+// the (blocking) duration. On commit it emits CompactionCommitted (with the
+// summary payload) so the persistence layer can append a CompactionEntry. A
+// summarizer error is non-fatal; a canceled context (abort) is silent.
 func (a *Agent) maybeCompact(ctx context.Context, turn int) {
+	if level := a.mgr.PendingCompaction(); level != contextmgr.CompactionNone {
+		a.emit(ctx, events.CompactionStartedEvent{Base: events.Base{Type: events.CompactionStarted, Turn: turn}})
+	}
 	level, res, err := a.mgr.MaybeCompactLeveled(ctx)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

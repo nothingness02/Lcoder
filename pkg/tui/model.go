@@ -93,6 +93,10 @@ type Model struct {
 	totalCost  float64
 	errMsg     string
 
+	// compacting is set between CompactionStarted and the next terminal event
+	// (commit/error/message/agent-end); the status line shows an indicator.
+	compacting bool
+
 	// capabilities of the active model, shown in /status (from the catalog).
 	capabilities []string
 

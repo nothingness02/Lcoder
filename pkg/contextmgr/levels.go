@@ -92,6 +92,21 @@ func (m *Manager) keepTokensForLevel(level CompactionLevel) int {
 	return budget
 }
 
+// PendingCompaction reports the level MaybeCompactLeveled would commit at now,
+// or CompactionNone. It mirrors the guards of MaybeCompactLeveled without
+// folding anything, so callers can signal "compaction starting" before the
+// blocking call.
+func (m *Manager) PendingCompaction() CompactionLevel {
+	if m.summarizer == nil {
+		return CompactionNone
+	}
+	recent, ok := m.GetBlock(BlockRecent, "recent")
+	if !ok || len(recent.Messages) < minLeveledMessages {
+		return CompactionNone
+	}
+	return m.budget.PressureLevel(m.currentTotalTokens())
+}
+
 // MaybeCompactLeveled commits a multi-level compaction at a turn boundary.
 func (m *Manager) MaybeCompactLeveled(ctx context.Context) (CompactionLevel, FoldResult, error) {
 	if m.summarizer == nil {

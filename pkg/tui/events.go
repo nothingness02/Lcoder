@@ -18,6 +18,7 @@ func (m *Model) handleEvent(ev events.Event) {
 		m.turnTools = m.turnTools[:0]
 
 	case events.MessageStartEvent:
+		m.compacting = false
 		if e.Message.Role == models.RoleAssistant {
 			m.streaming = true
 			m.streamLive = ""
@@ -81,11 +82,17 @@ func (m *Model) handleEvent(ev events.Event) {
 
 	case events.AgentEndEvent:
 		m.completedTurns++
+		m.compacting = false
+
+	case events.CompactionStartedEvent:
+		m.compacting = true
 
 	case events.CompactionCommittedEvent:
+		m.compacting = false
 		m.addSystem("↧ 已压缩早前对话以节省 token(原始记录已合并为摘要)")
 
 	case events.ErrorEvent:
+		m.compacting = false
 		m.errMsg = e.Message
 		m.addSystem(styleError().Render("error: " + e.Message))
 	}

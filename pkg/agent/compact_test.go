@@ -98,6 +98,75 @@ func TestAgentDoesNotRecordContextSnapshotWhenDisabled(t *testing.T) {
 	}
 }
 
+// 压缩真正执行前先发 CompactionStarted 事件,顺序在 Committed 之前。
+func TestAgentEmitsCompactionStartedBeforeCommit(t *testing.T) {
+	mgr := contextmgr.NewManager(
+		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
+		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithMinRecent(2),
+	)
+	var recent []models.AgentMessage
+	for i := 0; i < 20; i++ {
+		recent = append(recent, models.UserMessage(strings.Repeat("u", 200)))
+		recent = append(recent, models.AssistantMessage(strings.Repeat("a", 200)))
+	}
+	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockRecent, "recent", contextmgr.StabilityDynamic, 100, recent...))
+
+	a := &Agent{mgr: mgr, bus: events.New()}
+	var order []events.EventType
+	unsub := a.bus.Subscribe(func(ctx context.Context, ev events.Event) error {
+		order = append(order, ev.EventType())
+		return nil
+	})
+	defer unsub()
+
+	a.maybeCompact(context.Background(), 1)
+
+	startIdx, commitIdx := -1, -1
+	for i, typ := range order {
+		switch typ {
+		case events.CompactionStarted:
+			startIdx = i
+		case events.CompactionCommitted:
+			commitIdx = i
+		}
+	}
+	if startIdx == -1 {
+		t.Fatal("expected CompactionStarted event before blocking compaction")
+	}
+	if commitIdx == -1 {
+		t.Fatal("expected CompactionCommitted event")
+	}
+	if startIdx > commitIdx {
+		t.Fatalf("started (idx %d) must precede committed (idx %d)", startIdx, commitIdx)
+	}
+}
+
+// 无压缩压力时不发 CompactionStarted 事件(不打扰用户)。
+func TestAgentNoCompactionStartedWithoutPressure(t *testing.T) {
+	mgr := contextmgr.NewManager(
+		contextmgr.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 1000},
+		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "s", nil }),
+	)
+	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockRecent, "recent", contextmgr.StabilityDynamic, 100,
+		models.UserMessage("hi"), models.AssistantMessage("hello")))
+
+	a := &Agent{mgr: mgr, bus: events.New()}
+	var saw bool
+	unsub := a.bus.Subscribe(func(ctx context.Context, ev events.Event) error {
+		if _, ok := ev.(events.CompactionStartedEvent); ok {
+			saw = true
+		}
+		return nil
+	})
+	defer unsub()
+
+	a.maybeCompact(context.Background(), 1)
+	if saw {
+		t.Fatal("CompactionStarted must not fire when no compaction will run")
+	}
+}
+
 // 压缩提交时事件携带 summary、firstKeptID、tokensBefore。
 func TestAgentCompactionEventCarriesPayload(t *testing.T) {
 	mgr := contextmgr.NewManager(
