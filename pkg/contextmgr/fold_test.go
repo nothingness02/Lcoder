@@ -192,6 +192,9 @@ func TestFoldOlderDegradesOnBreakerOpen(t *testing.T) {
 	if len(recent.Messages) == 0 {
 		t.Fatal("degraded fold must keep a non-empty tail")
 	}
+	if len(recent.Messages) >= 20 {
+		t.Fatalf("degraded fold must shrink the recent block, kept %d", len(recent.Messages))
+	}
 	// 头部不得是摘要消息,也不得出现孤儿 tool_result。
 	head := recent.Messages[0]
 	if head.Role == models.RoleSystem {
