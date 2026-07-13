@@ -193,3 +193,74 @@ func TestEffectiveMessagesLegacySessions(t *testing.T) {
 		t.Fatalf("legacy replaced session must pass through, got %d", len(view))
 	}
 }
+
+// E6: 条目在后续 Append 触发的整文件 Save 重写后仍然保留,不重复不丢失。
+func TestAppendCompactionEntrySurvivesSubsequentSave(t *testing.T) {
+	msgs := []models.AgentMessage{models.UserMessage("one"), models.AssistantMessage("two")}
+	sess := newTestSession(t, msgs...)
+	if err := sess.AppendCompactionEntry("SUM", msgs[1].ID, 100); err != nil {
+		t.Fatalf("append entry: %v", err)
+	}
+	// 再 Append 一条消息,触发整文件 Save 重写。
+	if err := sess.Append(models.UserMessage("three")); err != nil {
+		t.Fatalf("append three: %v", err)
+	}
+
+	if got := countLines(t, sess.Path); got != 4 {
+		t.Fatalf("expected 4 lines on disk, got %d", got)
+	}
+	store := NewStore("")
+	loaded, err := store.Load(sess.Path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded.Messages) != 4 {
+		t.Fatalf("expected 4 messages on disk, got %d", len(loaded.Messages))
+	}
+	entries := 0
+	for _, m := range loaded.Messages {
+		if IsCompactionEntry(m) {
+			entries++
+		}
+	}
+	if entries != 1 {
+		t.Fatalf("expected exactly one compaction entry, got %d", entries)
+	}
+}
+
+// E7: 在条目之后 fork 出的分支,其 EffectiveMessages 视图一致地应用压缩。
+func TestEffectiveMessagesForkAfterEntry(t *testing.T) {
+	one, two := models.UserMessage("one"), models.AssistantMessage("two")
+	sess := newTestSession(t, one, two)
+	if err := sess.AppendCompactionEntry("SUM", two.ID, 100); err != nil {
+		t.Fatalf("append entry: %v", err)
+	}
+	three := models.UserMessage("three")
+	if err := sess.Append(three); err != nil {
+		t.Fatalf("append three: %v", err)
+	}
+	// 从 three 处 fork,并在分支上追加消息。
+	if _, err := sess.Fork(three.ID); err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	if err := sess.Append(models.UserMessage("branch msg")); err != nil {
+		t.Fatalf("append branch msg: %v", err)
+	}
+
+	view := sess.EffectiveMessages()
+	var texts []string
+	for _, m := range view {
+		texts = append(texts, m.Text())
+	}
+	joined := strings.Join(texts, "|")
+	// 视图必须包含压缩摘要(作为头部)、three 以及 branch msg。
+	if v, ok := view[0].Metadata["compacted"].(bool); !ok || !v {
+		t.Fatalf("forked view head must be a compacted summary: %v", texts)
+	}
+	if !strings.Contains(joined, "three") {
+		t.Fatalf("forked view must include three: %v", texts)
+	}
+	if !strings.Contains(joined, "branch msg") {
+		t.Fatalf("forked view must include branch msg: %v", texts)
+	}
+}

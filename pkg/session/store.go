@@ -253,12 +253,13 @@ func (s *Session) AppendCompactionEntry(summary, firstKeptEntryID string, tokens
 	if err := s.stage(msg); err != nil {
 		return err
 	}
+	// Persist the staged copy (which carries the parent wiring), not the
+	// caller's by-value msg.
 	return s.appendLine(s.Messages[len(s.Messages)-1])
 }
 
 // appendLine persists exactly one message by appending it to the session file,
-// preserving every existing byte. Falls back to a full atomic Save when the
-// file does not exist yet.
+// preserving every existing byte. Creates the file if it does not exist yet.
 func (s *Session) appendLine(msg models.AgentMessage) error {
 	if err := fsutil.EnsurePrivateDir(filepath.Dir(s.Path)); err != nil {
 		return err
