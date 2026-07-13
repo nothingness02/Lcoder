@@ -228,6 +228,98 @@ func TestAppendCompactionEntrySurvivesSubsequentSave(t *testing.T) {
 	}
 }
 
+// E8: 真实运行时顺序——条目先于 kept 尾部落盘,run 末 AppendMissing 镜像
+// [SUMMARY, keptTail...] 时,运行期摘要必须被跳过(条目已代表它),重载后
+// 视图恰好含一份摘要 + kept 尾部,不出现重复摘要。
+func TestCompactionRoundTripSingleSummary(t *testing.T) {
+	sess := newTestSession(t, models.UserMessage("u1"), models.UserMessage("u2"))
+
+	// 运行期视图:摘要 + kept 尾部。先构造 k1/k2,用 k1 的 ID 作为 firstKept。
+	summaryMsg := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: "SUM TEXT"}).
+		WithMetadata("compacted", true)
+	k1 := models.UserMessage("kept one")
+	k2 := models.AssistantMessage("kept two")
+
+	// 压缩提交:条目落盘,此时 k1 尚未在磁盘上。
+	if err := sess.AppendCompactionEntry("SUM TEXT", k1.ID, 500); err != nil {
+		t.Fatalf("append entry: %v", err)
+	}
+	// run 末镜像(或提交时镜像):摘要必须被跳过,k1/k2 追加。
+	if err := sess.AppendMissing([]models.AgentMessage{summaryMsg, k1, k2}); err != nil {
+		t.Fatalf("append missing: %v", err)
+	}
+
+	// 磁盘断言:恰好一个条目;无任何带 compacted=true 的原始消息;k1/k2 在。
+	entries := 0
+	rawSummaries := 0
+	var haveK1, haveK2 bool
+	for _, m := range sess.Messages {
+		if IsCompactionEntry(m) {
+			entries++
+		}
+		if compacted, _ := m.Metadata["compacted"].(bool); compacted {
+			rawSummaries++
+		}
+		if m.ID == k1.ID {
+			haveK1 = true
+		}
+		if m.ID == k2.ID {
+			haveK2 = true
+		}
+	}
+	if entries != 1 {
+		t.Fatalf("expected exactly one compaction entry, got %d", entries)
+	}
+	if rawSummaries != 0 {
+		t.Fatalf("runtime summary must not be persisted raw, got %d", rawSummaries)
+	}
+	if !haveK1 || !haveK2 {
+		t.Fatalf("kept tail missing on disk: k1=%v k2=%v", haveK1, haveK2)
+	}
+
+	// 重载:视图 = 恰好一份摘要(条目派生)+ k1 + k2。
+	store := NewStore("")
+	loaded, err := store.Load(sess.Path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	view := loaded.EffectiveMessages()
+	if len(view) != 3 {
+		t.Fatalf("expected 3 messages in view (single summary + kept tail), got %d: %v", len(view), view)
+	}
+	if v, ok := view[0].Metadata["compacted"].(bool); !ok || !v {
+		t.Fatal("view head must be the entry-derived compacted summary")
+	}
+	if !strings.Contains(view[0].Text(), "SUM TEXT") {
+		t.Fatalf("summary text missing: %q", view[0].Text())
+	}
+	if view[1].Text() != "kept one" || view[2].Text() != "kept two" {
+		t.Fatalf("kept tail wrong: %q %q", view[1].Text(), view[2].Text())
+	}
+}
+
+// E9: 无条目的分支(旧 session / 降级折叠)——AppendMissing 仍按原样持久化
+// compacted 摘要消息,保持向后兼容。
+func TestAppendMissingKeepsLegacySummaryWithoutEntry(t *testing.T) {
+	sess := newTestSession(t, models.UserMessage("u1"))
+	summary := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: "legacy summary"}).
+		WithMetadata("compacted", true)
+	if err := sess.AppendMissing([]models.AgentMessage{summary, models.UserMessage("after")}); err != nil {
+		t.Fatalf("append missing: %v", err)
+	}
+	found := false
+	for _, m := range sess.Messages {
+		if m.ID == summary.ID {
+			if compacted, _ := m.Metadata["compacted"].(bool); compacted {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("legacy compacted summary must be persisted when no entry exists")
+	}
+}
+
 // E7: 在条目之后 fork 出的分支,其 EffectiveMessages 视图一致地应用压缩。
 func TestEffectiveMessagesForkAfterEntry(t *testing.T) {
 	one, two := models.UserMessage("one"), models.AssistantMessage("two")

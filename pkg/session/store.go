@@ -170,14 +170,32 @@ func (s *Store) MostRecent(cwd string) (*Session, error) {
 // user message at submit time; the agent's assistant and tool_result messages
 // live in its context window and must be mirrored in here after a turn so they
 // actually reach disk. Dedup is by message ID, making repeated calls idempotent.
+//
+// When the active branch already carries a compaction entry, a runtime summary
+// message (Metadata["compacted"] == true) is skipped: the entry already
+// represents it, and persisting the raw summary would duplicate it in
+// EffectiveMessages. Branches without an entry (legacy sessions, degraded
+// folds) keep the old behavior and persist such summaries as normal messages.
 func (s *Session) AppendMissing(msgs []models.AgentMessage) error {
 	have := make(map[string]bool, len(s.Messages))
 	for _, m := range s.Messages {
 		have[m.ID] = true
 	}
+	hasEntry := false
+	for _, m := range s.ActiveMessages() {
+		if IsCompactionEntry(m) {
+			hasEntry = true
+			break
+		}
+	}
 	for _, m := range msgs {
 		if m.ID == "" || have[m.ID] {
 			continue
+		}
+		if hasEntry {
+			if compacted, _ := m.Metadata["compacted"].(bool); compacted {
+				continue
+			}
 		}
 		if err := s.Append(m); err != nil {
 			return err

@@ -549,6 +549,10 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 			// Degraded folds (breaker open) carry no summary and persist nothing.
 			if !e.Degraded && e.Summary != "" {
 				_ = setup.sess.AppendCompactionEntry(e.Summary, e.FirstKeptID, e.TokensBefore)
+				// Mirror the kept tail now: with the entry on disk, AppendMissing
+				// skips the runtime summary and appends only the not-yet-persisted
+				// kept messages, so a crash before run end cannot lose them.
+				_ = setup.sess.AppendMissing(setup.ag.AllMessages())
 			}
 		case events.MessageEndEvent, events.ToolExecutionEndEvent, events.AgentEndEvent:
 			_ = setup.sess.Save()
@@ -631,6 +635,10 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 			// Degraded folds (breaker open) carry no summary and persist nothing.
 			if !e.Degraded && e.Summary != "" {
 				_ = setup.sess.AppendCompactionEntry(e.Summary, e.FirstKeptID, e.TokensBefore)
+				// Mirror the kept tail now: with the entry on disk, AppendMissing
+				// skips the runtime summary and appends only the not-yet-persisted
+				// kept messages, so a crash before run end cannot lose them.
+				_ = setup.sess.AppendMissing(setup.ag.AllMessages())
 			}
 		case events.MessageEndEvent, events.ToolExecutionEndEvent, events.AgentEndEvent:
 			_ = setup.sess.Save()
