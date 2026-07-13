@@ -2,6 +2,7 @@ package compaction
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/llm/llmtest"
@@ -67,5 +68,39 @@ func TestLLMSummarizerStreamError(t *testing.T) {
 	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
 	if _, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("x")}); err == nil {
 		t.Fatal("expected error on stream error event")
+	}
+}
+
+func TestLLMSummarizerSendsSerializedTruncatedInput(t *testing.T) {
+	client, adapter := llmtest.NewScript(llmtest.Turn(
+		llmtest.Done(models.AssistantMessage("<summary>ok</summary>"), nil),
+	))
+	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
+
+	big := strings.Repeat("x", 50000)
+	msgs := []models.AgentMessage{
+		models.UserMessage("do the thing"),
+		models.NewAgentMessage(models.RoleToolResult, models.ToolResultContent{
+			ToolCallID: "c1", Name: "bash",
+			Content: []models.ContentPart{models.TextContent{Text: big}},
+		}),
+	}
+	if _, err := summarize(context.Background(), msgs); err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+
+	req := adapter.LastRequest()
+	if len(req.Messages) != 1 || req.Messages[0].Role != models.RoleUser {
+		t.Fatalf("expected a single synthetic user message, got %+v", req.Messages)
+	}
+	text := req.Messages[0].Text()
+	if !strings.Contains(text, "[User]: do the thing") {
+		t.Fatalf("input not serialized: %q", text[:min(200, len(text))])
+	}
+	if !strings.Contains(text, "truncated") {
+		t.Fatal("tool result not truncated")
+	}
+	if len(text) > summaryMaxInputChars {
+		t.Fatalf("serialized input %d chars exceeds cap %d", len(text), summaryMaxInputChars)
 	}
 }

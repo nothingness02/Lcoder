@@ -15,6 +15,13 @@ import (
 // top of the caller's context, whichever fires first.
 const summaryTimeout = 90 * time.Second
 
+// summaryToolResultChars caps one tool result inside the serialized input.
+const summaryToolResultChars = 2000
+
+// summaryMaxInputChars caps the whole serialized input (~12k tokens at 4
+// chars/token), keeping the summarization request far below any model window.
+const summaryMaxInputChars = 48000
+
 // summaryInstruction is the dual-stage system prompt. The model first drafts an
 // <analysis> block (scratch reasoning, discarded) and then emits a <summary>
 // block, which is the only part injected back into the live context.
@@ -55,10 +62,17 @@ func NewLLMSummarizer(client *llm.Client, model models.ModelRef) SummarizeFunc {
 		ctx, cancel := context.WithTimeout(ctx, summaryTimeout)
 		defer cancel()
 
+		serialized := SerializeConversation(messages, summaryToolResultChars)
+		if len(serialized) > summaryMaxInputChars {
+			serialized = serialized[:summaryMaxInputChars] + "\n...[input truncated]"
+		}
+
 		req := models.TurnRequest{
 			Model:        model,
 			SystemPrompt: summaryInstruction,
-			Messages:     messages,
+			Messages: []models.AgentMessage{
+				models.NewAgentMessage(models.RoleUser, models.TextContent{Text: serialized}),
+			},
 		}
 
 		stream, err := client.StreamTurn(ctx, req)
