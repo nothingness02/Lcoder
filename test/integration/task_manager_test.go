@@ -37,7 +37,7 @@ func TestTaskManagerSurvivesCompactionAndReconcilesOverwrites(t *testing.T) {
 	sessionID := "task-manager-integration"
 
 	// Deterministic summarizer keeps the test hermetic (no API key needed).
-	summarizer := func([]models.AgentMessage) (string, error) {
+	summarizer := func(_ context.Context, _ []models.AgentMessage) (string, error) {
 		return "summary of earlier conversation", nil
 	}
 	mgr := contextmgr.NewManager(

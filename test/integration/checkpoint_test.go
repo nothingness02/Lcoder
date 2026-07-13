@@ -108,7 +108,7 @@ func buildCheckpointTestAgent(t *testing.T, client *llm.Client, root string, sto
 
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 4000, TargetTotal: 3000, ReserveOutput: 512},
-		contextmgr.WithSummarizer(func([]models.AgentMessage) (string, error) { return "summary", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "summary", nil }),
 	)
 	mgr.SetSystemPrompt("test system prompt")
 

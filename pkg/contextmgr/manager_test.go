@@ -1,6 +1,7 @@
 package contextmgr
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ func TestManagerBuildTurnRequest(t *testing.T) {
 		MaxTotal:      4000,
 		TargetTotal:   3000,
 		ReserveOutput: 1000,
-	}, WithSummarizer(func(msgs []models.AgentMessage) (string, error) {
+	}, WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) {
 		return "summary", nil
 	}))
 

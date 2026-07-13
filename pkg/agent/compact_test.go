@@ -18,7 +18,7 @@ import (
 func TestAgentEmitsCompactionCommitted(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
-		contextmgr.WithSummarizer(func(msgs []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) { return "s", nil }),
 		contextmgr.WithMinRecent(2),
 	)
 	var recent []models.AgentMessage
@@ -47,7 +47,7 @@ func TestAgentEmitsCompactionCommitted(t *testing.T) {
 func TestAgentRecordsContextSnapshotOnCompaction(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
-		contextmgr.WithSummarizer(func(msgs []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) { return "s", nil }),
 		contextmgr.WithMinRecent(2),
 	)
 	var recent []models.AgentMessage
@@ -79,7 +79,7 @@ func TestAgentRecordsContextSnapshotOnCompaction(t *testing.T) {
 func TestAgentDoesNotRecordContextSnapshotWhenDisabled(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
-		contextmgr.WithSummarizer(func(msgs []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) { return "s", nil }),
 		contextmgr.WithMinRecent(2),
 	)
 	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockRecent, "recent", contextmgr.StabilityDynamic, 100, models.UserMessage("hi")))

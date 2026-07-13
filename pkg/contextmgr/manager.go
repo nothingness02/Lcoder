@@ -1,6 +1,7 @@
 package contextmgr
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -84,8 +85,9 @@ func (b TokenBudget) DropLimit() int {
 // TokenEstimator estimates token count for a slice of messages.
 type TokenEstimator func(messages []models.AgentMessage) int
 
-// SummarizeFunc generates a summary from messages.
-type SummarizeFunc func(messages []models.AgentMessage) (string, error)
+// SummarizeFunc generates a summary from messages. The context carries run
+// cancellation; summarizers must honor it.
+type SummarizeFunc func(ctx context.Context, messages []models.AgentMessage) (string, error)
 
 // Manager manages structured context blocks within a token budget.
 type Manager struct {
@@ -395,7 +397,7 @@ func (m *Manager) MaybeCompact() (bool, error) {
 // head. Returns (false, nil) when there is nothing to fold or no summarizer is
 // configured; a summarizer error is returned without mutating state. Shared by
 // MaybeCompact (delegated) and MaybeCompactLeveled (pressure tiers).
-func (m *Manager) foldOlder(keep int) (bool, error) {
+func (m *Manager) foldOlder(ctx context.Context, keep int) (bool, error) {
 	if m.summarizer == nil {
 		return false, nil
 	}
@@ -428,7 +430,7 @@ func (m *Manager) foldOlder(keep int) (bool, error) {
 		return false, nil
 	}
 
-	summaryText, err := m.summarizer(older)
+	summaryText, err := m.summarizer(ctx, older)
 	if err != nil {
 		return false, err
 	}

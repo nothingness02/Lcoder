@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/llm/llmtest"
@@ -33,7 +34,7 @@ func TestLLMSummarizerExtractsSummary(t *testing.T) {
 		llmtest.Done(models.AssistantMessage("<analysis>noise</analysis><summary>did the thing</summary>"), nil),
 	))
 	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
-	out, err := summarize([]models.AgentMessage{models.UserMessage("hello")})
+	out, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("hello")})
 	if err != nil {
 		t.Fatalf("summarize: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestLLMSummarizerExtractsSummary(t *testing.T) {
 func TestLLMSummarizerEmptyMessages(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(llmtest.Done(models.AssistantMessage("unused"), nil)))
 	summarize := NewLLMSummarizer(client, models.ModelRef{})
-	out, err := summarize(nil)
+	out, err := summarize(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("expected no error for empty input, got %v", err)
 	}
@@ -56,7 +57,7 @@ func TestLLMSummarizerEmptyMessages(t *testing.T) {
 
 func TestLLMSummarizerNilClient(t *testing.T) {
 	summarize := NewLLMSummarizer(nil, models.ModelRef{})
-	if _, err := summarize([]models.AgentMessage{models.UserMessage("x")}); err == nil {
+	if _, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("x")}); err == nil {
 		t.Fatal("expected error for nil client")
 	}
 }
@@ -64,7 +65,7 @@ func TestLLMSummarizerNilClient(t *testing.T) {
 func TestLLMSummarizerStreamError(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(llmtest.ErrorEvent("internal", "boom")))
 	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
-	if _, err := summarize([]models.AgentMessage{models.UserMessage("x")}); err == nil {
+	if _, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("x")}); err == nil {
 		t.Fatal("expected error on stream error event")
 	}
 }

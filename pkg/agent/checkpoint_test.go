@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -22,7 +23,7 @@ func testContextManager() *contextmgr.Manager {
 			ReserveOutput: 8192,
 			MaxOutput:     16384,
 		},
-		contextmgr.WithSummarizer(func(msgs []models.AgentMessage) (string, error) {
+		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) {
 			return "summary", nil
 		}),
 	)

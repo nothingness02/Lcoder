@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lcoder/lcoder/pkg/models"
@@ -11,12 +12,13 @@ type Strategy interface {
 	// Compact takes the current messages and returns a new slice where older
 	// messages are replaced by a summary system message. It also returns the
 	// summary text that should be injected.
-	Compact(messages []models.AgentMessage, summarize SummarizeFunc) ([]models.AgentMessage, error)
+	Compact(ctx context.Context, messages []models.AgentMessage, summarize SummarizeFunc) ([]models.AgentMessage, error)
 }
 
 // SummarizeFunc generates a summary from a slice of messages.
-// In production this calls the LLM engine.
-type SummarizeFunc func(messages []models.AgentMessage) (string, error)
+// In production this calls the LLM engine. The context carries the agent's
+// run cancellation so abort/Ctrl+C interrupts in-flight summarization.
+type SummarizeFunc func(ctx context.Context, messages []models.AgentMessage) (string, error)
 
 // KeepRecent keeps the last N messages and summarizes the rest.
 type KeepRecent struct {
@@ -37,7 +39,7 @@ func NewKeepLastStrategy(keep int) *KeepRecent {
 }
 
 // Compact summarizes older messages and appends a system message with the summary.
-func (k *KeepRecent) Compact(messages []models.AgentMessage, summarize SummarizeFunc) ([]models.AgentMessage, error) {
+func (k *KeepRecent) Compact(ctx context.Context, messages []models.AgentMessage, summarize SummarizeFunc) ([]models.AgentMessage, error) {
 	if len(messages) <= k.KeepCount {
 		return messages, nil
 	}
@@ -45,7 +47,7 @@ func (k *KeepRecent) Compact(messages []models.AgentMessage, summarize Summarize
 	older := messages[:len(messages)-k.KeepCount]
 	recent := messages[len(messages)-k.KeepCount:]
 
-	summaryText, err := summarize(older)
+	summaryText, err := summarize(ctx, older)
 	if err != nil {
 		return nil, fmt.Errorf("summarize: %w", err)
 	}
@@ -62,7 +64,7 @@ func (k *KeepRecent) Compact(messages []models.AgentMessage, summarize Summarize
 }
 
 // SimpleSummarize is a placeholder summarizer.
-func SimpleSummarize(messages []models.AgentMessage) (string, error) {
+func SimpleSummarize(_ context.Context, messages []models.AgentMessage) (string, error) {
 	var texts []string
 	for _, m := range messages {
 		if m.Role == models.RoleUser || m.Role == models.RoleAssistant {

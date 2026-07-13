@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/models"
@@ -12,7 +13,7 @@ func TestKeepRecentNoCompact(t *testing.T) {
 		models.UserMessage("a"),
 		models.UserMessage("b"),
 	}
-	result, err := strategy.Compact(messages, SimpleSummarize)
+	result, err := strategy.Compact(context.Background(), messages, SimpleSummarize)
 	if err != nil {
 		t.Fatalf("compact: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestKeepRecentCompact(t *testing.T) {
 		models.UserMessage("b"),
 		models.UserMessage("c"),
 	}
-	result, err := strategy.Compact(messages, SimpleSummarize)
+	result, err := strategy.Compact(context.Background(), messages, SimpleSummarize)
 	if err != nil {
 		t.Fatalf("compact: %v", err)
 	}

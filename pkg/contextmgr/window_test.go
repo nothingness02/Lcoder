@@ -1,6 +1,7 @@
 package contextmgr
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -116,7 +117,7 @@ func TestWindowTruncatesWithoutSummarizing(t *testing.T) {
 		MaxTotal:      2000,
 		TargetTotal:   1500,
 		ReserveOutput: 500,
-	}, WithSummarizer(func(msgs []models.AgentMessage) (string, error) {
+	}, WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) {
 		return "should not be called by window policy", nil
 	}), WithWindowPolicy(DefaultKeepRecentInBudget()))
 

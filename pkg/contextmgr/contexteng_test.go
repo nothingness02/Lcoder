@@ -1,6 +1,7 @@
 package contextmgr
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -8,7 +9,7 @@ import (
 )
 
 // stubSummarizer returns a fixed short summary, deterministically.
-func stubSummarizer(_ []models.AgentMessage) (string, error) {
+func stubSummarizer(_ context.Context, _ []models.AgentMessage) (string, error) {
 	return "summary of older messages", nil
 }
 

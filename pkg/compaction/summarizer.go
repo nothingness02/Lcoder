@@ -11,8 +11,8 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-// summaryTimeout bounds a single summarization call. SummarizeFunc has no
-// context parameter, so the deadline is applied internally.
+// summaryTimeout bounds a single summarization call. The deadline is applied on
+// top of the caller's context, whichever fires first.
 const summaryTimeout = 90 * time.Second
 
 // summaryInstruction is the dual-stage system prompt. The model first drafts an
@@ -44,7 +44,7 @@ Preserve exact identifiers (paths, symbols, flags). Do not invent facts. Omit em
 // older messages into a dual-stage summary, keeping only the <summary> block.
 // The returned function matches contextmgr.SummarizeFunc without importing it.
 func NewLLMSummarizer(client *llm.Client, model models.ModelRef) SummarizeFunc {
-	return func(messages []models.AgentMessage) (string, error) {
+	return func(ctx context.Context, messages []models.AgentMessage) (string, error) {
 		if client == nil {
 			return "", fmt.Errorf("llm summarizer: nil client")
 		}
@@ -52,7 +52,7 @@ func NewLLMSummarizer(client *llm.Client, model models.ModelRef) SummarizeFunc {
 			return "No earlier messages.", nil
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), summaryTimeout)
+		ctx, cancel := context.WithTimeout(ctx, summaryTimeout)
 		defer cancel()
 
 		req := models.TurnRequest{

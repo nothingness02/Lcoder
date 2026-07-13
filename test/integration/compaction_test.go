@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -120,7 +121,7 @@ func TestCompactionMechanisms(t *testing.T) {
 	t.Run("SimpleSummarize_KeepRecent", func(t *testing.T) {
 		before := convo(12)
 		const keep = 4
-		after, err := compaction.NewKeepLastStrategy(keep).Compact(before, compaction.SimpleSummarize)
+		after, err := compaction.NewKeepLastStrategy(keep).Compact(context.Background(), before, compaction.SimpleSummarize)
 		if err != nil {
 			t.Fatalf("compact: %v", err)
 		}
@@ -273,14 +274,14 @@ func TestCompactionMechanisms(t *testing.T) {
 		// (a) Direct breaker behavior.
 		cb := compaction.NewCircuitBreaker(0) // default max = 3
 		boom := errors.New("boom")
-		failing := compaction.SummarizeFunc(func(_ []models.AgentMessage) (string, error) { return "", boom })
+		failing := compaction.SummarizeFunc(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "", boom })
 		wrapped := cb.Wrap(failing)
 		for i := 0; i < 3; i++ {
-			if _, err := wrapped(nil); !errors.Is(err, boom) {
+			if _, err := wrapped(context.Background(), nil); !errors.Is(err, boom) {
 				t.Fatalf("call %d: expected inner error, got %v", i+1, err)
 			}
 		}
-		if _, err := wrapped(nil); !errors.Is(err, compaction.ErrCompactionSkipped) {
+		if _, err := wrapped(context.Background(), nil); !errors.Is(err, compaction.ErrCompactionSkipped) {
 			t.Fatalf("expected ErrCompactionSkipped once breaker is open, got %v", err)
 		}
 
@@ -290,7 +291,7 @@ func TestCompactionMechanisms(t *testing.T) {
 		mgr := contextmgr.NewManager(budget,
 			contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(2)),
 			contextmgr.WithMinRecent(2),
-			contextmgr.WithSummarizer(contextmgr.SummarizeFunc(func(_ []models.AgentMessage) (string, error) {
+			contextmgr.WithSummarizer(contextmgr.SummarizeFunc(func(_ context.Context, _ []models.AgentMessage) (string, error) {
 				return "", boom
 			})))
 		mgr.SetSystemPrompt("you are a test agent")

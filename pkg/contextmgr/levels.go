@@ -1,5 +1,7 @@
 package contextmgr
 
+import "context"
+
 // CompactionLevel classifies context pressure into escalating tiers, mirroring
 // the multi-stage compaction in Claude-Code-like agents: a proactive fold well
 // before the window fills, a tighter preflight fold as it nears the limit, and a
@@ -96,6 +98,6 @@ func (m *Manager) MaybeCompactLeveled() (CompactionLevel, bool, error) {
 	if level == CompactionNone {
 		return CompactionNone, false, nil
 	}
-	committed, err := m.foldOlder(m.keepForLevel(level))
+	committed, err := m.foldOlder(context.Background(), m.keepForLevel(level))
 	return level, committed, err
 }
