@@ -64,6 +64,9 @@ func (inj *Injector) WithManager(mgr *contextmgr.Manager) *Injector {
 
 // Prefetch ranks memory entries against query and writes a memory_recall block.
 func (inj *Injector) Prefetch(ctx context.Context, query string) error {
+	if inj == nil || inj.store == nil || inj.manager == nil || inj.ranker == nil {
+		return errors.New("memory injector not initialized")
+	}
 	entries, err := inj.store.allEntries(MemoryTarget)
 	if err != nil {
 		return fmt.Errorf("load memory entries: %w", err)
@@ -98,6 +101,9 @@ func (inj *Injector) Prefetch(ctx context.Context, query string) error {
 // SyncTurn forwards a completed user/assistant turn to all healthy providers,
 // returning any errors encountered.
 func (inj *Injector) SyncTurn(ctx context.Context, user, assistant string) error {
+	if inj == nil {
+		return errors.New("memory injector not initialized")
+	}
 	var errs []error
 	for _, p := range inj.providers {
 		if !p.Healthy(ctx) {
@@ -113,6 +119,9 @@ func (inj *Injector) SyncTurn(ctx context.Context, user, assistant string) error
 // OnSessionEnd forwards the session summary to all healthy providers, returning
 // any errors encountered.
 func (inj *Injector) OnSessionEnd(ctx context.Context, summary SessionSummary) error {
+	if inj == nil {
+		return errors.New("memory injector not initialized")
+	}
 	var errs []error
 	for _, p := range inj.providers {
 		if !p.Healthy(ctx) {
