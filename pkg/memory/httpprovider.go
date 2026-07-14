@@ -88,7 +88,6 @@ func (p *HTTPProvider) Prefetch(ctx context.Context, query string) ([]string, er
 	if resp.StatusCode >= http.StatusBadRequest {
 		p.breaker.recordFailure()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		resp.Body.Close()
 		return nil, fmt.Errorf("memory search %s%s: status %d: %s", p.cfg.Endpoint, p.cfg.SearchPath, resp.StatusCode, string(body))
 	}
 
@@ -119,7 +118,6 @@ func (p *HTTPProvider) SyncTurn(ctx context.Context, user, assistant string) err
 	if resp.StatusCode >= http.StatusBadRequest {
 		p.breaker.recordFailure()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		resp.Body.Close()
 		return fmt.Errorf("memory observe %s%s: status %d: %s", p.cfg.Endpoint, p.cfg.ObservePath, resp.StatusCode, string(body))
 	}
 
@@ -144,7 +142,6 @@ func (p *HTTPProvider) OnSessionEnd(ctx context.Context, summary SessionSummary)
 	if resp.StatusCode >= http.StatusBadRequest {
 		p.breaker.recordFailure()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		resp.Body.Close()
 		return fmt.Errorf("memory session end %s%s: status %d: %s", p.cfg.Endpoint, p.cfg.SessionEndPath, resp.StatusCode, string(body))
 	}
 

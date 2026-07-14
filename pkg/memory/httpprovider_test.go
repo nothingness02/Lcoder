@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -104,7 +105,7 @@ func TestHTTPProviderOnSessionEnd(t *testing.T) {
 
 func TestHTTPProviderTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(2 * time.Second)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -113,11 +114,13 @@ func TestHTTPProviderTimeout(t *testing.T) {
 		Endpoint: srv.URL,
 		Timeout:  1,
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	_, err := p.Prefetch(ctx, "go")
+	_, err := p.Prefetch(context.Background(), "go")
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "context deadline exceeded") && !strings.Contains(msg, "timeout") {
+		t.Errorf("expected timeout error, got %v", err)
 	}
 }
 
