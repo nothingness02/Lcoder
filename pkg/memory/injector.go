@@ -46,6 +46,19 @@ func (inj *Injector) WithProviders(providers ...Provider) *Injector {
 	return inj
 }
 
+// WithManager returns a new Injector bound to the supplied context manager,
+// preserving the store, ranker, token budget, and providers. Used when an
+// agent mode switch clones the context manager.
+func (inj *Injector) WithManager(mgr *contextmgr.Manager) *Injector {
+	return &Injector{
+		store:     inj.store,
+		manager:   mgr,
+		ranker:    inj.ranker,
+		maxTokens: inj.maxTokens,
+		providers: inj.providers,
+	}
+}
+
 // Prefetch ranks memory entries against query and writes a memory_recall block.
 func (inj *Injector) Prefetch(ctx context.Context, query string) error {
 	entries, err := inj.store.allEntries(MemoryTarget)

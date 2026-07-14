@@ -294,6 +294,28 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		memoryInjector = memory.NewInjector(memStore, mgr, cfg.Memory.RecallMaxTokens).
 			WithRanker(memory.NewDefaultRanker().WithMinScore(cfg.Memory.RecallMinScore))
 	}
+	if len(cfg.Memory.Providers) > 0 && memoryInjector != nil {
+		providers := make([]memory.Provider, 0, len(cfg.Memory.Providers))
+		for _, p := range cfg.Memory.Providers {
+			switch p.Type {
+			case "http":
+				providers = append(providers, memory.NewHTTPProvider(memory.HTTPProviderConfig{
+					Endpoint:       p.Config.Endpoint,
+					APIKey:         p.Config.APIKey,
+					Headers:        p.Config.Headers,
+					Timeout:        p.Config.Timeout,
+					SearchPath:     p.Config.SearchPath,
+					ObservePath:    p.Config.ObservePath,
+					SessionEndPath: p.Config.SessionEndPath,
+				}))
+			default:
+				fmt.Fprintf(os.Stderr, "warning: unsupported memory provider type %q\n", p.Type)
+			}
+		}
+		if len(providers) > 0 {
+			memoryInjector = memoryInjector.WithProviders(providers...)
+		}
+	}
 
 	var reminderProducers []agent.ReminderProducer
 	var repoIndexTool *builtinTools.RepoIndex
@@ -338,7 +360,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		coreTools = appendCoreTool(coreTools, "repo_index")
 	}
 
-	ag, err := agent.NewBuilder().
+	agBuilder := agent.NewBuilder().
 		WithConfig(agent.Config{
 			SystemPrompt:       "",
 			BaseSystemPrompt:   agentsetup.BuildSystemPrompt(),
@@ -358,8 +380,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		WithPermissions(permEngine).
 		WithEventBus(bus).
 		WithObservability(obsCollector).
-		WithContextSnapshotRecorder(contextSnapshotRecorder).
-		WithMemoryInjector(memoryInjector).
+		WithContextSnapshotRecorder(contextSnapshotRecorder)
+	if memoryInjector != nil {
+		agBuilder = agBuilder.WithMemoryInjector(memoryInjector)
+	}
+	ag, err := agBuilder.
 		WithSessionID(sess.ID).
 		WithCheckpointStore(chkStore).
 		Build()

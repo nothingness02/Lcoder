@@ -7,6 +7,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/llm"
+	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/permissions"
@@ -147,7 +148,7 @@ func (b *Builder) WithContextSnapshotRecorder(r *observability.ContextSnapshotRe
 }
 
 // WithMemoryInjector sets the per-turn memory prefetch injector.
-func (b *Builder) WithMemoryInjector(inj MemoryInjector) *Builder {
+func (b *Builder) WithMemoryInjector(inj memory.MemoryInjector) *Builder {
 	b.cfg.MemoryInjector = inj
 	return b
 }

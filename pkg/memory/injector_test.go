@@ -288,3 +288,33 @@ func TestInjectorMultipleProvidersAllCalled(t *testing.T) {
 	require.Len(t, providerA.sessionEnds, 1)
 	require.Len(t, providerB.sessionEnds, 1)
 }
+
+func TestInjectorWithManagerRebindsContextManager(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	other := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, store.Add(MemoryTarget, "relevant"))
+
+	inj := NewInjector(store, mgr, 1024).WithManager(other)
+	require.NoError(t, inj.Prefetch(context.Background(), "relevant"))
+
+	_, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.False(t, ok, "original manager should not contain the block")
+	block, ok := other.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok, "rebound manager should contain the block")
+	require.Contains(t, block.Text(), "relevant")
+}
+
+func TestInjectorWithManagerPreservesProviders(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	other := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	provider := &fakeProvider{healthy: true}
+	inj := NewInjector(store, mgr, 1024).WithProviders(provider).WithManager(other)
+
+	require.NoError(t, inj.SyncTurn(context.Background(), "user", "assistant"))
+	require.Len(t, provider.syncTurns, 1)
+}

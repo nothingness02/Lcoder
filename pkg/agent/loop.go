@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/checkpoint"
@@ -33,11 +34,6 @@ type ReminderProducer func(messages []models.AgentMessage) []string
 type UserConfirmation interface {
 	Confirm(ctx context.Context, info ToolCallInfo) (allow bool, err error)
 	ConfirmWithScope(ctx context.Context, info ToolCallInfo) (ConfirmResult, error)
-}
-
-// MemoryInjector recalls relevant memories before each turn.
-type MemoryInjector interface {
-	Prefetch(ctx context.Context, query string) error
 }
 
 // ConfirmScope describes how widely a user-approved permission should apply.
@@ -103,7 +99,7 @@ type Config struct {
 	ReminderProducers []ReminderProducer
 
 	// MemoryInjector prefetches relevant memory entries each turn.
-	MemoryInjector MemoryInjector
+	MemoryInjector memory.MemoryInjector
 }
 
 // eventEmitter wraps the event bus and observability collector so subsystems
@@ -161,7 +157,7 @@ type Agent struct {
 	rc        *reminderCoordinator
 
 	contextSnapshotRecorder *observability.ContextSnapshotRecorder
-	memoryInjector          MemoryInjector
+	memoryInjector          memory.MemoryInjector
 }
 
 // State describes the agent runtime state.
@@ -364,6 +360,11 @@ func (a *Agent) WithMode(mode string) Runner {
 		emitter = &eventEmitter{bus: a.bus, obs: a.obsCollector}
 	}
 
+	memoryInjector := a.memoryInjector
+	if inj, ok := memoryInjector.(*memory.Injector); ok {
+		memoryInjector = inj.WithManager(cfg.ContextManager)
+	}
+
 	fresh := &Agent{
 		cfg:                     cfg,
 		mgr:                     cfg.ContextManager,
@@ -377,7 +378,7 @@ func (a *Agent) WithMode(mode string) Runner {
 		executor:                newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter, a.taskMgr),
 		taskMgr:                 a.taskMgr,
 		contextSnapshotRecorder: a.contextSnapshotRecorder,
-		memoryInjector:          a.memoryInjector,
+		memoryInjector:          memoryInjector,
 	}
 	fresh.cpMgr = newCheckpointManager(fresh)
 	fresh.rc = newReminderCoordinator(fresh.taskMgr, fresh.cfg.ReminderProducers)
@@ -420,7 +421,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 		a.refreshEphemeralReminders()
 
-		if a.memoryInjector != nil {
+		if !isNilMemoryInjector(a.memoryInjector) {
 			if userText := lastUserText(a.mgr.AllMessages()); userText != "" {
 				if err := a.memoryInjector.Prefetch(ctx, userText); err != nil {
 					a.emit(ctx, events.ErrorEvent{
@@ -472,16 +473,14 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			ToolResults: toolResults,
 		})
 
-		if sink, ok := a.memoryInjector.(memory.MemorySink); ok {
-			if userText := lastUserText(a.mgr.AllMessages()); userText != "" {
-				if assistantText := assistantMsg.Text(); assistantText != "" {
-					if err := sink.SyncTurn(ctx, userText, assistantText); err != nil {
-						a.emit(ctx, events.ErrorEvent{
-							Base:    events.Base{Type: events.Error, Turn: turn},
-							Message: "memory sync_turn: " + err.Error(),
-						})
-					}
-				}
+		if sink, ok := a.memoryInjector.(memory.MemorySink); ok && !isNilMemoryInjector(a.memoryInjector) {
+			userText := lastUserText(a.mgr.AllMessages())
+			assistantText := assistantMsg.Text()
+			if err := sink.SyncTurn(ctx, userText, assistantText); err != nil {
+				a.emit(ctx, events.ErrorEvent{
+					Base:    events.Base{Type: events.Error, Turn: turn},
+					Message: "memory sync_turn: " + err.Error(),
+				})
 			}
 		}
 
@@ -514,10 +513,10 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		}
 	}
 
-	if sink, ok := a.memoryInjector.(memory.MemorySink); ok {
-		if err := sink.OnSessionEnd(ctx, memory.SessionSummary{SessionID: a.cfg.SessionID, TurnCount: int(turn)}); err != nil {
+	if sink, ok := a.memoryInjector.(memory.MemorySink); ok && !isNilMemoryInjector(a.memoryInjector) {
+		if err := sink.OnSessionEnd(ctx, memory.SessionSummary{SessionID: a.cfg.SessionID, TurnCount: turn}); err != nil {
 			a.emit(ctx, events.ErrorEvent{
-				Base:    events.Base{Type: events.Error, Turn: int(turn)},
+				Base:    events.Base{Type: events.Error, Turn: turn},
 				Message: "memory session_end: " + err.Error(),
 			})
 		}
@@ -742,6 +741,18 @@ func (a *Agent) shouldStop(ctx context.Context, msg models.AgentMessage, toolRes
 		return false
 	}
 	return stop
+}
+
+func isNilMemoryInjector(inj memory.MemoryInjector) bool {
+	if inj == nil {
+		return true
+	}
+	v := reflect.ValueOf(inj)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func, reflect.Interface:
+		return v.IsNil()
+	}
+	return false
 }
 
 func lastUserText(msgs []models.AgentMessage) string {
