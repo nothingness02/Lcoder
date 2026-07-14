@@ -343,12 +343,12 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			mcpRegistry.Close()
 			return nil, fmt.Errorf("init code index: %w", err)
 		}
-		injector := codeindex.NewInjector(repoIndexer, mgr, cwd, cfg.CodeIndex.MaxTokens)
+		codeInjector := codeindex.NewInjector(repoIndexer, mgr, cwd, cfg.CodeIndex.MaxTokens)
 		repoIndexTool = builtinTools.NewRepoIndex(cwd)
-		repoIndexTool.SetInjector(injector)
+		repoIndexTool.SetInjector(codeInjector)
 		registry.Register("repo_index", repoIndexTool)
 		if cfg.CodeIndex.AutoInject {
-			reminderProducers = append(reminderProducers, autoInjectReminder(injector))
+			reminderProducers = append(reminderProducers, autoInjectReminder(codeInjector))
 		}
 		if cfg.CodeIndex.Watch {
 			codeIndexWatcher, err = codeindex.NewWatcher(repoIndexer, cwd, cfg.CodeIndex.Exclude)

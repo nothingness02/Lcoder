@@ -475,7 +475,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			ToolResults: toolResults,
 		})
 
-		if sink, ok := a.memoryInjector.(memory.MemorySink); ok && a.memoryInjector != nil {
+		if sink, ok := a.memoryInjector.(memory.MemorySink); ok && sink != nil {
 			userText := lastUserText(a.mgr.AllMessages())
 			assistantText := assistantMsg.Text()
 			if err := sink.SyncTurn(ctx, userText, assistantText); err != nil {
@@ -517,7 +517,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		}
 	}
 
-	if sink, ok := a.memoryInjector.(memory.MemorySink); ok && a.memoryInjector != nil {
+	if sink, ok := a.memoryInjector.(memory.MemorySink); ok && sink != nil {
 		if err := sink.OnSessionEnd(ctx, memory.SessionSummary{SessionID: a.cfg.SessionID, TurnCount: turn}); err != nil {
 			if ctx.Err() == nil {
 				a.emit(ctx, events.ErrorEvent{

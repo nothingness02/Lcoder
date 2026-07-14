@@ -87,7 +87,7 @@ func (inj *Injector) Prefetch(ctx context.Context, query string) error {
 	prefix := fmt.Sprintf("// Recalled memory for query %q\n\n", query)
 	failureSuffix := ""
 	if len(failureMsgs) > 0 {
-		failureSuffix = "\n\n// External memory provider unavailable: " + strings.Join(failureMsgs, "; ")
+		failureSuffix = "// External memory provider unavailable: " + strings.Join(failureMsgs, "; ")
 	}
 	selected := inj.budgetResults(ranked, prefix+failureSuffix)
 
@@ -157,9 +157,9 @@ func (inj *Injector) setBlock(query, text, failureSuffix string) {
 	}
 	if failureSuffix != "" {
 		if text != "" {
-			text = text + failureSuffix
+			text = text + "\n\n" + failureSuffix
 		} else {
-			text = strings.TrimPrefix(failureSuffix, "\n\n")
+			text = failureSuffix
 		}
 	}
 
