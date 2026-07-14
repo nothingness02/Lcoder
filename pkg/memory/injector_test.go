@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -130,4 +131,101 @@ func TestInjectorEmptyQueryClearsBlock(t *testing.T) {
 	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
 	require.True(t, ok)
 	require.Empty(t, block.Text())
+}
+
+type fakeProvider struct {
+	healthy       bool
+	prefetched    []string
+	prefetchErr   error
+	syncTurns     []struct{ user, assistant string }
+	sessionEnds   []SessionSummary
+}
+
+func (f *fakeProvider) Prefetch(ctx context.Context, query string) ([]string, error) {
+	if f.prefetchErr != nil {
+		return nil, f.prefetchErr
+	}
+	return f.prefetched, nil
+}
+
+func (f *fakeProvider) SyncTurn(ctx context.Context, user, assistant string) error {
+	f.syncTurns = append(f.syncTurns, struct{ user, assistant string }{user, assistant})
+	return nil
+}
+
+func (f *fakeProvider) OnSessionEnd(ctx context.Context, summary SessionSummary) error {
+	f.sessionEnds = append(f.sessionEnds, summary)
+	return nil
+}
+
+func (f *fakeProvider) Healthy(ctx context.Context) bool { return f.healthy }
+
+func TestInjectorAggregatesExternalProvider(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, store.Add(MemoryTarget, "local deployment rule"))
+
+	provider := &fakeProvider{
+		healthy:    true,
+		prefetched: []string{"external scaling guidance"},
+	}
+
+	inj := NewInjector(store, mgr, 1024).
+		WithProviders(provider).
+		WithRanker(&fakeRanker{results: []RankedEntry{
+			{Text: "local deployment rule", Score: 1.0},
+			{Text: "external scaling guidance", Score: 0.9},
+		}})
+	require.NoError(t, inj.Prefetch(context.Background(), "deployment"))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok)
+	text := block.Text()
+	require.Contains(t, text, "local deployment rule")
+	require.Contains(t, text, "external scaling guidance")
+}
+
+func TestInjectorAppendsProviderErrorToBlock(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, store.Add(MemoryTarget, "local memory still available"))
+
+	provider := &fakeProvider{
+		healthy:     true,
+		prefetchErr: errors.New("provider connection refused"),
+	}
+
+	inj := NewInjector(store, mgr, 1024).
+		WithProviders(provider).
+		WithRanker(&fakeRanker{results: []RankedEntry{
+			{Text: "local memory still available", Score: 1.0},
+		}})
+	require.NoError(t, inj.Prefetch(context.Background(), "memory"))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok)
+	text := block.Text()
+	require.Contains(t, text, "local memory still available")
+	require.Contains(t, text, "External memory provider unavailable: provider connection refused")
+}
+
+func TestInjectorSyncTurnAndSessionEnd(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	provider := &fakeProvider{healthy: true}
+	inj := NewInjector(store, mgr, 1024).WithProviders(provider)
+
+	require.NoError(t, inj.SyncTurn(context.Background(), "hello", "hi there"))
+	require.Len(t, provider.syncTurns, 1)
+	require.Equal(t, "hello", provider.syncTurns[0].user)
+	require.Equal(t, "hi there", provider.syncTurns[0].assistant)
+
+	summary := SessionSummary{SessionID: "sess-1", TurnCount: 3}
+	require.NoError(t, inj.OnSessionEnd(context.Background(), summary))
+	require.Len(t, provider.sessionEnds, 1)
+	require.Equal(t, summary, provider.sessionEnds[0])
 }
