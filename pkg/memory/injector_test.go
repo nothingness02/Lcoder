@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/contextmgr"
@@ -30,17 +31,18 @@ func TestInjectorBudgetsTokens(t *testing.T) {
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
 	store, err := NewStore(t.TempDir())
 	require.NoError(t, err)
-	for i := 0; i < 10; i++ {
-		require.NoError(t, store.Add(MemoryTarget, "kubernetes deployment note number"))
+	longEntry := "UNIQUEMARKER " + strings.Repeat("word ", 80) // ~348 chars, >50 tokens
+	for i := 0; i < 5; i++ {
+		require.NoError(t, store.Add(MemoryTarget, longEntry))
 	}
 
 	inj := NewInjector(store, mgr, 50)
-	require.NoError(t, inj.Prefetch(context.Background(), "kubernetes"))
+	require.NoError(t, inj.Prefetch(context.Background(), "UNIQUEMARKER"))
 
 	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
 	require.True(t, ok)
-	// 50 tokens ~= 200 chars; should include at least one but not all ten.
-	require.Less(t, len(block.Text()), 1000)
+	// With maxTokens=50 and each entry >50 tokens, at most one entry fits.
+	require.LessOrEqual(t, strings.Count(block.Text(), "UNIQUEMARKER"), 2) // header + at most one entry
 }
 
 func TestInjectorClearsBlockWhenNoMatch(t *testing.T) {
@@ -51,6 +53,59 @@ func TestInjectorClearsBlockWhenNoMatch(t *testing.T) {
 
 	inj := NewInjector(store, mgr, 1024)
 	require.NoError(t, inj.Prefetch(context.Background(), "graphql"))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok)
+	require.Empty(t, block.Text())
+}
+
+func TestInjectorDefaultMaxTokens(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, store.Add(MemoryTarget, "relevant memory"))
+
+	inj := NewInjector(store, mgr, 0)
+	require.NoError(t, inj.Prefetch(context.Background(), "relevant"))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok)
+	require.Contains(t, block.Text(), "relevant memory")
+}
+
+type fakeRanker struct {
+	results []RankedEntry
+}
+
+func (f *fakeRanker) Score(query, entry string) float64 { return 0 }
+func (f *fakeRanker) Rank(query string, entries []string) []RankedEntry {
+	return f.results
+}
+
+func TestInjectorWithRanker(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, store.Add(MemoryTarget, "alpha"))
+	require.NoError(t, store.Add(MemoryTarget, "beta"))
+
+	inj := NewInjector(store, mgr, 1024).WithRanker(&fakeRanker{results: []RankedEntry{{Text: "beta", Score: 1.0}}})
+	require.NoError(t, inj.Prefetch(context.Background(), "anything"))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok)
+	require.Contains(t, block.Text(), "beta")
+	require.NotContains(t, block.Text(), "alpha")
+}
+
+func TestInjectorEmptyQueryClearsBlock(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, store.Add(MemoryTarget, "some memory"))
+
+	inj := NewInjector(store, mgr, 1024)
+	require.NoError(t, inj.Prefetch(context.Background(), ""))
 
 	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
 	require.True(t, ok)
