@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -206,6 +208,47 @@ func TestStoreCacheInvalidatedOnAdd(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("missing beta in entries: %v", entries)
+	}
+}
+
+func TestStoreCacheConcurrentAccess(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(filepath.Join(home, ".lcoder", "memory"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	setTestHome(t, home)
+
+	store, err := NewStore(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			content := fmt.Sprintf("entry-%d", n)
+			if err := store.Add(MemoryTarget, content); err != nil {
+				t.Errorf("add %q: %v", content, err)
+			}
+		}(i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = store.GlobalEntries(MemoryTarget)
+		}()
+	}
+	wg.Wait()
+
+	entries, err := store.GlobalEntries(MemoryTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 20 {
+		t.Fatalf("expected 20 entries, got %d", len(entries))
 	}
 }
 

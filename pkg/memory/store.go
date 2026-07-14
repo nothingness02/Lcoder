@@ -41,6 +41,7 @@ type Store struct {
 	globalDir        string
 	projectDir       string
 	limits           Limits
+	writeMu          sync.Mutex
 	cacheMu          sync.Mutex
 	memoryCache      []string
 	userCache        []string
@@ -144,13 +145,16 @@ func (s *Store) GlobalEntries(t Target) ([]string, error) {
 	return entries, nil
 }
 
-func (s *Store) invalidateCache() {
+func (s *Store) invalidateCache(t Target) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	s.memoryCacheValid = false
-	s.userCacheValid = false
-	s.memoryCache = nil
-	s.userCache = nil
+	if t == MemoryTarget {
+		s.memoryCacheValid = false
+		s.memoryCache = nil
+	} else {
+		s.userCacheValid = false
+		s.userCache = nil
+	}
 }
 
 // ProjectEntries returns entries from the project file.
@@ -197,6 +201,8 @@ func (s *Store) Add(t Target, content string) error {
 	if content == "" {
 		return fmt.Errorf("content cannot be empty")
 	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	entries, err := s.GlobalEntries(t)
 	if err != nil {
 		return err
@@ -211,8 +217,11 @@ func (s *Store) Add(t Target, content string) error {
 		return fmt.Errorf("%s at %d/%d chars. Adding this entry (%d chars) would exceed the limit. Consolidate now: use 'replace' to merge overlapping entries into shorter ones or 'remove' stale entries, then retry this add.", targetName(t), charCount(entries), limit, len(content))
 	}
 	entries = append(entries, content)
-	s.invalidateCache()
-	return s.saveFile(s.globalPath(t), t, entries)
+	if err := s.saveFile(s.globalPath(t), t, entries); err != nil {
+		return err
+	}
+	s.invalidateCache(t)
+	return nil
 }
 
 // Replace updates the unique entry matching oldText with content.
@@ -221,6 +230,8 @@ func (s *Store) Replace(t Target, oldText, content string) error {
 	if content == "" {
 		return fmt.Errorf("content cannot be empty")
 	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	entries, err := s.GlobalEntries(t)
 	if err != nil {
 		return err
@@ -236,12 +247,17 @@ func (s *Store) Replace(t Target, oldText, content string) error {
 	if charCount(newEntries) > limit {
 		return fmt.Errorf("%s at %d/%d chars. Replacing would exceed the limit. Shorten the new content or remove other entries first.", targetName(t), charCount(entries), limit)
 	}
-	s.invalidateCache()
-	return s.saveFile(s.globalPath(t), t, newEntries)
+	if err := s.saveFile(s.globalPath(t), t, newEntries); err != nil {
+		return err
+	}
+	s.invalidateCache(t)
+	return nil
 }
 
 // Remove deletes the unique entry matching oldText.
 func (s *Store) Remove(t Target, oldText string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	entries, err := s.GlobalEntries(t)
 	if err != nil {
 		return err
@@ -251,8 +267,11 @@ func (s *Store) Remove(t Target, oldText string) error {
 		return err
 	}
 	entries = append(entries[:idx], entries[idx+1:]...)
-	s.invalidateCache()
-	return s.saveFile(s.globalPath(t), t, entries)
+	if err := s.saveFile(s.globalPath(t), t, entries); err != nil {
+		return err
+	}
+	s.invalidateCache(t)
+	return nil
 }
 
 // UsageString returns "used/limit" for the global channel.
