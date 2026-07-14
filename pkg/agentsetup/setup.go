@@ -86,9 +86,11 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, llmClient *
 			mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockUserProfile, "user_profile", contextmgr.StabilityStable, 70, contextmgr.CacheHintBreakpoint,
 				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: userText})))
 		}
-		if memoryText, err := memStore.MemoryText(); err == nil && memoryText != "" {
-			mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockMemory, "memory", contextmgr.StabilityStable, 75, contextmgr.CacheHintBreakpoint,
-				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: memoryText})))
+		if !cfg.Memory.DynamicRecall {
+			if memoryText, err := memStore.MemoryText(); err == nil && memoryText != "" {
+				mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockMemory, "memory", contextmgr.StabilityStable, 75, contextmgr.CacheHintBreakpoint,
+					models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: memoryText})))
+			}
 		}
 	}
 
