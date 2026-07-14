@@ -56,6 +56,22 @@ func TestDefaultBashPermissionRules(t *testing.T) {
 	}
 }
 
+func TestMemoryDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.Memory.Enabled {
+		t.Fatal("expected Memory.Enabled to default to true")
+	}
+	if !cfg.Memory.DynamicRecall {
+		t.Fatal("expected Memory.DynamicRecall to default to true")
+	}
+	if cfg.Memory.RecallMaxTokens != 1024 {
+		t.Fatalf("expected Memory.RecallMaxTokens 1024, got %d", cfg.Memory.RecallMaxTokens)
+	}
+	if cfg.Memory.RecallMinScore < 0.09 || cfg.Memory.RecallMinScore > 0.11 {
+		t.Fatalf("expected Memory.RecallMinScore ~0.1, got %v", cfg.Memory.RecallMinScore)
+	}
+}
+
 func TestResolveContextBudgetDefaultFallback(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Model = "mystery-model"

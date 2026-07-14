@@ -61,6 +61,9 @@ context:
 # The memory tool writes to the global files only.
 memory:
   enabled: true
+  dynamic_recall: true        # per-turn relevance recall; set false for static snapshot
+  recall_max_tokens: 1024     # token budget for recalled memory each turn
+  recall_min_score: 0.1       # minimum relevance score (0..1) for an entry to be recalled
   # memory_char_limit: 2200
   # user_char_limit: 1375
 

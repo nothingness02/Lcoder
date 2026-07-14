@@ -77,26 +77,29 @@ type TUIConfig struct {
 
 // ContextConfig controls structured context manager behavior.
 type ContextConfig struct {
-	Mode             string   `yaml:"mode"`              // "auto", "manual", "off"
-	MaxTokens        int      `yaml:"max_tokens"`        // hard context budget
-	TargetTokens     int      `yaml:"target_tokens"`     // soft target budget
-	ReserveOutput    int      `yaml:"reserve_output"`    // output reservation
-	MaxOutput        int      `yaml:"max_output"`        // user cap on single-response output tokens (0 = no cap)
-	StaticRatio      int      `yaml:"static_ratio"`      // ratio percentage for static/stable blocks
-	MinRecent        int      `yaml:"min_recent"`        // minimum recent messages to keep
+	Mode             string   `yaml:"mode"`               // "auto", "manual", "off"
+	MaxTokens        int      `yaml:"max_tokens"`         // hard context budget
+	TargetTokens     int      `yaml:"target_tokens"`      // soft target budget
+	ReserveOutput    int      `yaml:"reserve_output"`     // output reservation
+	MaxOutput        int      `yaml:"max_output"`         // user cap on single-response output tokens (0 = no cap)
+	StaticRatio      int      `yaml:"static_ratio"`       // ratio percentage for static/stable blocks
+	MinRecent        int      `yaml:"min_recent"`         // minimum recent messages to keep
 	KeepRecentTokens int      `yaml:"keep_recent_tokens"` // token budget for the kept tail at proactive pressure (0 = default 20000)
-	CompactThreshold float64  `yaml:"compact_threshold"` // ratio of target at which compaction starts
-	CacheHintPolicy  string   `yaml:"cache_hint_policy"` // "default", "aggressive", "none"
-	DeferredTools    bool     `yaml:"deferred_tools"`    // ship only core tools + tool_search
-	CoreTools        []string `yaml:"core_tools"`        // tools kept full under deferral
-	DropThreshold    float64  `yaml:"drop_threshold"`    // ratio of effective input at which old msgs drop
+	CompactThreshold float64  `yaml:"compact_threshold"`  // ratio of target at which compaction starts
+	CacheHintPolicy  string   `yaml:"cache_hint_policy"`  // "default", "aggressive", "none"
+	DeferredTools    bool     `yaml:"deferred_tools"`     // ship only core tools + tool_search
+	CoreTools        []string `yaml:"core_tools"`         // tools kept full under deferral
+	DropThreshold    float64  `yaml:"drop_threshold"`     // ratio of effective input at which old msgs drop
 }
 
 // MemoryConfig controls persistent memory behavior.
 type MemoryConfig struct {
-	Enabled         bool `yaml:"enabled"`
-	MemoryCharLimit int  `yaml:"memory_char_limit"`
-	UserCharLimit   int  `yaml:"user_char_limit"`
+	Enabled         bool    `yaml:"enabled"`
+	MemoryCharLimit int     `yaml:"memory_char_limit"`
+	UserCharLimit   int     `yaml:"user_char_limit"`
+	DynamicRecall   bool    `yaml:"dynamic_recall"`
+	RecallMaxTokens int     `yaml:"recall_max_tokens"`
+	RecallMinScore  float64 `yaml:"recall_min_score"`
 }
 
 // Config is the full Lcoder configuration.
@@ -148,6 +151,9 @@ func DefaultConfig() Config {
 			Enabled:         true,
 			MemoryCharLimit: 0,
 			UserCharLimit:   0,
+			DynamicRecall:   true,
+			RecallMaxTokens: 1024,
+			RecallMinScore:  0.1,
 		},
 		CodeIndex: CodeIndexConfig{
 			Enabled:    false,
@@ -225,13 +231,13 @@ func DefaultConfig() Config {
 
 // CodeIndexConfig configures the repository code-indexing engine.
 type CodeIndexConfig struct {
-    Enabled    bool     `yaml:"enabled"`
-    AutoInject bool     `yaml:"auto_inject"`
-    Watch      bool     `yaml:"watch"`
-    MaxResults int      `yaml:"max_results"`
-    MaxTokens  int      `yaml:"max_tokens"`
-    Languages  []string `yaml:"languages"`
-    Exclude    []string `yaml:"exclude"`
+	Enabled    bool     `yaml:"enabled"`
+	AutoInject bool     `yaml:"auto_inject"`
+	Watch      bool     `yaml:"watch"`
+	MaxResults int      `yaml:"max_results"`
+	MaxTokens  int      `yaml:"max_tokens"`
+	Languages  []string `yaml:"languages"`
+	Exclude    []string `yaml:"exclude"`
 }
 
 // Budget resolution fallbacks, used only when no explicit user/catalog/discovered
@@ -358,19 +364,19 @@ func Load() (Config, error) {
 		"model":     cfg.Model,
 		"tui.theme": cfg.TUI.Theme,
 		"context": map[string]any{
-			"mode":              cfg.Context.Mode,
-			"max_tokens":        cfg.Context.MaxTokens,
-			"target_tokens":     cfg.Context.TargetTokens,
-			"reserve_output":    cfg.Context.ReserveOutput,
-			"max_output":        cfg.Context.MaxOutput,
-			"static_ratio":      cfg.Context.StaticRatio,
+			"mode":               cfg.Context.Mode,
+			"max_tokens":         cfg.Context.MaxTokens,
+			"target_tokens":      cfg.Context.TargetTokens,
+			"reserve_output":     cfg.Context.ReserveOutput,
+			"max_output":         cfg.Context.MaxOutput,
+			"static_ratio":       cfg.Context.StaticRatio,
 			"min_recent":         cfg.Context.MinRecent,
 			"keep_recent_tokens": cfg.Context.KeepRecentTokens,
 			"compact_threshold":  cfg.Context.CompactThreshold,
-			"cache_hint_policy": cfg.Context.CacheHintPolicy,
-			"deferred_tools":    cfg.Context.DeferredTools,
-			"core_tools":        cfg.Context.CoreTools,
-			"drop_threshold":    cfg.Context.DropThreshold,
+			"cache_hint_policy":  cfg.Context.CacheHintPolicy,
+			"deferred_tools":     cfg.Context.DeferredTools,
+			"core_tools":         cfg.Context.CoreTools,
+			"drop_threshold":     cfg.Context.DropThreshold,
 		},
 		"memory": map[string]any{
 			"enabled":           cfg.Memory.Enabled,
