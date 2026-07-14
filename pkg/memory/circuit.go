@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+const (
+	defaultBreakerThreshold    = 3
+	defaultBreakerResetTimeout = 30 * time.Second
+)
+
+// circuitBreaker implements a simple consecutive-failure circuit breaker.
+// After consecutiveFails reaches threshold, the breaker opens and blocks
+// traffic until resetTimeout has elapsed since the moment it first opened.
 type circuitBreaker struct {
 	mu               sync.Mutex
 	consecutiveFails int
@@ -15,10 +23,10 @@ type circuitBreaker struct {
 
 func newCircuitBreaker(threshold int, resetTimeout time.Duration) *circuitBreaker {
 	if threshold <= 0 {
-		threshold = 3
+		threshold = defaultBreakerThreshold
 	}
 	if resetTimeout <= 0 {
-		resetTimeout = 30 * time.Second
+		resetTimeout = defaultBreakerResetTimeout
 	}
 	return &circuitBreaker{threshold: threshold, resetTimeout: resetTimeout}
 }
@@ -46,7 +54,7 @@ func (c *circuitBreaker) recordFailure() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.consecutiveFails++
-	if c.consecutiveFails >= c.threshold {
+	if c.consecutiveFails == c.threshold {
 		c.openSince = time.Now()
 	}
 }
