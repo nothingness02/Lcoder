@@ -66,6 +66,17 @@ memory:
   recall_min_score: 0.1       # minimum relevance score (0..1) for an entry to be recalled
   # memory_char_limit: 2200
   # user_char_limit: 1375
+  # External memory providers (Hermes-style). Currently only "http" is supported.
+  # providers:
+  #   - name: hermes-http
+  #     type: http
+  #     config:
+  #       endpoint: "http://localhost:8000"
+  #       api_key: "${HERMES_MEMORY_API_KEY}"
+  #       timeout: 10
+  #       search_path: "/search"
+  #       observe_path: "/observe"
+  #       session_end_path: "/session/end"
 
 # Repository-level code indexing. When enabled, `repo_index` can search the
 # codebase and inject symbol stubs into the context. Auto-inject runs on every

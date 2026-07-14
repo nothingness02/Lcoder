@@ -92,14 +92,33 @@ type ContextConfig struct {
 	DropThreshold    float64  `yaml:"drop_threshold"`     // ratio of effective input at which old msgs drop
 }
 
+// MemoryProviderConfig describes an external memory provider.
+type MemoryProviderConfig struct {
+	Name   string             `yaml:"name"`
+	Type   string             `yaml:"type"` // "http"
+	Config HTTPProviderConfig `yaml:"config"`
+}
+
+// HTTPProviderConfig configures a generic HTTP memory provider.
+type HTTPProviderConfig struct {
+	Endpoint       string            `yaml:"endpoint"`
+	APIKey         string            `yaml:"api_key"`
+	Headers        map[string]string `yaml:"headers"`
+	Timeout        int               `yaml:"timeout"`
+	SearchPath     string            `yaml:"search_path"`
+	ObservePath    string            `yaml:"observe_path"`
+	SessionEndPath string            `yaml:"session_end_path"`
+}
+
 // MemoryConfig controls persistent memory behavior.
 type MemoryConfig struct {
-	Enabled         bool    `yaml:"enabled"`
-	MemoryCharLimit int     `yaml:"memory_char_limit"`
-	UserCharLimit   int     `yaml:"user_char_limit"`
-	DynamicRecall   bool    `yaml:"dynamic_recall"`
-	RecallMaxTokens int     `yaml:"recall_max_tokens"`
-	RecallMinScore  float64 `yaml:"recall_min_score"`
+	Enabled         bool                   `yaml:"enabled"`
+	MemoryCharLimit int                    `yaml:"memory_char_limit"`
+	UserCharLimit   int                    `yaml:"user_char_limit"`
+	DynamicRecall   bool                   `yaml:"dynamic_recall"`
+	RecallMaxTokens int                    `yaml:"recall_max_tokens"`
+	RecallMinScore  float64                `yaml:"recall_min_score"`
+	Providers       []MemoryProviderConfig `yaml:"providers"`
 }
 
 // Config is the full Lcoder configuration.
@@ -154,6 +173,7 @@ func DefaultConfig() Config {
 			DynamicRecall:   true,
 			RecallMaxTokens: 1024,
 			RecallMinScore:  0.1,
+			Providers:       nil,
 		},
 		CodeIndex: CodeIndexConfig{
 			Enabled:    false,
@@ -385,6 +405,7 @@ func Load() (Config, error) {
 			"dynamic_recall":    cfg.Memory.DynamicRecall,
 			"recall_max_tokens": cfg.Memory.RecallMaxTokens,
 			"recall_min_score":  cfg.Memory.RecallMinScore,
+			"providers":         cfg.Memory.Providers,
 		},
 	}, "."), nil)
 

@@ -72,6 +72,16 @@ func TestMemoryDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultMemoryProviderConfig(t *testing.T) {
+	cfg := DefaultConfig()
+	if len(cfg.Memory.Providers) != 0 {
+		t.Fatalf("expected no providers by default, got %d", len(cfg.Memory.Providers))
+	}
+	if cfg.Memory.RecallMaxTokens != 1024 {
+		t.Fatalf("expected recall_max_tokens 1024, got %d", cfg.Memory.RecallMaxTokens)
+	}
+}
+
 func TestResolveContextBudgetDefaultFallback(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Model = "mystery-model"
