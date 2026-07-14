@@ -421,7 +421,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 		a.refreshEphemeralReminders()
 
-		if !isNilMemoryInjector(a.memoryInjector) {
+		if a.memoryInjector != nil {
 			if userText := lastUserText(a.mgr.AllMessages()); userText != "" {
 				if err := a.memoryInjector.Prefetch(ctx, userText); err != nil {
 					if ctx.Err() == nil {
@@ -475,7 +475,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			ToolResults: toolResults,
 		})
 
-		if sink, ok := a.memoryInjector.(memory.MemorySink); ok && !isNilMemoryInjector(a.memoryInjector) {
+		if sink, ok := a.memoryInjector.(memory.MemorySink); ok && a.memoryInjector != nil {
 			userText := lastUserText(a.mgr.AllMessages())
 			assistantText := assistantMsg.Text()
 			if err := sink.SyncTurn(ctx, userText, assistantText); err != nil {
@@ -517,7 +517,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		}
 	}
 
-	if sink, ok := a.memoryInjector.(memory.MemorySink); ok && !isNilMemoryInjector(a.memoryInjector) {
+	if sink, ok := a.memoryInjector.(memory.MemorySink); ok && a.memoryInjector != nil {
 		if err := sink.OnSessionEnd(ctx, memory.SessionSummary{SessionID: a.cfg.SessionID, TurnCount: turn}); err != nil {
 			if ctx.Err() == nil {
 				a.emit(ctx, events.ErrorEvent{
@@ -747,18 +747,6 @@ func (a *Agent) shouldStop(ctx context.Context, msg models.AgentMessage, toolRes
 		return false
 	}
 	return stop
-}
-
-// isNilMemoryInjector reports whether inj is nil or a typed-nil *memory.Injector
-// wrapped in the MemoryInjector interface.
-func isNilMemoryInjector(inj memory.MemoryInjector) bool {
-	if inj == nil {
-		return true
-	}
-	if typed, ok := inj.(*memory.Injector); ok {
-		return typed == nil
-	}
-	return false
 }
 
 func lastUserText(msgs []models.AgentMessage) string {

@@ -289,14 +289,20 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.EffectiveMessages(), memStore)
 
-	var memoryInjector *memory.Injector
+	var memoryInjector memory.MemoryInjector
+	var injector *memory.Injector
 	if memStore != nil && cfg.Memory.DynamicRecall {
-		memoryInjector = memory.NewInjector(memStore, mgr, cfg.Memory.RecallMaxTokens).
+		injector = memory.NewInjector(memStore, mgr, cfg.Memory.RecallMaxTokens).
 			WithRanker(memory.NewDefaultRanker().WithMinScore(cfg.Memory.RecallMinScore))
+		memoryInjector = injector
 	}
 	if len(cfg.Memory.Providers) > 0 {
-		if memoryInjector == nil {
-			fmt.Fprintln(os.Stderr, "warning: memory.providers configured but dynamic recall is disabled; external providers will not be used")
+		if injector == nil {
+			if !cfg.Memory.Enabled {
+				fmt.Fprintln(os.Stderr, "warning: memory.providers configured but memory is disabled; external providers will not be used")
+			} else if !cfg.Memory.DynamicRecall {
+				fmt.Fprintln(os.Stderr, "warning: memory.providers configured but dynamic recall is disabled; external providers will not be used")
+			}
 		} else {
 			providers := make([]memory.Provider, 0, len(cfg.Memory.Providers))
 			for _, p := range cfg.Memory.Providers {
@@ -316,7 +322,8 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 				}
 			}
 			if len(providers) > 0 {
-				memoryInjector = memoryInjector.WithProviders(providers...)
+				injector = injector.WithProviders(providers...)
+				memoryInjector = injector
 			}
 		}
 	}

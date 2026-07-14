@@ -93,7 +93,7 @@ func (p *plainInjector) Prefetch(ctx context.Context, query string) error {
 	return nil
 }
 
-func TestAgentSkipsSinkHooksForPlainInjector(t *testing.T) {
+func TestAgentCallsPrefetchForPlainInjector(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(
 		llmtest.Done(models.AssistantMessage("hi"), nil),
 	))
@@ -184,7 +184,7 @@ func TestAgentMemorySinkErrorsEmitErrorEvents(t *testing.T) {
 	}
 }
 
-func TestAgentTypedNilInjectorDoesNotPanic(t *testing.T) {
+func TestAgentNilInjectorDoesNotPanic(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(
 		llmtest.Done(models.AssistantMessage("hi"), nil),
 	))
@@ -196,7 +196,7 @@ func TestAgentTypedNilInjectorDoesNotPanic(t *testing.T) {
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		ToolExecutionMode: models.ExecutionParallel,
-		MemoryInjector:    (*memory.Injector)(nil),
+		MemoryInjector:    nil,
 		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
 			return true, nil
 		},
@@ -209,7 +209,7 @@ func TestAgentTypedNilInjectorDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestAgentWithModeTypedNilInjectorDoesNotPanic(t *testing.T) {
+func TestAgentWithModeNilInjectorDoesNotPanic(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(
 		llmtest.Done(models.AssistantMessage("hi"), nil),
 	))
@@ -221,7 +221,7 @@ func TestAgentWithModeTypedNilInjectorDoesNotPanic(t *testing.T) {
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		ToolExecutionMode: models.ExecutionParallel,
-		MemoryInjector:    (*memory.Injector)(nil),
+		MemoryInjector:    nil,
 		ContextManager:    contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192}),
 	}
 	ag := New(cfg, client, registry, perms, bus)

@@ -50,11 +50,8 @@ func (inj *Injector) WithProviders(providers ...Provider) *Injector {
 // preserving the store, ranker, token budget, and providers. Used when an
 // agent mode switch clones the context manager.
 func (inj *Injector) WithManager(mgr *contextmgr.Manager) *Injector {
-	if inj == nil {
+	if inj == nil || mgr == nil {
 		return nil
-	}
-	if mgr == nil {
-		panic("memory.Injector.WithManager: manager is nil")
 	}
 	return &Injector{
 		store:     inj.store,
