@@ -139,6 +139,8 @@ type fakeProvider struct {
 	prefetchErr   error
 	syncTurns     []struct{ user, assistant string }
 	sessionEnds   []SessionSummary
+	syncTurnErr   error
+	sessionEndErr error
 }
 
 func (f *fakeProvider) Prefetch(ctx context.Context, query string) ([]string, error) {
@@ -150,12 +152,12 @@ func (f *fakeProvider) Prefetch(ctx context.Context, query string) ([]string, er
 
 func (f *fakeProvider) SyncTurn(ctx context.Context, user, assistant string) error {
 	f.syncTurns = append(f.syncTurns, struct{ user, assistant string }{user, assistant})
-	return nil
+	return f.syncTurnErr
 }
 
 func (f *fakeProvider) OnSessionEnd(ctx context.Context, summary SessionSummary) error {
 	f.sessionEnds = append(f.sessionEnds, summary)
-	return nil
+	return f.sessionEndErr
 }
 
 func (f *fakeProvider) Healthy(ctx context.Context) bool { return f.healthy }
@@ -228,4 +230,61 @@ func TestInjectorSyncTurnAndSessionEnd(t *testing.T) {
 	require.NoError(t, inj.OnSessionEnd(context.Background(), summary))
 	require.Len(t, provider.sessionEnds, 1)
 	require.Equal(t, summary, provider.sessionEnds[0])
+}
+
+func TestInjectorUnhealthyProviderAppendsSuffix(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, store.Add(MemoryTarget, "local memory still available"))
+
+	provider := &fakeProvider{healthy: false}
+
+	inj := NewInjector(store, mgr, 1024).
+		WithProviders(provider).
+		WithRanker(&fakeRanker{results: []RankedEntry{
+			{Text: "local memory still available", Score: 1.0},
+		}})
+	require.NoError(t, inj.Prefetch(context.Background(), "memory"))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok)
+	text := block.Text()
+	require.Contains(t, text, "local memory still available")
+	require.Contains(t, text, "External memory provider unavailable: external memory provider unavailable")
+}
+
+func TestInjectorSyncTurnAndSessionEndReturnErrors(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	provider := &fakeProvider{
+		healthy:       true,
+		syncTurnErr:   errors.New("sync failed"),
+		sessionEndErr: errors.New("session end failed"),
+	}
+	inj := NewInjector(store, mgr, 1024).WithProviders(provider)
+
+	require.ErrorContains(t, inj.SyncTurn(context.Background(), "hello", "hi there"), "sync failed")
+	require.ErrorContains(t, inj.OnSessionEnd(context.Background(), SessionSummary{SessionID: "sess-1"}), "session end failed")
+}
+
+func TestInjectorMultipleProvidersAllCalled(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	providerA := &fakeProvider{healthy: true}
+	providerB := &fakeProvider{healthy: true}
+	inj := NewInjector(store, mgr, 1024).WithProviders(providerA, providerB)
+
+	require.NoError(t, inj.SyncTurn(context.Background(), "user", "assistant"))
+	require.Len(t, providerA.syncTurns, 1)
+	require.Len(t, providerB.syncTurns, 1)
+
+	summary := SessionSummary{SessionID: "sess-2"}
+	require.NoError(t, inj.OnSessionEnd(context.Background(), summary))
+	require.Len(t, providerA.sessionEnds, 1)
+	require.Len(t, providerB.sessionEnds, 1)
 }

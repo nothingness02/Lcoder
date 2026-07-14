@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,12 +12,11 @@ import (
 
 // Injector prefetches relevant memory entries into the context manager each turn.
 type Injector struct {
-	store       *Store
-	manager     *contextmgr.Manager
-	ranker      Ranker
-	maxTokens   int
-	providers   []Provider
-	failureMsg  string
+	store     *Store
+	manager   *contextmgr.Manager
+	ranker    Ranker
+	maxTokens int
+	providers []Provider
 }
 
 // NewInjector creates an injector bound to a store and context manager.
@@ -48,73 +48,84 @@ func (inj *Injector) WithProviders(providers ...Provider) *Injector {
 
 // Prefetch ranks memory entries against query and writes a memory_recall block.
 func (inj *Injector) Prefetch(ctx context.Context, query string) error {
-	inj.failureMsg = ""
-
 	entries, err := inj.store.allEntries(MemoryTarget)
 	if err != nil {
-		inj.setBlock(query, "")
 		return fmt.Errorf("load memory entries: %w", err)
 	}
 
+	var failureSuffix string
 	for _, p := range inj.providers {
 		if !p.Healthy(ctx) {
-			inj.failureMsg = "external memory provider circuit open"
+			failureSuffix = "external memory provider unavailable"
 			continue
 		}
 		results, err := p.Prefetch(ctx, query)
 		if err != nil {
-			inj.failureMsg = err.Error()
+			failureSuffix = err.Error()
 			continue
 		}
 		entries = append(entries, results...)
 	}
 
 	ranked := inj.ranker.Rank(query, entries)
-	selected := inj.budgetResults(ranked)
+	prefix := fmt.Sprintf("// Recalled memory for query %q\n\n", query)
+	if failureSuffix != "" {
+		failureSuffix = fmt.Sprintf("\n\n// External memory provider unavailable: %s", failureSuffix)
+	}
+	selected := inj.budgetResults(ranked, prefix+failureSuffix)
 
-	inj.setBlock(query, strings.Join(selected, "\n\n"))
+	inj.setBlock(query, strings.Join(selected, "\n\n"), failureSuffix)
 	return nil
 }
 
 // SyncTurn forwards a completed user/assistant turn to all healthy providers,
-// returning the first error encountered.
+// returning any errors encountered.
 func (inj *Injector) SyncTurn(ctx context.Context, user, assistant string) error {
+	var errs []error
 	for _, p := range inj.providers {
 		if !p.Healthy(ctx) {
 			continue
 		}
 		if err := p.SyncTurn(ctx, user, assistant); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // OnSessionEnd forwards the session summary to all healthy providers, returning
-// the first error encountered.
+// any errors encountered.
 func (inj *Injector) OnSessionEnd(ctx context.Context, summary SessionSummary) error {
+	var errs []error
 	for _, p := range inj.providers {
 		if !p.Healthy(ctx) {
 			continue
 		}
 		if err := p.OnSessionEnd(ctx, summary); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
-func (inj *Injector) budgetResults(ranked []RankedEntry) []string {
+func (inj *Injector) budgetResults(ranked []RankedEntry, overhead string) []string {
 	if len(ranked) == 0 {
 		return nil
 	}
 	estimator := inj.manager.Estimator()
+	overheadCost := estimator([]models.AgentMessage{
+		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: overhead}),
+	})
+	budget := inj.maxTokens - overheadCost
+	if budget < 0 {
+		budget = 0
+	}
 	used := 0
 	var selected []string
 	for _, r := range ranked {
 		msg := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: r.Text})
 		cost := estimator([]models.AgentMessage{msg})
-		if used+cost > inj.maxTokens {
+		if used+cost > budget {
 			break
 		}
 		selected = append(selected, r.Text)
@@ -123,16 +134,15 @@ func (inj *Injector) budgetResults(ranked []RankedEntry) []string {
 	return selected
 }
 
-func (inj *Injector) setBlock(query, text string) {
+func (inj *Injector) setBlock(query, text, failureSuffix string) {
 	if text != "" {
 		text = fmt.Sprintf("// Recalled memory for query %q\n\n%s", query, text)
 	}
-	if inj.failureMsg != "" {
-		suffix := fmt.Sprintf("// External memory provider unavailable: %s", inj.failureMsg)
+	if failureSuffix != "" {
 		if text != "" {
-			text = text + "\n\n" + suffix
+			text = text + failureSuffix
 		} else {
-			text = suffix
+			text = strings.TrimPrefix(failureSuffix, "\n\n")
 		}
 	}
 
