@@ -17,77 +17,47 @@ func SearchSnapshot(snapshot *Snapshot, q Query) ([]Result, error) {
 	if max <= 0 {
 		max = 10
 	}
-	keywords := normalizeKeywords(q.Keywords)
-	exact := normalizeSymbols(q.Symbols)
-	emptyQuery := len(keywords) == 0 && len(exact) == 0
 
-	var results []Result
+	emptyQuery := len(q.Keywords) == 0 && len(q.Symbols) == 0
+
+	type candidate struct {
+		node  Symbol
+		score float64
+	}
+	var candidates []candidate
 	for _, sym := range snapshot.Nodes {
 		if sym.Kind == NodeKindFile {
 			continue
 		}
-		score := scoreSymbol(sym, keywords, exact)
+		var score float64
 		if emptyQuery {
 			score = 1.0
+		} else {
+			score = ScoreNode(sym, q)
 		}
 		if score <= 0 {
 			continue
 		}
-		results = append(results, Result{
-			Node:      sym,
-			Relevance: score,
-			Stub:      formatStub(snapshot, sym),
-		})
+		candidates = append(candidates, candidate{node: sym, score: score})
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Relevance > results[j].Relevance
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
 	})
-	if len(results) > max {
-		results = results[:max]
+	if len(candidates) > max {
+		candidates = candidates[:max]
 	}
+
+	results := make([]Result, len(candidates))
+	for i, c := range candidates {
+		results[i] = Result{
+			Node:      c.node,
+			Relevance: c.score,
+			Stub:      formatStub(snapshot, c.node),
+		}
+	}
+	NormalizeScores(results)
 	return results, nil
-}
-
-func normalizeKeywords(words []string) []string {
-	var out []string
-	for _, w := range words {
-		w = strings.ToLower(strings.TrimSpace(w))
-		if w != "" {
-			out = append(out, w)
-		}
-	}
-	return out
-}
-
-func normalizeSymbols(syms []string) []string {
-	var out []string
-	for _, s := range syms {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func scoreSymbol(sym Symbol, keywords []string, exact []string) float64 {
-	score := 0.0
-	text := strings.ToLower(sym.Name + " " + sym.QualifiedName + " " + sym.Docstring + " " + sym.Signature)
-	for _, kw := range keywords {
-		if strings.Contains(text, kw) {
-			score += 1.0
-		}
-		if strings.EqualFold(sym.Name, kw) {
-			score += 3.0
-		}
-	}
-	for _, e := range exact {
-		if strings.EqualFold(sym.ID, e) || strings.EqualFold(sym.Name, e) {
-			score += 5.0
-		}
-	}
-	return score
 }
 
 func formatStub(snapshot *Snapshot, sym Symbol) string {

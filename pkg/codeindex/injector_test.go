@@ -10,6 +10,7 @@ import (
 
 type fakeIndexer struct {
 	results []Result
+	queries []Query
 }
 
 func (f *fakeIndexer) Update(ctx context.Context, root string) error {
@@ -17,6 +18,7 @@ func (f *fakeIndexer) Update(ctx context.Context, root string) error {
 }
 
 func (f *fakeIndexer) Search(ctx context.Context, q Query) ([]Result, error) {
+	f.queries = append(f.queries, q)
 	return f.results, nil
 }
 
@@ -40,4 +42,24 @@ func TestInjectorWritesBlock(t *testing.T) {
 	text := block.Text()
 	require.Contains(t, text, "Engine")
 	require.Contains(t, text, "Repository code index results")
+}
+
+func TestInjectorParsesQuery(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	idx := &fakeIndexer{}
+	inj := NewInjector(idx, mgr, "/tmp/demo", 2000)
+
+	require.NoError(t, inj.Inject(context.Background(), "RunAgent daemon", 5))
+
+	require.Len(t, idx.queries, 1)
+	q := idx.queries[0]
+	require.Equal(t, "runagent daemon", q.Phrase)
+	seen := make(map[string]bool)
+	for _, kw := range q.Keywords {
+		seen[kw] = true
+	}
+	require.True(t, seen["runagent"], "expected expanded identifier keyword")
+	require.True(t, seen["run"], "expected camelCase split keyword")
+	require.True(t, seen["agent"], "expected camelCase split keyword")
+	require.True(t, seen["daemon"], "expected plain keyword")
 }

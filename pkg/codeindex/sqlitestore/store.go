@@ -409,7 +409,9 @@ func (idx *Indexer) UpdateFiles(ctx context.Context, root string, paths []string
 }
 
 // Search runs a hybrid query over the SQLite graph: exact symbol matches score
-// highest, FTS5 matches are next, and substring LIKE matches are the fallback.
+// highest, FTS5 AND-first matches are next, and substring LIKE matches are the
+// fallback. Candidates are rescored with codeindex.ScoreNode, sorted, truncated,
+// normalized, and only then formatted into stubs.
 func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.Result, error) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -422,7 +424,6 @@ func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.
 	}
 
 	candidates := make(map[string]codeindex.Node)
-	scores := make(map[string]float64)
 
 	// Exact symbol matches.
 	for _, sym := range q.Symbols {
@@ -430,7 +431,15 @@ func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.
 		if s == "" {
 			continue
 		}
-		rows, err := idx.db.QueryContext(ctx, nodeSelectSQL+" WHERE (node_id = ? OR name = ? OR qualified_name = ?) AND n.kind != 'file'", s, s, s)
+		where := "(node_id = ? OR name = ? OR qualified_name = ?) AND n.kind != 'file'"
+		args := []any{s, s, s}
+		if len(q.Kinds) > 0 {
+			where += kindInClause(q.Kinds)
+			for _, k := range q.Kinds {
+				args = append(args, string(k))
+			}
+		}
+		rows, err := idx.db.QueryContext(ctx, nodeSelectSQL+" WHERE "+where, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -441,7 +450,6 @@ func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.
 				return nil, err
 			}
 			candidates[n.ID] = n
-			scores[n.ID] += 10.0
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
@@ -449,34 +457,50 @@ func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.
 		}
 	}
 
-	// FTS5 keyword search.
+	// FTS5 keyword search: AND-first using the original phrase tokens, then OR
+	// fallback with expanded keywords if we do not have enough candidates.
 	if len(q.Keywords) > 0 {
-		match := ftsMatchExpr(q.Keywords)
-		rows, err := idx.db.QueryContext(ctx, nodeSelectSQL+
-			" JOIN nodes_fts f ON n.id = f.rowid WHERE nodes_fts MATCH ? AND n.kind != 'file'", match)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			n, err := scanNode(rows)
+		runFTS := func(match string) error {
+			if match == "" {
+				return nil
+			}
+			where := "nodes_fts MATCH ? AND n.kind != 'file'"
+			args := []any{match}
+			if len(q.Kinds) > 0 {
+				where += kindInClause(q.Kinds)
+				for _, k := range q.Kinds {
+					args = append(args, string(k))
+				}
+			}
+			rows, err := idx.db.QueryContext(ctx, nodeSelectSQL+" JOIN nodes_fts f ON n.id = f.rowid WHERE "+where, args...)
 			if err != nil {
-				rows.Close()
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				n, err := scanNode(rows)
+				if err != nil {
+					return err
+				}
+				candidates[n.ID] = n
+			}
+			return rows.Err()
+		}
+
+		if q.Phrase != "" {
+			if err := runFTS(ftsMatchExprAND(q.Phrase)); err != nil {
 				return nil, err
 			}
-			candidates[n.ID] = n
-			scores[n.ID] += 5.0
-			for _, kw := range q.Keywords {
-				scores[n.ID] += keywordBoost(n, kw)
-			}
 		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
+		if len(candidates) < max {
+			if err := runFTS(ftsMatchExpr(q.Keywords)); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	// Substring fallback for keywords not handled well by FTS (e.g. partial words).
-	if len(q.Keywords) > 0 {
+	if len(q.Keywords) > 0 && len(candidates) < max {
 		var filters []string
 		var args []any
 		for _, kw := range q.Keywords {
@@ -501,13 +525,7 @@ func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.
 				rows.Close()
 				return nil, err
 			}
-			if _, ok := candidates[n.ID]; !ok {
-				candidates[n.ID] = n
-				scores[n.ID] += 1.0
-				for _, kw := range q.Keywords {
-					scores[n.ID] += keywordBoost(n, kw)
-				}
-			}
+			candidates[n.ID] = n
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
@@ -515,25 +533,16 @@ func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.
 		}
 	}
 
-	if len(q.Kinds) > 0 {
-		allowed := make(map[string]bool)
-		for _, k := range q.Kinds {
-			allowed[string(k)] = true
-		}
-		for id, n := range candidates {
-			if !allowed[string(n.Kind)] {
-				delete(candidates, id)
-				delete(scores, id)
-			}
-		}
-	}
-
+	// Score, rank, truncate, normalize, then format stubs.
 	results := make([]codeindex.Result, 0, len(candidates))
-	for id, n := range candidates {
+	for _, n := range candidates {
+		score := codeindex.ScoreNode(n, q)
+		if score <= 0 {
+			continue
+		}
 		results = append(results, codeindex.Result{
 			Node:      n,
-			Relevance: scores[id],
-			Stub:      formatStub(n),
+			Relevance: score,
 		})
 	}
 	sort.Slice(results, func(i, j int) bool {
@@ -541,6 +550,10 @@ func (idx *Indexer) Search(ctx context.Context, q codeindex.Query) ([]codeindex.
 	})
 	if len(results) > max {
 		results = results[:max]
+	}
+	codeindex.NormalizeScores(results)
+	for i := range results {
+		results[i].Stub = formatStub(results[i].Node)
 	}
 	return results, nil
 }
@@ -563,50 +576,54 @@ func (idx *Indexer) NodeByID(ctx context.Context, id string) (codeindex.Node, bo
 	return n, true, nil
 }
 
-// Neighbors returns edges adjacent to a node. direction is "in", "out", or "both".
-func (idx *Indexer) Neighbors(ctx context.Context, nodeID string, kinds []codeindex.EdgeKind, direction string) ([]codeindex.Edge, error) {
+// Neighbors returns edges adjacent to any of the supplied node IDs. direction is
+// "in", "out", or "both". The query is batched so a single SQL round-trip
+// covers the whole frontier.
+func (idx *Indexer) Neighbors(ctx context.Context, nodeIDs []string, kinds []codeindex.EdgeKind, direction string) ([]codeindex.Edge, error) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	if idx.db == nil {
 		return nil, fmt.Errorf("store not open")
 	}
-	if len(kinds) == 0 {
+	if len(kinds) == 0 || len(nodeIDs) == 0 {
 		return nil, nil
 	}
-	kindStrs := make([]string, len(kinds))
+
+	kindArgs := make([]any, len(kinds))
 	for i, k := range kinds {
-		kindStrs[i] = string(k)
+		kindArgs[i] = string(k)
 	}
-	inKinds := make([]any, len(kinds))
-	copyKinds := make([]any, len(kinds))
-	for i, k := range kindStrs {
-		inKinds[i] = k
-		copyKinds[i] = k
+	idArgs := make([]any, len(nodeIDs))
+	for i, id := range nodeIDs {
+		idArgs[i] = id
 	}
+	kindPlaceholders := placeholders(len(kinds))
+	idPlaceholders := placeholders(len(nodeIDs))
+	argCount := len(nodeIDs) + len(kinds)
 
 	var queries []string
 	var args []any
 	switch direction {
 	case "in":
-		queries = append(queries, "SELECT source, target, kind, line, column, provenance, metadata_json FROM edges WHERE target = ? AND kind IN ("+placeholders(len(kinds))+")")
-		args = append(args, nodeID)
-		args = append(args, inKinds...)
+		queries = append(queries, "SELECT source, target, kind, line, column, provenance, metadata_json FROM edges WHERE target IN ("+idPlaceholders+") AND kind IN ("+kindPlaceholders+")")
+		args = append(args, idArgs...)
+		args = append(args, kindArgs...)
 	case "out":
-		queries = append(queries, "SELECT source, target, kind, line, column, provenance, metadata_json FROM edges WHERE source = ? AND kind IN ("+placeholders(len(kinds))+")")
-		args = append(args, nodeID)
-		args = append(args, copyKinds...)
+		queries = append(queries, "SELECT source, target, kind, line, column, provenance, metadata_json FROM edges WHERE source IN ("+idPlaceholders+") AND kind IN ("+kindPlaceholders+")")
+		args = append(args, idArgs...)
+		args = append(args, kindArgs...)
 	default:
-		queries = append(queries, "SELECT source, target, kind, line, column, provenance, metadata_json FROM edges WHERE source = ? AND kind IN ("+placeholders(len(kinds))+")")
-		args = append(args, nodeID)
-		args = append(args, inKinds...)
-		queries = append(queries, "SELECT source, target, kind, line, column, provenance, metadata_json FROM edges WHERE target = ? AND kind IN ("+placeholders(len(kinds))+")")
-		args = append(args, nodeID)
-		args = append(args, copyKinds...)
+		queries = append(queries, "SELECT source, target, kind, line, column, provenance, metadata_json FROM edges WHERE source IN ("+idPlaceholders+") AND kind IN ("+kindPlaceholders+")")
+		args = append(args, idArgs...)
+		args = append(args, kindArgs...)
+		queries = append(queries, "SELECT source, target, kind, line, column, provenance, metadata_json FROM edges WHERE target IN ("+idPlaceholders+") AND kind IN ("+kindPlaceholders+")")
+		args = append(args, idArgs...)
+		args = append(args, kindArgs...)
 	}
 
 	var edges []codeindex.Edge
 	for i, q := range queries {
-		rows, err := idx.db.QueryContext(ctx, q, argsForQuery(args, i, len(kinds)+1)...)
+		rows, err := idx.db.QueryContext(ctx, q, argsForQuery(args, i, argCount)...)
 		if err != nil {
 			return nil, err
 		}
@@ -633,16 +650,6 @@ func (idx *Indexer) Neighbors(ctx context.Context, nodeID string, kinds []codein
 		}
 	}
 	return edges, nil
-}
-
-func keywordBoost(n codeindex.Node, kw string) float64 {
-	if strings.EqualFold(n.Name, kw) || strings.EqualFold(n.QualifiedName, kw) {
-		return 3.0
-	}
-	if strings.HasSuffix(strings.ToLower(n.Name), "."+strings.ToLower(kw)) {
-		return 2.0
-	}
-	return 0.0
 }
 
 func (idx *Indexer) resolveEdges(ctx context.Context, tx *sql.Tx, changed []string, filesDeleted bool) error {
@@ -831,6 +838,21 @@ func ftsMatchExpr(keywords []string) string {
 		parts = append(parts, quoteFTS(kw))
 	}
 	return strings.Join(parts, " OR ")
+}
+
+// ftsMatchExprAND builds an FTS5 query that requires every original phrase
+// token to appear. It is used before the OR fallback to reward matches that
+// contain all query terms.
+func ftsMatchExprAND(phrase string) string {
+	parts := strings.Fields(phrase)
+	if len(parts) == 0 {
+		return ""
+	}
+	var quoted []string
+	for _, p := range parts {
+		quoted = append(quoted, quoteFTS(p))
+	}
+	return strings.Join(quoted, " AND ")
 }
 
 func quoteFTS(s string) string {

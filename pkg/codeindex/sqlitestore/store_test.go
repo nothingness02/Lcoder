@@ -170,7 +170,7 @@ func TestNeighborsQuery(t *testing.T) {
 	_, err = raw.Exec("INSERT INTO edges(source, target, kind) VALUES(?, ?, ?)", "A", "B", "calls")
 	require.NoError(t, err)
 
-	edges, err := idx.Neighbors(context.Background(), "A", []codeindex.EdgeKind{codeindex.EdgeKindCalls}, "out")
+	edges, err := idx.Neighbors(context.Background(), []string{"A"}, []codeindex.EdgeKind{codeindex.EdgeKindCalls}, "out")
 	require.NoError(t, err)
 	require.Len(t, edges, 1)
 	require.Equal(t, "B", edges[0].Target)
@@ -196,6 +196,102 @@ func main() { fmt.Println("hello") }
 	var count int
 	require.NoError(t, raw.QueryRow("SELECT count(*) FROM unresolved_refs WHERE target = ?", "fmt.Println").Scan(&count))
 	require.GreaterOrEqual(t, count, 1)
+}
+
+func TestSearchANDFirstRanking(t *testing.T) {
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "index.db")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "demo.go"), []byte(`package demo
+
+// Agent runs the agent loop.
+type Agent struct{}
+func NewAgent() *Agent { return &Agent{} }
+func RunAgent() {}
+func AgentHelper() {}
+`), 0o644))
+
+	idx, err := NewIndexer([]string{"go"}, nil, db)
+	require.NoError(t, err)
+	defer idx.Close()
+	require.NoError(t, idx.Update(context.Background(), root))
+
+	// Query with two tokens; AND matches (Agent + Run/Helper/New) should rank
+	// above single-token matches.
+	res, err := idx.Search(context.Background(), codeindex.Query{
+		Phrase:     "agent run",
+		Keywords:   []string{"agent", "run"},
+		MaxResults: 10,
+	})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(res), 2)
+	require.Equal(t, "RunAgent", res[0].Node.Name)
+}
+
+func TestSearchKindFilterWorks(t *testing.T) {
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "index.db")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "demo.go"), []byte(`package demo
+type Agent struct{}
+func NewAgent() *Agent { return &Agent{} }
+`), 0o644))
+
+	idx, err := NewIndexer([]string{"go"}, nil, db)
+	require.NoError(t, err)
+	defer idx.Close()
+	require.NoError(t, idx.Update(context.Background(), root))
+
+	res, err := idx.Search(context.Background(), codeindex.Query{
+		Keywords: []string{"agent"},
+		Kinds:    []codeindex.NodeKind{codeindex.NodeKindFunction},
+	})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	require.Equal(t, "NewAgent", res[0].Node.Name)
+}
+
+func TestSearchExactSymbolOutranksFTS(t *testing.T) {
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "index.db")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "demo.go"), []byte(`package demo
+func Run() {}
+func RunFast() {}
+func Runner() {}
+`), 0o644))
+
+	idx, err := NewIndexer([]string{"go"}, nil, db)
+	require.NoError(t, err)
+	defer idx.Close()
+	require.NoError(t, idx.Update(context.Background(), root))
+
+	res, err := idx.Search(context.Background(), codeindex.Query{
+		Symbols:    []string{"Run"},
+		Keywords:   []string{"run"},
+		MaxResults: 5,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, res)
+	require.Equal(t, "Run", res[0].Node.Name)
+}
+
+func TestNeighborsBatchQuery(t *testing.T) {
+	root := t.TempDir()
+	db := filepath.Join(t.TempDir(), "index.db")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\nfunc A() {}\nfunc B() {}\nfunc C() {}\n"), 0o644))
+
+	idx, err := NewIndexer([]string{"go"}, nil, db)
+	require.NoError(t, err)
+	defer idx.Close()
+	require.NoError(t, idx.Update(context.Background(), root))
+
+	raw, err := sql.Open("sqlite", db+"?_busy_timeout=5000")
+	require.NoError(t, err)
+	defer raw.Close()
+	_, err = raw.Exec("INSERT INTO edges(source, target, kind) VALUES(?, ?, ?), (?, ?, ?)", "A", "B", "calls", "A", "C", "calls")
+	require.NoError(t, err)
+
+	edges, err := idx.Neighbors(context.Background(), []string{"A"}, []codeindex.EdgeKind{codeindex.EdgeKindCalls}, "out")
+	require.NoError(t, err)
+	require.Len(t, edges, 2)
 }
 
 func TestDefaultPath(t *testing.T) {

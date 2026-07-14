@@ -111,6 +111,7 @@ type Query struct {
 	Keywords     []string
 	Symbols      []string
 	Kinds        []NodeKind
+	Phrase       string // original lowercased query text, used for AND-first FTS
 	MaxResults   int
 	IncludeTests bool
 }

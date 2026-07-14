@@ -11,7 +11,7 @@ import (
 type GraphStore interface {
 	Search(ctx context.Context, q Query) ([]Result, error)
 	NodeByID(ctx context.Context, id string) (Node, bool, error)
-	Neighbors(ctx context.Context, nodeID string, kinds []EdgeKind, direction string) ([]Edge, error)
+	Neighbors(ctx context.Context, nodeIDs []string, kinds []EdgeKind, direction string) ([]Edge, error)
 }
 
 // ContextBuilder turns a natural-language query into a set of ranked code stubs
@@ -47,6 +47,25 @@ func DefaultBuildOptions() BuildOptions {
 	}
 }
 
+var edgeWeights = map[EdgeKind]float64{
+	EdgeKindCalls:        1.0,
+	EdgeKindReferences:   0.9,
+	EdgeKindExtends:      0.7,
+	EdgeKindImplements:   0.7,
+	EdgeKindInstantiates: 0.7,
+	EdgeKindOverrides:    0.8,
+	EdgeKindContains:     0.5,
+	EdgeKindImports:      0.3,
+	EdgeKindExports:      0.3,
+}
+
+func edgeWeight(k EdgeKind) float64 {
+	if w, ok := edgeWeights[k]; ok {
+		return w
+	}
+	return 0.5
+}
+
 // Build returns ranked stubs for the query plus related symbols.
 func (b *ContextBuilder) Build(ctx context.Context, query string, opts BuildOptions) ([]Result, error) {
 	if opts.MaxSeeds <= 0 {
@@ -65,8 +84,9 @@ func (b *ContextBuilder) Build(ctx context.Context, query string, opts BuildOpti
 		opts.Directions = []string{"both"}
 	}
 
-	keywords := splitQuery(query)
+	phrase, keywords := ParseQuery(query)
 	seeds, err := b.store.Search(ctx, Query{
+		Phrase:     phrase,
 		Keywords:   keywords,
 		MaxResults: opts.MaxSeeds,
 	})
@@ -79,50 +99,76 @@ func (b *ContextBuilder) Build(ctx context.Context, query string, opts BuildOpti
 		collected[r.Node.ID] = r
 	}
 
-	// Bounded BFS expansion from seeds.
-	frontier := make(map[string]bool)
+	// Bounded BFS expansion from seeds with depth decay and edge-kind weights.
+	frontier := make(map[string]float64)
 	for _, r := range seeds {
-		frontier[r.Node.ID] = true
+		frontier[r.Node.ID] = r.Relevance
 	}
+	decay := 0.75
 	for depth := 0; depth < opts.MaxDepth && len(collected) < opts.MaxNodes; depth++ {
-		nextFrontier := make(map[string]bool)
+		if len(frontier) == 0 {
+			break
+		}
+		ids := make([]string, 0, len(frontier))
 		for id := range frontier {
-			for _, dir := range opts.Directions {
-				edges, err := b.store.Neighbors(ctx, id, opts.EdgeKinds, dir)
-				if err != nil {
-					return nil, fmt.Errorf("graph neighbors: %w", err)
-				}
-				for _, e := range edges {
-					nextID := e.Target
-					if dir == "in" {
-						nextID = e.Source
-					} else if dir == "both" {
-						if e.Source == id {
-							nextID = e.Target
-						} else {
-							nextID = e.Source
-						}
-					}
-					if _, ok := collected[nextID]; ok {
-						continue
-					}
-					node, ok, err := b.store.NodeByID(ctx, nextID)
-					if err != nil {
-						return nil, fmt.Errorf("lookup neighbor: %w", err)
-					}
-					if !ok {
-						continue
-					}
-					collected[node.ID] = Result{
-						Node:      node,
-						Relevance: 0.5,
-						Stub:      formatNodeStub(node),
-					}
-					nextFrontier[node.ID] = true
-					if len(collected) >= opts.MaxNodes {
-						break
+			ids = append(ids, id)
+		}
+
+		nextFrontier := make(map[string]float64)
+		for _, dir := range opts.Directions {
+			edges, err := b.store.Neighbors(ctx, ids, opts.EdgeKinds, dir)
+			if err != nil {
+				return nil, fmt.Errorf("graph neighbors: %w", err)
+			}
+			for _, e := range edges {
+				seedID := e.Source
+				if dir == "in" {
+					seedID = e.Target
+				} else if dir == "both" {
+					// Determine which endpoint is the already-known node.
+					if _, ok := frontier[e.Source]; ok {
+						seedID = e.Source
+					} else {
+						seedID = e.Target
 					}
 				}
+				seedScore, ok := frontier[seedID]
+				if !ok {
+					continue
+				}
+				nextID := e.Target
+				if seedID == e.Target {
+					nextID = e.Source
+				}
+				if _, ok := collected[nextID]; ok {
+					continue
+				}
+				score := seedScore * edgeWeight(e.Kind) * decay
+				if existing, ok := nextFrontier[nextID]; !ok || score > existing {
+					nextFrontier[nextID] = score
+				}
+				if len(collected)+len(nextFrontier) >= opts.MaxNodes {
+					continue
+				}
+			}
+		}
+
+		// Resolve the next frontier nodes and add them to the collected set.
+		for id, score := range nextFrontier {
+			node, ok, err := b.store.NodeByID(ctx, id)
+			if err != nil {
+				return nil, fmt.Errorf("lookup neighbor: %w", err)
+			}
+			if !ok {
+				continue
+			}
+			collected[node.ID] = Result{
+				Node:      node,
+				Relevance: score,
+				Stub:      formatNodeStub(node),
+			}
+			if len(collected) >= opts.MaxNodes {
+				break
 			}
 		}
 		frontier = nextFrontier

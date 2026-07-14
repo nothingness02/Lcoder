@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"unicode"
 
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/models"
@@ -48,6 +47,14 @@ func (inj *Injector) Inject(ctx context.Context, query string, maxResults int) e
 	if maxResults <= 0 {
 		maxResults = 10
 	}
+
+	phrase, keywords := ParseQuery(query)
+	q := Query{
+		Phrase:     phrase,
+		Keywords:   keywords,
+		MaxResults: maxResults,
+	}
+
 	var results []Result
 	var err error
 	if inj.builder != nil {
@@ -57,10 +64,7 @@ func (inj *Injector) Inject(ctx context.Context, query string, maxResults int) e
 			MaxNodes: maxResults,
 		})
 	} else {
-		results, err = inj.indexer.Search(ctx, Query{
-			Keywords:   splitQuery(query),
-			MaxResults: maxResults,
-		})
+		results, err = inj.indexer.Search(ctx, q)
 	}
 	if err != nil {
 		return err
@@ -93,16 +97,4 @@ func (inj *Injector) Inject(ctx context.Context, query string, maxResults int) e
 	)
 	inj.manager.SetBlock(block)
 	return nil
-}
-
-func splitQuery(s string) []string {
-	var out []string
-	for _, f := range strings.FieldsFunc(s, func(r rune) bool {
-		return unicode.IsSpace(r) || r == '.' || r == '/' || r == '_' || r == '-'
-	}) {
-		if f != "" {
-			out = append(out, strings.ToLower(f))
-		}
-	}
-	return out
 }
