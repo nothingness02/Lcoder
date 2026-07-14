@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/lcoder/lcoder/internal/fsutil"
 	"github.com/lcoder/lcoder/internal/paths"
@@ -37,9 +38,14 @@ type Limits struct {
 // Store reads and writes memory files. It combines global (user home) and
 // project (cwd) files for reads, and writes to the global file only.
 type Store struct {
-	globalDir  string
-	projectDir string
-	limits     Limits
+	globalDir        string
+	projectDir       string
+	limits           Limits
+	cacheMu          sync.Mutex
+	memoryCache      []string
+	userCache        []string
+	memoryCacheValid bool
+	userCacheValid   bool
 }
 
 // NewStore creates a store rooted at cwd. The global directory is
@@ -99,12 +105,52 @@ func (s *Store) loadFile(path string) ([]string, error) {
 
 func (s *Store) saveFile(path string, t Target, entries []string) error {
 	data := formatFile(targetName(t), entries, s.limitFor(t))
-	return fsutil.WritePrivateFile(path, []byte(data))
+	tmp := path + ".tmp"
+	if err := fsutil.WritePrivateFile(tmp, []byte(data)); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // GlobalEntries returns entries from the global file.
 func (s *Store) GlobalEntries(t Target) ([]string, error) {
-	return s.loadFile(s.globalPath(t))
+	s.cacheMu.Lock()
+	if t == MemoryTarget && s.memoryCacheValid {
+		cached := append([]string(nil), s.memoryCache...)
+		s.cacheMu.Unlock()
+		return cached, nil
+	}
+	if t == UserTarget && s.userCacheValid {
+		cached := append([]string(nil), s.userCache...)
+		s.cacheMu.Unlock()
+		return cached, nil
+	}
+	s.cacheMu.Unlock()
+
+	entries, err := s.loadFile(s.globalPath(t))
+	if err != nil {
+		return nil, err
+	}
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if t == MemoryTarget {
+		s.memoryCache = append([]string(nil), entries...)
+		s.memoryCacheValid = true
+	} else {
+		s.userCache = append([]string(nil), entries...)
+		s.userCacheValid = true
+	}
+	return entries, nil
+}
+
+func (s *Store) invalidateCache() {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.memoryCacheValid = false
+	s.userCacheValid = false
+	s.memoryCache = nil
+	s.userCache = nil
 }
 
 // ProjectEntries returns entries from the project file.
@@ -165,6 +211,7 @@ func (s *Store) Add(t Target, content string) error {
 		return fmt.Errorf("%s at %d/%d chars. Adding this entry (%d chars) would exceed the limit. Consolidate now: use 'replace' to merge overlapping entries into shorter ones or 'remove' stale entries, then retry this add.", targetName(t), charCount(entries), limit, len(content))
 	}
 	entries = append(entries, content)
+	s.invalidateCache()
 	return s.saveFile(s.globalPath(t), t, entries)
 }
 
@@ -189,6 +236,7 @@ func (s *Store) Replace(t Target, oldText, content string) error {
 	if charCount(newEntries) > limit {
 		return fmt.Errorf("%s at %d/%d chars. Replacing would exceed the limit. Shorten the new content or remove other entries first.", targetName(t), charCount(entries), limit)
 	}
+	s.invalidateCache()
 	return s.saveFile(s.globalPath(t), t, newEntries)
 }
 
@@ -203,6 +251,7 @@ func (s *Store) Remove(t Target, oldText string) error {
 		return err
 	}
 	entries = append(entries[:idx], entries[idx+1:]...)
+	s.invalidateCache()
 	return s.saveFile(s.globalPath(t), t, entries)
 }
 

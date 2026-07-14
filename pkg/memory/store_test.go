@@ -132,6 +132,83 @@ func TestStoreAddRespectsLimit(t *testing.T) {
 	}
 }
 
+func TestStoreAtomicWriteUsesTempFile(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(filepath.Join(home, ".lcoder", "memory"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	setTestHome(t, home)
+
+	store, err := NewStore(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Add(MemoryTarget, "first entry"); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := filepath.Glob(filepath.Join(home, ".lcoder", "memory", "*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary file should be removed after atomic write: %v", matches)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".lcoder", "memory", "MEMORY.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "first entry") {
+		t.Fatalf("missing entry in file: %s", string(data))
+	}
+}
+
+func TestStoreCacheInvalidatedOnAdd(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(filepath.Join(home, ".lcoder", "memory"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	setTestHome(t, home)
+
+	store, err := NewStore(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Add(MemoryTarget, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := store.GlobalEntries(MemoryTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if err := store.Add(MemoryTarget, "beta"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = store.GlobalEntries(MemoryTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	found := false
+	for _, e := range entries {
+		if e == "beta" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing beta in entries: %v", entries)
+	}
+}
+
 func TestStoreUserChannelSeparate(t *testing.T) {
 	tmp := t.TempDir()
 	home := filepath.Join(tmp, "home")
