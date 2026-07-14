@@ -125,3 +125,40 @@ func TestContextManagerMemoryBlocks(t *testing.T) {
 	}
 }
 
+func TestContextManagerDynamicRecallSkipsStaticMemory(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	repo := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(filepath.Join(home, ".lcoder", "memory"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".lcoder", "memory"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	if err := os.WriteFile(filepath.Join(home, ".lcoder", "memory", "USER.md"), []byte("User prefers Chinese."), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".lcoder", "memory", "MEMORY.md"), []byte("Global memory entry."), 0640); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := memory.NewStore(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{
+		Context: config.ContextConfig{MinRecent: 1},
+		Memory:  config.MemoryConfig{Enabled: true, DynamicRecall: true},
+	}
+	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, nil, "", "", nil, store)
+
+	if _, ok := mgr.GetBlock(contextmgr.BlockUserProfile, "user_profile"); !ok {
+		t.Fatal("missing user_profile block")
+	}
+	if _, ok := mgr.GetBlock(contextmgr.BlockMemory, "memory"); ok {
+		t.Fatal("static memory block should be omitted when dynamic recall is enabled")
+	}
+}

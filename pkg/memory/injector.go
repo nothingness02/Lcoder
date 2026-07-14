@@ -66,7 +66,7 @@ func (inj *Injector) budgetResults(ranked []RankedEntry) []string {
 	for _, r := range ranked {
 		msg := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: r.Text})
 		cost := estimator([]models.AgentMessage{msg})
-		if used+cost > inj.maxTokens && len(selected) > 0 {
+		if used+cost > inj.maxTokens {
 			break
 		}
 		selected = append(selected, r.Text)

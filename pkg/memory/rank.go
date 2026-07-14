@@ -101,11 +101,25 @@ func (r *DefaultRanker) scoreEntry(query string, queryTokens []string, entry str
 	return score
 }
 
+// stopWords is a small English stop-word set dropped during tokenization.
+var stopWords = map[string]struct{}{
+	"the": {}, "a": {}, "an": {}, "is": {}, "are": {}, "was": {}, "were": {},
+	"to": {}, "of": {}, "and": {}, "in": {}, "for": {}, "on": {}, "with": {},
+	"as": {}, "at": {}, "by": {}, "it": {}, "its": {}, "this": {}, "that": {},
+}
+
 func tokenize(s string) []string {
 	s = strings.ToLower(s)
-	return strings.FieldsFunc(s, func(r rune) bool {
+	raw := strings.FieldsFunc(s, func(r rune) bool {
 		return unicode.IsSpace(r) || unicode.IsPunct(r)
 	})
+	var out []string
+	for _, t := range raw {
+		if _, ok := stopWords[t]; !ok {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func uniqueTokens(tokens []string) map[string]struct{} {

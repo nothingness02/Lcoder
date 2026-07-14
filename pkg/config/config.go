@@ -382,6 +382,9 @@ func Load() (Config, error) {
 			"enabled":           cfg.Memory.Enabled,
 			"memory_char_limit": cfg.Memory.MemoryCharLimit,
 			"user_char_limit":   cfg.Memory.UserCharLimit,
+			"dynamic_recall":    cfg.Memory.DynamicRecall,
+			"recall_max_tokens": cfg.Memory.RecallMaxTokens,
+			"recall_min_score":  cfg.Memory.RecallMinScore,
 		},
 	}, "."), nil)
 

@@ -76,6 +76,17 @@ func TestDefaultRankerStableOrdering(t *testing.T) {
 	require.Equal(t, "golang two", scores[1].Text)
 }
 
+func TestDefaultRankerStopWordsIgnored(t *testing.T) {
+	r := NewDefaultRanker()
+	// Stop words should not change which entries are recalled or their relative order.
+	a := r.Rank("the kubernetes", []string{"kubernetes deployment", "deployment kubernetes"})
+	b := r.Rank("kubernetes", []string{"kubernetes deployment", "deployment kubernetes"})
+	require.Len(t, a, 2)
+	require.Len(t, b, 2)
+	require.Equal(t, a[0].Text, b[0].Text)
+	require.Equal(t, a[1].Text, b[1].Text)
+}
+
 func TestDefaultRankerPrefixBonus(t *testing.T) {
 	r := NewDefaultRanker()
 	// "auth" is a prefix of "authentication", so it gets a prefix bonus.

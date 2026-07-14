@@ -31,8 +31,29 @@ func TestInjectorBudgetsTokens(t *testing.T) {
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
 	store, err := NewStore(t.TempDir())
 	require.NoError(t, err)
-	longEntry := "UNIQUEMARKER " + strings.Repeat("word ", 80) // ~348 chars, >50 tokens
-	for i := 0; i < 5; i++ {
+	// One short entry fits under the 50-token budget; the long entries do not.
+	require.NoError(t, store.Add(MemoryTarget, "short relevant note"))
+	longEntry := "UNIQUELONG " + strings.Repeat("word ", 80) // ~350 chars, >50 tokens
+	for range 4 {
+		require.NoError(t, store.Add(MemoryTarget, longEntry))
+	}
+
+	inj := NewInjector(store, mgr, 50)
+	require.NoError(t, inj.Prefetch(context.Background(), "relevant"))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok)
+	text := block.Text()
+	require.Equal(t, 1, strings.Count(text, "short relevant note"))
+	require.Zero(t, strings.Count(text, "UNIQUELONG"))
+}
+
+func TestInjectorBudgetSkipsOversizedFirstResult(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	longEntry := "UNIQUEMARKER " + strings.Repeat("word ", 80) // ~350 chars, >50 tokens
+	for range 3 {
 		require.NoError(t, store.Add(MemoryTarget, longEntry))
 	}
 
@@ -41,8 +62,7 @@ func TestInjectorBudgetsTokens(t *testing.T) {
 
 	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
 	require.True(t, ok)
-	// With maxTokens=50 and each entry >50 tokens, at most one entry fits.
-	require.LessOrEqual(t, strings.Count(block.Text(), "UNIQUEMARKER"), 2) // header + at most one entry
+	require.Empty(t, block.Text())
 }
 
 func TestInjectorClearsBlockWhenNoMatch(t *testing.T) {
