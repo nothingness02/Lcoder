@@ -289,6 +289,12 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.EffectiveMessages(), memStore)
 
+	var memoryInjector *memory.Injector
+	if memStore != nil && cfg.Memory.Enabled && cfg.Memory.DynamicRecall {
+		memoryInjector = memory.NewInjector(memStore, mgr, cfg.Memory.RecallMaxTokens).
+			WithRanker(memory.NewDefaultRanker().WithMinScore(cfg.Memory.RecallMinScore))
+	}
+
 	var reminderProducers []agent.ReminderProducer
 	var repoIndexTool *builtinTools.RepoIndex
 	var repoIndexer *sqlitestore.Indexer
@@ -353,6 +359,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		WithEventBus(bus).
 		WithObservability(obsCollector).
 		WithContextSnapshotRecorder(contextSnapshotRecorder).
+		WithMemoryInjector(memoryInjector).
 		WithSessionID(sess.ID).
 		WithCheckpointStore(chkStore).
 		Build()
