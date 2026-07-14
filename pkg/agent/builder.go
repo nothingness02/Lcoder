@@ -149,7 +149,7 @@ func (b *Builder) WithContextSnapshotRecorder(r *observability.ContextSnapshotRe
 
 // WithMemoryInjector sets the per-turn memory prefetch injector.
 func (b *Builder) WithMemoryInjector(inj memory.MemoryInjector) *Builder {
-	b.cfg.MemoryInjector = inj
+	b.cfg.MemoryInjector = normalizeMemoryInjector(inj)
 	return b
 }
 

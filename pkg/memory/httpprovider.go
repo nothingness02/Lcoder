@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -80,7 +81,9 @@ func (p *HTTPProvider) Prefetch(ctx context.Context, query string) ([]string, er
 
 	resp, err := p.post(ctx, p.cfg.SearchPath, body)
 	if err != nil {
-		p.breaker.recordFailure()
+		if !isContextError(err) {
+			p.breaker.recordFailure()
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -110,7 +113,9 @@ func (p *HTTPProvider) SyncTurn(ctx context.Context, user, assistant string) err
 
 	resp, err := p.post(ctx, p.cfg.ObservePath, body)
 	if err != nil {
-		p.breaker.recordFailure()
+		if !isContextError(err) {
+			p.breaker.recordFailure()
+		}
 		return err
 	}
 	defer resp.Body.Close()
@@ -134,7 +139,9 @@ func (p *HTTPProvider) OnSessionEnd(ctx context.Context, summary SessionSummary)
 
 	resp, err := p.post(ctx, p.cfg.SessionEndPath, body)
 	if err != nil {
-		p.breaker.recordFailure()
+		if !isContextError(err) {
+			p.breaker.recordFailure()
+		}
 		return err
 	}
 	defer resp.Body.Close()
@@ -181,4 +188,8 @@ type syncTurnRequest struct {
 type sessionEndRequest struct {
 	SessionID string `json:"session_id"`
 	TurnCount int    `json:"turn_count"`
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }

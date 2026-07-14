@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/checkpoint"
@@ -263,7 +264,7 @@ func New(cfg Config, llmClient *llm.Client, registry *tools.Registry, perms *per
 	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter, taskMgr: ag.taskMgr}
 	ag.cpMgr = newCheckpointManager(ag)
 	ag.rc = newReminderCoordinator(ag.taskMgr, cfg.ReminderProducers)
-	ag.memoryInjector = cfg.MemoryInjector
+	ag.memoryInjector = normalizeMemoryInjector(cfg.MemoryInjector)
 	return ag
 }
 
@@ -361,7 +362,7 @@ func (a *Agent) WithMode(mode string) Runner {
 
 	memoryInjector := a.memoryInjector
 	if inj, ok := memoryInjector.(*memory.Injector); ok {
-		memoryInjector = inj.WithManager(cfg.ContextManager)
+		memoryInjector = normalizeMemoryInjector(inj.WithManager(cfg.ContextManager))
 	}
 	cfg.MemoryInjector = memoryInjector
 
@@ -756,4 +757,21 @@ func lastUserText(msgs []models.AgentMessage) string {
 		}
 	}
 	return ""
+}
+
+// normalizeMemoryInjector returns a nil interface value when inj holds a typed-nil
+// concrete pointer. This prevents the agent from storing a non-nil interface that
+// panics when methods are called.
+func normalizeMemoryInjector(inj memory.MemoryInjector) memory.MemoryInjector {
+	if inj == nil {
+		return nil
+	}
+	v := reflect.ValueOf(inj)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func, reflect.Interface:
+		if v.IsNil() {
+			return nil
+		}
+	}
+	return inj
 }

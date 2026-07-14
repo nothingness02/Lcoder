@@ -42,7 +42,11 @@ func (inj *Injector) WithRanker(r Ranker) *Injector {
 // WithProviders attaches external memory providers whose results are merged
 // with local store entries during Prefetch.
 func (inj *Injector) WithProviders(providers ...Provider) *Injector {
-	inj.providers = providers
+	for _, p := range providers {
+		if p != nil {
+			inj.providers = append(inj.providers, p)
+		}
+	}
 	return inj
 }
 

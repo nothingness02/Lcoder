@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -105,22 +106,48 @@ func TestHTTPProviderOnSessionEnd(t *testing.T) {
 
 func TestHTTPProviderTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second)
+		// Outlast the client context deadline so the request is canceled.
+		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p := NewHTTPProvider(HTTPProviderConfig{Endpoint: srv.URL})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := p.Prefetch(ctx, "go")
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Errorf("expected deadline exceeded error, got %v", err)
+	}
+}
+
+func TestHTTPProviderContextCancellationDoesNotTripBreaker(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Intentionally never respond; the request is canceled before the timeout.
 	}))
 	defer srv.Close()
 
 	p := NewHTTPProvider(HTTPProviderConfig{
 		Endpoint: srv.URL,
-		Timeout:  1,
-	})
-	_, err := p.Prefetch(context.Background(), "go")
+		Timeout:  10,
+	}).WithBreaker(newCircuitBreaker(1, 30*time.Second))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := p.Prefetch(ctx, "go")
 	if err == nil {
-		t.Fatal("expected timeout error, got nil")
+		t.Fatal("expected error from canceled context")
 	}
-	msg := err.Error()
-	if !strings.Contains(msg, "context deadline exceeded") && !strings.Contains(msg, "timeout") {
-		t.Errorf("expected timeout error, got %v", err)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+	if !p.Healthy(context.Background()) {
+		t.Fatal("expected provider to remain healthy after context cancellation")
 	}
 }
 
