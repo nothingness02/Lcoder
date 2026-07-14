@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -340,5 +342,55 @@ func TestContextConfigKeepRecentTokens(t *testing.T) {
 	bad.Context.KeepRecentTokens = -1
 	if err := bad.Context.Validate(); err == nil {
 		t.Fatal("negative keep_recent_tokens must be rejected")
+	}
+}
+
+func TestLoadMemoryProviderConfig(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "lcoder.yaml")
+	data := `
+memory:
+  providers:
+    - name: hermes-http
+      type: http
+      config:
+        endpoint: "http://localhost:8000"
+        api_key: "{env:HERMES_TEST_KEY}"
+        timeout: 15
+`
+	if err := os.WriteFile(cfgPath, []byte(data), 0640); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERMES_TEST_KEY", "secret-123")
+
+	// Temporarily point Load to the temp file by changing the working directory.
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Memory.Providers) != 1 {
+		t.Fatalf("expected 1 provider, got %d", len(cfg.Memory.Providers))
+	}
+	p := cfg.Memory.Providers[0]
+	if p.Name != "hermes-http" || p.Type != "http" {
+		t.Fatalf("unexpected provider: %+v", p)
+	}
+	if p.Config.Endpoint != "http://localhost:8000" {
+		t.Fatalf("unexpected endpoint: %q", p.Config.Endpoint)
+	}
+	if p.Config.APIKey != "secret-123" {
+		t.Fatalf("expected api_key expanded, got %q", p.Config.APIKey)
+	}
+	if p.Config.Timeout != 15 {
+		t.Fatalf("expected timeout 15, got %d", p.Config.Timeout)
 	}
 }

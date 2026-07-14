@@ -72,7 +72,7 @@ memory:
   #     type: http
   #     config:
   #       endpoint: "http://localhost:8000"
-  #       api_key: "${HERMES_MEMORY_API_KEY}"
+  #       api_key: "{env:HERMES_MEMORY_API_KEY}"
   #       timeout: 10
   #       search_path: "/search"
   #       observe_path: "/observe"

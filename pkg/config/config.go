@@ -427,7 +427,7 @@ func Load() (Config, error) {
 		return s[len("LCODER_"):]
 	}), nil)
 
-	if err := k.Unmarshal("", &cfg); err != nil {
+	if err := k.UnmarshalWithConf("", &cfg, koanf.UnmarshalConf{Tag: "yaml"}); err != nil {
 		return cfg, fmt.Errorf("unmarshal config: %w", err)
 	}
 
@@ -443,6 +443,9 @@ func Load() (Config, error) {
 
 	// Expand {env:VAR} references in provider connection settings.
 	cfg.Providers = resolveProviders(cfg.Providers)
+
+	// Expand {env:VAR} references in memory provider config.
+	cfg.Memory.Providers = resolveMemoryProviders(cfg.Memory.Providers)
 
 	// Fold the shared model catalog (models.yaml) into the config when present,
 	// so context budgets and capabilities come from a single source of truth.
