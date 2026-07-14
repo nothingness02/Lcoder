@@ -38,11 +38,10 @@ func (r *DefaultRanker) Rank(query string, entries []string) []RankedEntry {
 	if strings.TrimSpace(query) == "" {
 		return nil
 	}
-	lowerQuery := strings.ToLower(query)
 	queryTokens := tokenize(query)
 	var out []RankedEntry
 	for _, e := range entries {
-		score := r.scoreEntry(lowerQuery, queryTokens, e)
+		score := r.scoreEntry(query, queryTokens, e)
 		if score < r.MinScore {
 			continue
 		}
@@ -55,12 +54,11 @@ func (r *DefaultRanker) Rank(query string, entries []string) []RankedEntry {
 }
 
 func (r *DefaultRanker) Score(query, entry string) float64 {
-	lowerQuery := strings.ToLower(query)
 	queryTokens := tokenize(query)
-	return r.scoreEntry(lowerQuery, queryTokens, entry)
+	return r.scoreEntry(query, queryTokens, entry)
 }
 
-func (r *DefaultRanker) scoreEntry(lowerQuery string, queryTokens []string, entry string) float64 {
+func (r *DefaultRanker) scoreEntry(query string, queryTokens []string, entry string) float64 {
 	et := tokenize(entry)
 	if len(queryTokens) == 0 || len(et) == 0 {
 		return 0
@@ -77,6 +75,7 @@ func (r *DefaultRanker) scoreEntry(lowerQuery string, queryTokens []string, entr
 	union := len(qset) + len(eset) - intersection
 	jaccard := float64(intersection) / float64(union)
 
+	lowerQuery := strings.ToLower(query)
 	lowerE := strings.ToLower(entry)
 	exactBonus := 0.0
 	if strings.Contains(lowerE, lowerQuery) {

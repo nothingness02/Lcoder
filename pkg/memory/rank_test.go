@@ -66,10 +66,20 @@ func TestDefaultRankerScoreClamping(t *testing.T) {
 	require.Equal(t, 1.0, r.Score("exact", "exact"))
 }
 
+func TestDefaultRankerStableOrdering(t *testing.T) {
+	r := NewDefaultRanker()
+	entries := []string{"golang one", "golang two"}
+	scores := r.Rank("go", entries)
+	require.Len(t, scores, 2)
+	// Equal scores; stable sort preserves input order.
+	require.Equal(t, "golang one", scores[0].Text)
+	require.Equal(t, "golang two", scores[1].Text)
+}
+
 func TestDefaultRankerPrefixBonus(t *testing.T) {
 	r := NewDefaultRanker()
-	// "kubernetes" is a prefix of "kubernetes-deployment", so it gets a bonus.
-	a := r.Score("kubernetes", "kubernetes-deployment pipeline")
-	b := r.Score("kubernetes", "deployment pipeline")
+	// "auth" is a prefix of "authentication", so it gets a prefix bonus.
+	a := r.Score("auth", "authentication service")
+	b := r.Score("auth", "service")
 	require.Greater(t, a, b)
 }
