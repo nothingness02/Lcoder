@@ -146,6 +146,12 @@ func (b *Builder) WithContextSnapshotRecorder(r *observability.ContextSnapshotRe
 	return b
 }
 
+// WithMemoryInjector sets the per-turn memory prefetch injector.
+func (b *Builder) WithMemoryInjector(inj MemoryInjector) *Builder {
+	b.cfg.MemoryInjector = inj
+	return b
+}
+
 // WithSessionID identifies the session the agent belongs to. Used as the
 // default key for automatic checkpoints.
 func (b *Builder) WithSessionID(id string) *Builder {

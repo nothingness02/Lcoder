@@ -34,6 +34,11 @@ type UserConfirmation interface {
 	ConfirmWithScope(ctx context.Context, info ToolCallInfo) (ConfirmResult, error)
 }
 
+// MemoryInjector recalls relevant memories before each turn.
+type MemoryInjector interface {
+	Prefetch(ctx context.Context, query string) error
+}
+
 // ConfirmScope describes how widely a user-approved permission should apply.
 type ConfirmScope int
 
@@ -95,6 +100,9 @@ type Config struct {
 	// turn. They run at each turn start; their output is injected for that turn
 	// only and discarded at the turn boundary.
 	ReminderProducers []ReminderProducer
+
+	// MemoryInjector prefetches relevant memory entries each turn.
+	MemoryInjector MemoryInjector
 }
 
 // eventEmitter wraps the event bus and observability collector so subsystems
@@ -152,6 +160,7 @@ type Agent struct {
 	rc        *reminderCoordinator
 
 	contextSnapshotRecorder *observability.ContextSnapshotRecorder
+	memoryInjector          MemoryInjector
 }
 
 // State describes the agent runtime state.
@@ -258,6 +267,7 @@ func New(cfg Config, llmClient *llm.Client, registry *tools.Registry, perms *per
 	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter, taskMgr: ag.taskMgr}
 	ag.cpMgr = newCheckpointManager(ag)
 	ag.rc = newReminderCoordinator(ag.taskMgr, cfg.ReminderProducers)
+	ag.memoryInjector = cfg.MemoryInjector
 	return ag
 }
 
@@ -366,6 +376,7 @@ func (a *Agent) WithMode(mode string) Runner {
 		executor:                newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter, a.taskMgr),
 		taskMgr:                 a.taskMgr,
 		contextSnapshotRecorder: a.contextSnapshotRecorder,
+		memoryInjector:          a.memoryInjector,
 	}
 	fresh.cpMgr = newCheckpointManager(fresh)
 	fresh.rc = newReminderCoordinator(fresh.taskMgr, fresh.cfg.ReminderProducers)
@@ -407,6 +418,18 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		a.emit(ctx, events.TurnStartEvent{Base: events.Base{Type: events.TurnStart, Turn: turn}})
 
 		a.refreshEphemeralReminders()
+
+		if a.memoryInjector != nil {
+			if userText := lastUserText(a.mgr.AllMessages()); userText != "" {
+				if err := a.memoryInjector.Prefetch(ctx, userText); err != nil {
+					a.emit(ctx, events.ErrorEvent{
+						Base:    events.Base{Type: events.Error, Turn: turn},
+						Message: "memory prefetch: " + err.Error(),
+					})
+				}
+			}
+		}
+
 		a.maybeCompact(ctx, turn)
 
 		_, tools, modelRef, execMode := a.applyMode()
@@ -696,4 +719,13 @@ func (a *Agent) shouldStop(ctx context.Context, msg models.AgentMessage, toolRes
 		return false
 	}
 	return stop
+}
+
+func lastUserText(msgs []models.AgentMessage) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == models.RoleUser {
+			return msgs[i].Text()
+		}
+	}
+	return ""
 }
