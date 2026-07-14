@@ -2,6 +2,18 @@ package memory
 
 import "context"
 
+// MemoryInjector recalls relevant memories before each turn.
+type MemoryInjector interface {
+	Prefetch(ctx context.Context, query string) error
+}
+
+// MemorySink extends MemoryInjector with turn/session persistence hooks.
+type MemorySink interface {
+	MemoryInjector
+	SyncTurn(ctx context.Context, user, assistant string) error
+	OnSessionEnd(ctx context.Context, summary SessionSummary) error
+}
+
 // Provider supplies memory-related context for a conversation session.
 type Provider interface {
 	// Prefetch returns relevant memory snippets for the given query.

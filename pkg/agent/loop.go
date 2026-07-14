@@ -12,6 +12,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/llm"
+	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/permissions"
@@ -471,6 +472,19 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			ToolResults: toolResults,
 		})
 
+		if sink, ok := a.memoryInjector.(memory.MemorySink); ok {
+			if userText := lastUserText(a.mgr.AllMessages()); userText != "" {
+				if assistantText := assistantMsg.Text(); assistantText != "" {
+					if err := sink.SyncTurn(ctx, userText, assistantText); err != nil {
+						a.emit(ctx, events.ErrorEvent{
+							Base:    events.Base{Type: events.Error, Turn: turn},
+							Message: "memory sync_turn: " + err.Error(),
+						})
+					}
+				}
+			}
+		}
+
 		turn++
 		a.loopState.SetTurn(turn)
 
@@ -497,6 +511,15 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 	if a.contextSnapshotRecorder != nil {
 		if state, err := a.mgr.Snapshot(); err == nil {
 			_ = a.contextSnapshotRecorder.Record(state, "end", turn)
+		}
+	}
+
+	if sink, ok := a.memoryInjector.(memory.MemorySink); ok {
+		if err := sink.OnSessionEnd(ctx, memory.SessionSummary{SessionID: a.cfg.SessionID, TurnCount: int(turn)}); err != nil {
+			a.emit(ctx, events.ErrorEvent{
+				Base:    events.Base{Type: events.Error, Turn: int(turn)},
+				Message: "memory session_end: " + err.Error(),
+			})
 		}
 	}
 
