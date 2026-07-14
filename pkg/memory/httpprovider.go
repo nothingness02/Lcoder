@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -58,7 +59,8 @@ func NewHTTPProvider(cfg HTTPProviderConfig) *HTTPProvider {
 	}
 }
 
-// WithBreaker replaces the provider's circuit breaker. Intended for tests.
+// WithBreaker replaces the provider's circuit breaker. Intended for setup/tests
+// only; it is not safe for concurrent use.
 func (p *HTTPProvider) WithBreaker(b *circuitBreaker) *HTTPProvider {
 	p.breaker = b
 	return p
@@ -85,13 +87,15 @@ func (p *HTTPProvider) Prefetch(ctx context.Context, query string) ([]string, er
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		p.breaker.recordFailure()
-		return nil, fmt.Errorf("memory search returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		resp.Body.Close()
+		return nil, fmt.Errorf("memory search %s%s: status %d: %s", p.cfg.Endpoint, p.cfg.SearchPath, resp.StatusCode, string(body))
 	}
 
 	var decoded prefetchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
 		p.breaker.recordFailure()
-		return nil, err
+		return nil, fmt.Errorf("memory search %s%s: decode response: %w", p.cfg.Endpoint, p.cfg.SearchPath, err)
 	}
 
 	p.breaker.recordSuccess()
@@ -114,7 +118,9 @@ func (p *HTTPProvider) SyncTurn(ctx context.Context, user, assistant string) err
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		p.breaker.recordFailure()
-		return fmt.Errorf("memory observe returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		resp.Body.Close()
+		return fmt.Errorf("memory observe %s%s: status %d: %s", p.cfg.Endpoint, p.cfg.ObservePath, resp.StatusCode, string(body))
 	}
 
 	p.breaker.recordSuccess()
@@ -137,7 +143,9 @@ func (p *HTTPProvider) OnSessionEnd(ctx context.Context, summary SessionSummary)
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		p.breaker.recordFailure()
-		return fmt.Errorf("memory session end returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		resp.Body.Close()
+		return fmt.Errorf("memory session end %s%s: status %d: %s", p.cfg.Endpoint, p.cfg.SessionEndPath, resp.StatusCode, string(body))
 	}
 
 	p.breaker.recordSuccess()
@@ -150,12 +158,12 @@ func (p *HTTPProvider) post(ctx context.Context, path string, body []byte) (*htt
 	if err != nil {
 		return nil, err
 	}
+	for k, v := range p.cfg.Headers {
+		req.Header.Set(k, v)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	if p.cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
-	}
-	for k, v := range p.cfg.Headers {
-		req.Header.Set(k, v)
 	}
 	return p.client.Do(req)
 }
