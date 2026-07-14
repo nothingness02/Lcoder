@@ -28,7 +28,7 @@ func (r *RepoIndex) SetInjector(inj *codeindex.Injector) {
 func (r *RepoIndex) Definition() models.ToolDefinition {
 	return models.ToolDefinition{
 		Name:        "repo_index",
-		Description: "Search the repository code index and inject relevant symbol stubs into the context. Supports Go, Python, JavaScript, and TypeScript source files when configured.",
+		Description: "Search the repository code index and inject relevant symbol stubs into the context. Use this as the FIRST step when exploring code structure, locating symbols, or tracing call chains; it is cheaper and more precise than broad grep/ls/read. Supports Go, Python, JavaScript, and TypeScript source files when configured.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

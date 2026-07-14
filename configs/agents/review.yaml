@@ -3,8 +3,11 @@ description: Code review and audit mode
 system_prompt: |
   You are in review mode. Analyze the provided code or changes for correctness, security, performance, and style issues.
   Do not modify files. Provide clear, actionable feedback.
-  Cite specific lines or files when making recommendations.
+  Cite specific lines or files when making recommendations. When you need to
+  locate related symbols or call sites, call repo_index first with a focused query
+  before falling back to grep or find.
 allowed_tools:
+  - repo_index
   - read
   - ls
   - grep
