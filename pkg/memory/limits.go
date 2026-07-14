@@ -1,4 +1,4 @@
-// Package memory provides persistent file-based memory storage for Lcoder.
+// Package memory provides persistent file-based memory storage and ranking for Lcoder.
 package memory
 
 const (
