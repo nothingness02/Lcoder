@@ -50,6 +50,12 @@ func (inj *Injector) WithProviders(providers ...Provider) *Injector {
 // preserving the store, ranker, token budget, and providers. Used when an
 // agent mode switch clones the context manager.
 func (inj *Injector) WithManager(mgr *contextmgr.Manager) *Injector {
+	if inj == nil {
+		return nil
+	}
+	if mgr == nil {
+		panic("memory.Injector.WithManager: manager is nil")
+	}
 	return &Injector{
 		store:     inj.store,
 		manager:   mgr,
@@ -66,15 +72,15 @@ func (inj *Injector) Prefetch(ctx context.Context, query string) error {
 		return fmt.Errorf("load memory entries: %w", err)
 	}
 
-	var failureSuffix string
+	var failureMsgs []string
 	for _, p := range inj.providers {
 		if !p.Healthy(ctx) {
-			failureSuffix = "external memory provider unavailable"
+			failureMsgs = append(failureMsgs, "external memory provider unavailable")
 			continue
 		}
 		results, err := p.Prefetch(ctx, query)
 		if err != nil {
-			failureSuffix = err.Error()
+			failureMsgs = append(failureMsgs, err.Error())
 			continue
 		}
 		entries = append(entries, results...)
@@ -82,8 +88,9 @@ func (inj *Injector) Prefetch(ctx context.Context, query string) error {
 
 	ranked := inj.ranker.Rank(query, entries)
 	prefix := fmt.Sprintf("// Recalled memory for query %q\n\n", query)
-	if failureSuffix != "" {
-		failureSuffix = fmt.Sprintf("\n\n// External memory provider unavailable: %s", failureSuffix)
+	failureSuffix := ""
+	if len(failureMsgs) > 0 {
+		failureSuffix = "\n\n// External memory provider unavailable: " + strings.Join(failureMsgs, "; ")
 	}
 	selected := inj.budgetResults(ranked, prefix+failureSuffix)
 

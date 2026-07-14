@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/checkpoint"
@@ -364,6 +363,7 @@ func (a *Agent) WithMode(mode string) Runner {
 	if inj, ok := memoryInjector.(*memory.Injector); ok {
 		memoryInjector = inj.WithManager(cfg.ContextManager)
 	}
+	cfg.MemoryInjector = memoryInjector
 
 	fresh := &Agent{
 		cfg:                     cfg,
@@ -424,10 +424,12 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		if !isNilMemoryInjector(a.memoryInjector) {
 			if userText := lastUserText(a.mgr.AllMessages()); userText != "" {
 				if err := a.memoryInjector.Prefetch(ctx, userText); err != nil {
-					a.emit(ctx, events.ErrorEvent{
-						Base:    events.Base{Type: events.Error, Turn: turn},
-						Message: "memory prefetch: " + err.Error(),
-					})
+					if ctx.Err() == nil {
+						a.emit(ctx, events.ErrorEvent{
+							Base:    events.Base{Type: events.Error, Turn: turn},
+							Message: "memory prefetch: " + err.Error(),
+						})
+					}
 				}
 			}
 		}
@@ -477,10 +479,12 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			userText := lastUserText(a.mgr.AllMessages())
 			assistantText := assistantMsg.Text()
 			if err := sink.SyncTurn(ctx, userText, assistantText); err != nil {
-				a.emit(ctx, events.ErrorEvent{
-					Base:    events.Base{Type: events.Error, Turn: turn},
-					Message: "memory sync_turn: " + err.Error(),
-				})
+				if ctx.Err() == nil {
+					a.emit(ctx, events.ErrorEvent{
+						Base:    events.Base{Type: events.Error, Turn: turn},
+						Message: "memory sync_turn: " + err.Error(),
+					})
+				}
 			}
 		}
 
@@ -515,10 +519,12 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 	if sink, ok := a.memoryInjector.(memory.MemorySink); ok && !isNilMemoryInjector(a.memoryInjector) {
 		if err := sink.OnSessionEnd(ctx, memory.SessionSummary{SessionID: a.cfg.SessionID, TurnCount: turn}); err != nil {
-			a.emit(ctx, events.ErrorEvent{
-				Base:    events.Base{Type: events.Error, Turn: turn},
-				Message: "memory session_end: " + err.Error(),
-			})
+			if ctx.Err() == nil {
+				a.emit(ctx, events.ErrorEvent{
+					Base:    events.Base{Type: events.Error, Turn: turn},
+					Message: "memory session_end: " + err.Error(),
+				})
+			}
 		}
 	}
 
@@ -743,14 +749,14 @@ func (a *Agent) shouldStop(ctx context.Context, msg models.AgentMessage, toolRes
 	return stop
 }
 
+// isNilMemoryInjector reports whether inj is nil or a typed-nil *memory.Injector
+// wrapped in the MemoryInjector interface.
 func isNilMemoryInjector(inj memory.MemoryInjector) bool {
 	if inj == nil {
 		return true
 	}
-	v := reflect.ValueOf(inj)
-	switch v.Kind() {
-	case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func, reflect.Interface:
-		return v.IsNil()
+	if typed, ok := inj.(*memory.Injector); ok {
+		return typed == nil
 	}
 	return false
 }

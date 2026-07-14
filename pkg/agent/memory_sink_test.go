@@ -3,15 +3,16 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
+	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/llm/llmtest"
 	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
 	"github.com/lcoder/lcoder/pkg/tools"
-	"github.com/stretchr/testify/require"
 )
 
 type fakeMemorySink struct {
@@ -58,16 +59,31 @@ func TestAgentCallsMemorySinkLifecycle(t *testing.T) {
 	ag := New(cfg, client, registry, perms, bus)
 
 	ctx := context.Background()
-	err := ag.Prompt(ctx, models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hello"}))
-	require.NoError(t, err)
+	if err := ag.Prompt(ctx, models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hello"})); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
 
-	require.Contains(t, sink.prefetchQueries, "hello")
-	require.Len(t, sink.synced, 1)
-	require.Equal(t, "hello", sink.synced[0][0])
-	require.Equal(t, "hello back", sink.synced[0][1])
-	require.Len(t, sink.ended, 1)
-	require.Equal(t, "test-session", sink.ended[0].SessionID)
-	require.Equal(t, 1, sink.ended[0].TurnCount, "expected one completed turn")
+	if !slices.Contains(sink.prefetchQueries, "hello") {
+		t.Errorf("expected prefetch query %q, got %v", "hello", sink.prefetchQueries)
+	}
+	if len(sink.synced) != 1 {
+		t.Fatalf("expected 1 synced turn, got %d", len(sink.synced))
+	}
+	if sink.synced[0][0] != "hello" {
+		t.Errorf("expected user text %q, got %q", "hello", sink.synced[0][0])
+	}
+	if sink.synced[0][1] != "hello back" {
+		t.Errorf("expected assistant text %q, got %q", "hello back", sink.synced[0][1])
+	}
+	if len(sink.ended) != 1 {
+		t.Fatalf("expected 1 session end, got %d", len(sink.ended))
+	}
+	if sink.ended[0].SessionID != "test-session" {
+		t.Errorf("expected session id %q, got %q", "test-session", sink.ended[0].SessionID)
+	}
+	if sink.ended[0].TurnCount != 1 {
+		t.Errorf("expected turn count 1, got %d", sink.ended[0].TurnCount)
+	}
 }
 
 type plainInjector struct{ called bool }
@@ -99,19 +115,22 @@ func TestAgentSkipsSinkHooksForPlainInjector(t *testing.T) {
 	ag := New(cfg, client, registry, perms, bus)
 
 	ctx := context.Background()
-	err := ag.Prompt(ctx, models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hello"}))
-	require.NoError(t, err)
+	if err := ag.Prompt(ctx, models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hello"})); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
 
-	require.True(t, inj.called, "plain injector Prefetch should be called")
+	if !inj.called {
+		t.Error("plain injector Prefetch should be called")
+	}
 }
 
 type errorSink struct {
-	prefetchErr    error
-	syncTurnErr    error
+	prefetchErr     error
+	syncTurnErr     error
 	onSessionEndErr error
 }
 
-func (e *errorSink) Prefetch(ctx context.Context, query string) error { return e.prefetchErr }
+func (e *errorSink) Prefetch(ctx context.Context, query string) error           { return e.prefetchErr }
 func (e *errorSink) SyncTurn(ctx context.Context, user, assistant string) error { return e.syncTurnErr }
 func (e *errorSink) OnSessionEnd(ctx context.Context, summary memory.SessionSummary) error {
 	return e.onSessionEndErr
@@ -150,12 +169,19 @@ func TestAgentMemorySinkErrorsEmitErrorEvents(t *testing.T) {
 	ag := New(cfg, client, registry, perms, bus)
 
 	ctx := context.Background()
-	err := ag.Prompt(ctx, models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hello"}))
-	require.NoError(t, err)
+	if err := ag.Prompt(ctx, models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hello"})); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
 
-	require.Contains(t, errorMessages, "memory prefetch: prefetch failed")
-	require.Contains(t, errorMessages, "memory sync_turn: sync failed")
-	require.Contains(t, errorMessages, "memory session_end: session end failed")
+	for _, want := range []string{
+		"memory prefetch: prefetch failed",
+		"memory sync_turn: sync failed",
+		"memory session_end: session end failed",
+	} {
+		if !slices.Contains(errorMessages, want) {
+			t.Errorf("expected error message %q in %v", want, errorMessages)
+		}
+	}
 }
 
 func TestAgentTypedNilInjectorDoesNotPanic(t *testing.T) {
@@ -178,6 +204,34 @@ func TestAgentTypedNilInjectorDoesNotPanic(t *testing.T) {
 	ag := New(cfg, client, registry, perms, bus)
 
 	ctx := context.Background()
-	err := ag.Prompt(ctx, models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hello"}))
-	require.NoError(t, err)
+	if err := ag.Prompt(ctx, models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hello"})); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+}
+
+func TestAgentWithModeTypedNilInjectorDoesNotPanic(t *testing.T) {
+	client := llmtest.Client(llmtest.Turn(
+		llmtest.Done(models.AssistantMessage("hi"), nil),
+	))
+
+	bus := events.New()
+	registry := tools.NewRegistry(".")
+	perms := permissions.NewEngine(permissions.DefaultConfig())
+	cfg := Config{
+		SystemPrompt:      "You are helpful.",
+		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		ToolExecutionMode: models.ExecutionParallel,
+		MemoryInjector:    (*memory.Injector)(nil),
+		ContextManager:    contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192}),
+	}
+	ag := New(cfg, client, registry, perms, bus)
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("WithMode panicked: %v", r)
+			}
+		}()
+		_ = ag.WithMode("explore")
+	}()
 }
