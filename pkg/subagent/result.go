@@ -9,6 +9,14 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
+func unmarshalEvent[T events.Event](line []byte) (events.Event, error) {
+	var e T
+	if err := json.Unmarshal(line, &e); err != nil {
+		return e, fmt.Errorf("unmarshal %T event: %w", e, err)
+	}
+	return e, nil
+}
+
 // ParseEventLine parses one JSONL event line into a concrete events.Event.
 func ParseEventLine(line []byte) (events.Event, error) {
 	var disc struct {
@@ -20,67 +28,40 @@ func ParseEventLine(line []byte) (events.Event, error) {
 
 	switch events.EventType(disc.Type) {
 	case events.AgentStart:
-		var e events.AgentStartEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.AgentStartEvent](line)
 	case events.AgentEnd:
-		var e events.AgentEndEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.AgentEndEvent](line)
 	case events.TurnStart:
-		var e events.TurnStartEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.TurnStartEvent](line)
 	case events.TurnEnd:
-		var e events.TurnEndEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.TurnEndEvent](line)
 	case events.MessageStart:
-		var e events.MessageStartEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.MessageStartEvent](line)
 	case events.MessageEnd:
-		var e events.MessageEndEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.MessageEndEvent](line)
 	case events.MessageUpdate:
-		var e events.MessageUpdateEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.MessageUpdateEvent](line)
 	case events.ToolExecutionStart:
-		var e events.ToolExecutionStartEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.ToolExecutionStartEvent](line)
 	case events.ToolExecutionUpdate:
-		var e events.ToolExecutionUpdateEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.ToolExecutionUpdateEvent](line)
 	case events.ToolExecutionEnd:
-		var e events.ToolExecutionEndEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.ToolExecutionEndEvent](line)
 	case events.Error:
-		var e events.ErrorEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.ErrorEvent](line)
 	case events.Audit:
-		var e events.AuditEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.AuditEvent](line)
 	case events.CompactionStarted:
-		var e events.CompactionStartedEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.CompactionStartedEvent](line)
 	case events.CompactionCommitted:
-		var e events.CompactionCommittedEvent
-		err := json.Unmarshal(line, &e)
-		return e, err
+		return unmarshalEvent[events.CompactionCommittedEvent](line)
 	default:
 		return nil, fmt.Errorf("unknown event type: %s", disc.Type)
 	}
 }
 
 // ExtractFinalAnswer parses JSONL output and returns the last assistant message text.
+// If no assistant message is found, it returns an empty string and a nil error.
 func ExtractFinalAnswer(output []byte) (string, error) {
 	lines := bytes.Split(bytes.TrimSpace(output), []byte("\n"))
 	for i := len(lines) - 1; i >= 0; i-- {
