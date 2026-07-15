@@ -17,7 +17,7 @@ func (c *SystemLogComponent) Kind() BlockKind { return BlockSystem }
 
 func (c *SystemLogComponent) Height(width int, expanded bool) int {
 	if c.raw == "" {
-		return 0
+		return 1
 	}
 	return lipgloss.Height(c.Render(width, expanded))
 }

@@ -20,6 +20,31 @@ func (s staticComponent) Render(width int, expanded bool) string {
 	return strings.Repeat(s.text+"\n", s.lines)
 }
 
+func TestVirtualViewportPreservesTotalHeight(t *testing.T) {
+	comps := []components.BlockComponent{
+		staticComponent{id: "a", lines: 3, text: "A"},
+		staticComponent{id: "b", lines: 2, text: "B"},
+		staticComponent{id: "c", lines: 4, text: "C"},
+		staticComponent{id: "d", lines: 1, text: "D"},
+	}
+	totalHeight := 3 + 2 + 4 + 1
+
+	lineCount := func(s string) int {
+		if s == "" {
+			return 0
+		}
+		return strings.Count(s, "\n") + 1
+	}
+
+	for scrollY := 0; scrollY <= totalHeight; scrollY++ {
+		content := buildVirtualContent(comps, 80, 5, scrollY, false)
+		got := lineCount(content)
+		if got != totalHeight {
+			t.Fatalf("scrollY=%d: expected %d lines, got %d", scrollY, totalHeight, got)
+		}
+	}
+}
+
 func TestVirtualViewportRendersOnlyVisible(t *testing.T) {
 	comps := []components.BlockComponent{
 		staticComponent{id: "a", lines: 5, text: "A"},

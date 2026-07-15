@@ -36,22 +36,26 @@ func buildVirtualContent(comps []components.BlockComponent, width, height, scrol
 	startLine := scrollY
 	endLine := scrollY + height
 
-	var sb strings.Builder
+	allLines := make([]string, 0)
 	for _, layout := range layouts {
 		compStart := layout.offset
 		compEnd := layout.offset + layout.height
 		if compEnd <= startLine || compStart >= endLine {
 			// Off-screen: emit blank lines to preserve total height.
 			for range layout.height {
-				sb.WriteString("\n")
+				allLines = append(allLines, "")
 			}
 			continue
 		}
-		rendered := layout.comp.Render(width, expanded)
-		sb.WriteString(rendered)
-		if !strings.HasSuffix(rendered, "\n") {
-			sb.WriteString("\n")
+		rendered := strings.TrimRight(layout.comp.Render(width, expanded), "\n")
+		lines := strings.Split(rendered, "\n")
+		for len(lines) < layout.height {
+			lines = append(lines, "")
 		}
+		if len(lines) > layout.height {
+			lines = lines[:layout.height]
+		}
+		allLines = append(allLines, lines...)
 	}
-	return sb.String()
+	return strings.Join(allLines, "\n")
 }
