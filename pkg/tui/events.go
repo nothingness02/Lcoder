@@ -223,4 +223,3 @@ func mcpServers(reg *mcp.Registry) []mcp.ServerStatus {
 	}
 	return reg.Servers()
 }
-

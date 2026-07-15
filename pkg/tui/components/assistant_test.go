@@ -53,13 +53,18 @@ func TestAssistantComponentSetContent(t *testing.T) {
 }
 
 func TestAssistantComponentUpdateToggleExpanded(t *testing.T) {
-	comp := NewAssistantComponent("a1", "thinking", "content", nil)
-	if comp.expanded {
-		t.Fatal("expected collapsed by default")
+	// Use a long first line so the collapsed preview is truncated and hides
+	// the second line, letting us verify the toggle actually changes output.
+	comp := NewAssistantComponent("a1", strings.Repeat("a", 250)+"\nline two", "content", nil)
+	collapsed := comp.Render(40, false)
+	if strings.Contains(collapsed, "line two") {
+		t.Fatalf("collapsed thinking should not show full trace: %q", collapsed)
 	}
+
 	updated, _ := comp.Update(ToggleExpandedMsg{})
 	ac := updated.(*AssistantComponent)
-	if !ac.expanded {
-		t.Fatal("expected expanded after toggle")
+	expanded := ac.Render(40, false)
+	if !strings.Contains(expanded, "line two") {
+		t.Fatalf("expanded thinking should show full trace: %q", expanded)
 	}
 }

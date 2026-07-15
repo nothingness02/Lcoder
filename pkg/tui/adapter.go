@@ -43,8 +43,8 @@ type fallbackComponent struct {
 	b block
 }
 
-func (f fallbackComponent) ID() string                     { return f.b.id }
-func (f fallbackComponent) Kind() components.BlockKind     { return f.b.kind }
+func (f fallbackComponent) ID() string                 { return f.b.id }
+func (f fallbackComponent) Kind() components.BlockKind { return f.b.kind }
 func (f fallbackComponent) Height(width int, expanded bool) int {
 	lines := len(splitLines(f.b.render(width, expanded)))
 	if lines == 0 {
@@ -52,7 +52,9 @@ func (f fallbackComponent) Height(width int, expanded bool) int {
 	}
 	return lines
 }
-func (f fallbackComponent) Render(width int, expanded bool) string { return f.b.render(width, expanded) }
+func (f fallbackComponent) Render(width int, expanded bool) string {
+	return f.b.render(width, expanded)
+}
 
 func splitLines(s string) []string {
 	if s == "" {

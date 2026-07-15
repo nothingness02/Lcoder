@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lcoder/lcoder/pkg/tui/markdown"
+	"github.com/mattn/go-runewidth"
 )
 
 // UsageInfo carries token and cost metadata for an assistant message.
@@ -43,13 +44,15 @@ func (c *AssistantComponent) ID() string      { return c.id }
 func (c *AssistantComponent) Kind() BlockKind { return BlockAssistant }
 
 func (c *AssistantComponent) Height(width int, expanded bool) int {
-	return lipgloss.Height(c.Render(width, expanded))
+	effectiveExpanded := expanded || c.expanded
+	return lipgloss.Height(c.Render(width, effectiveExpanded))
 }
 
 func (c *AssistantComponent) Render(width int, expanded bool) string {
+	effectiveExpanded := expanded || c.expanded
 	var sb strings.Builder
 	if c.thinking != "" {
-		sb.WriteString(c.renderThinking(width, expanded))
+		sb.WriteString(c.renderThinking(effectiveExpanded))
 		sb.WriteString("\n\n")
 	}
 	for i, n := range c.nodes {
@@ -83,7 +86,7 @@ func (c *AssistantComponent) SetContent(content string) {
 // renderThinking renders the assistant's reasoning trace. Compact mode shows a
 // dimmed one-line preview (whitespace collapsed, clipped to 200 cells);
 // expanded mode shows the full multi-line trace under a "Thinking:" header.
-func (c *AssistantComponent) renderThinking(width int, expanded bool) string {
+func (c *AssistantComponent) renderThinking(expanded bool) string {
 	style := styleDim().Italic(true)
 	if !expanded {
 		preview := strings.Join(strings.Fields(c.thinking), " ")
@@ -91,7 +94,7 @@ func (c *AssistantComponent) renderThinking(width int, expanded bool) string {
 	}
 	var sb strings.Builder
 	sb.WriteString(style.Render("Thinking:"))
-	for _, ln := range strings.Split(strings.TrimRight(c.thinking, "\n"), "\n") {
+	for ln := range strings.SplitSeq(strings.TrimRight(c.thinking, "\n"), "\n") {
 		sb.WriteString("\n")
 		sb.WriteString(style.Render("  " + ln))
 	}
@@ -107,5 +110,15 @@ func truncate(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	return s[:width-1] + "…"
+	var runes []rune
+	w := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if w+rw > width-1 {
+			break
+		}
+		w += rw
+		runes = append(runes, r)
+	}
+	return string(runes) + "…"
 }

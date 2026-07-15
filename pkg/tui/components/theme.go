@@ -8,5 +8,4 @@ var (
 	colorUserBar   = lipgloss.AdaptiveColor{Light: "254", Dark: "237"}
 )
 
-func styleDim() lipgloss.Style       { return lipgloss.NewStyle().Foreground(colorDim) }
-func styleSecondary() lipgloss.Style { return lipgloss.NewStyle().Foreground(colorSecondary) }
+func styleDim() lipgloss.Style { return lipgloss.NewStyle().Foreground(colorDim) }
