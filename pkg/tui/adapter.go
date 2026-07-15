@@ -7,10 +7,15 @@ import (
 )
 
 // toComponent converts an internal data block into a renderable component.
-// For now all kinds fall back to the legacy block renderer; System/User
-// components will be introduced in the next task.
 func toComponent(b block) components.BlockComponent {
-	return fallbackComponent{b: b}
+	switch b.kind {
+	case components.BlockSystem:
+		return components.NewSystemLogComponent(b.id, b.raw)
+	case components.BlockUser:
+		return components.NewUserComponent(b.id, b.raw, b.attachments)
+	default:
+		return fallbackComponent{b: b}
+	}
 }
 
 // componentsFromBlocks converts a slice of blocks in order.
