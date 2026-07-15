@@ -1,4 +1,8 @@
-# Subagent Extension Example
+# Subagent Extension Example (Plugin / Reference)
+
+> **Note:** `subagent` is now available as a **built-in tool** in Lcoder (`pkg/tools/builtin`).
+> The built-in version is the recommended path because it requires no CGO/plugin build and works on all platforms.
+> This directory remains as a reference implementation of a Go plugin extension.
 
 This example provides a Go plugin extension that adds a `subagent` tool to Lcoder.
 The tool delegates work to other Lcoder agents defined in the current project.

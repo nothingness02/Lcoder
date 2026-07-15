@@ -30,6 +30,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/sandbox"
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
+	"github.com/lcoder/lcoder/pkg/subagent"
 	"github.com/lcoder/lcoder/pkg/tools"
 	builtinTools "github.com/lcoder/lcoder/pkg/tools/builtin"
 	"github.com/lcoder/lcoder/pkg/tui"
@@ -181,6 +182,13 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 	if memStore != nil {
 		registry.Register("memory", builtinTools.NewMemory(cwd, memStore))
+	}
+	if cfg.Subagent.Enabled {
+		runner, err := subagent.NewRunner(cwd)
+		if err != nil {
+			return nil, fmt.Errorf("init subagent runner: %w", err)
+		}
+		registry.Register("subagent", builtinTools.NewSubagent(cwd, runner))
 	}
 	for _, cfgTool := range cfg.HTTPTools {
 		registry.Register(cfgTool.Name, tools.NewHTTPExecutable(tools.HTTPConfig{

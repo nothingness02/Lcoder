@@ -28,6 +28,9 @@ func (c Config) Validate() error {
 	if err := c.CodeIndex.Validate(); err != nil {
 		return fmt.Errorf("code_index: %w", err)
 	}
+	if err := c.Subagent.Validate(); err != nil {
+		return fmt.Errorf("subagent: %w", err)
+	}
 	for i, ht := range c.HTTPTools {
 		if err := ht.Validate(); err != nil {
 			return fmt.Errorf("http_tools[%d]: %w", i, err)
@@ -149,6 +152,11 @@ func (c CodeIndexConfig) Validate() error {
 	if c.MaxTokens < 0 {
 		return fmt.Errorf("max_tokens must be non-negative")
 	}
+	return nil
+}
+
+// Validate checks subagent settings.
+func (c SubagentConfig) Validate() error {
 	return nil
 }
 
