@@ -24,6 +24,17 @@ func toComponent(b block) components.BlockComponent {
 			}
 		}
 		return components.NewAssistantComponent(b.id, b.thinking, b.raw, usage)
+	case components.BlockTool:
+		return components.NewToolResultComponent(
+			b.id,
+			b.toolName,
+			b.toolArgs,
+			b.toolResult,
+			b.toolErr,
+			b.toolRunning,
+			b.toolStart,
+			b.elapsed,
+		)
 	default:
 		return fallbackComponent{b: b}
 	}

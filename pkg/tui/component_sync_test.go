@@ -54,8 +54,11 @@ func TestFinishToolRebuildsComponent(t *testing.T) {
 	if m.blocks[0].toolResult != "done" {
 		t.Fatalf("block toolResult = %q, want done", m.blocks[0].toolResult)
 	}
-	fb := m.components[0].(fallbackComponent)
-	if fb.b.toolResult != "done" {
-		t.Fatalf("component toolResult = %q, want done", fb.b.toolResult)
+	tr, ok := m.components[0].(*components.ToolResultComponent)
+	if !ok {
+		t.Fatalf("component type = %T, want *components.ToolResultComponent", m.components[0])
+	}
+	if !strings.Contains(tr.Render(40, false), "done") {
+		t.Fatalf("component did not update content: %q", tr.Render(40, false))
 	}
 }

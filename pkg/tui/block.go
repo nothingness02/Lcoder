@@ -70,20 +70,6 @@ func (b block) render(width int, expanded bool) string {
 			sb.WriteString(styleDim().Render(fmt.Sprintf(" · %d tokens · $%.4f", b.usage.totalTokens, b.usage.cost)))
 		}
 		return sb.String()
-	case components.BlockTool:
-		elapsed := b.elapsed
-		if b.toolRunning {
-			elapsed = time.Since(b.toolStart)
-		}
-		full := b.toolResult
-		if full == "" {
-			full = b.raw
-		}
-		preview := toolPreview(full, 3, 80)
-		if expanded {
-			return formatExpandedToolResult(b.toolName, b.toolArgs, b.toolErr, full, elapsed, b.toolRunning)
-		}
-		return formatCompactToolResult(b.toolName, b.toolArgs, b.toolErr, preview, elapsed, b.toolRunning)
 	default: // components.BlockSystem
 		return styleDim().Italic(true).Render(b.raw)
 	}
