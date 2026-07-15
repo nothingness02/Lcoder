@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 var (
@@ -28,41 +29,30 @@ func warmBackgroundColor() { _ = isDarkBackground() }
 // Semantic palette. Every color is an AdaptiveColor so the TUI stays readable on
 // both dark and light terminals. Light = value shown on a light background.
 var (
-	colorDim       = lipgloss.AdaptiveColor{Light: "240", Dark: "245"}
-	colorSecondary = lipgloss.AdaptiveColor{Light: "236", Dark: "252"}
-	colorFaint     = lipgloss.AdaptiveColor{Light: "252", Dark: "237"}
-	colorSuccess   = lipgloss.AdaptiveColor{Light: "28", Dark: "42"}
-	colorError     = lipgloss.AdaptiveColor{Light: "160", Dark: "196"}
-	// colorAccent — Lcoder frost cyan (Nord). Dark #88C0D0, Light #5E81AC.
-	colorAccent     = lipgloss.AdaptiveColor{Light: "#5E81AC", Dark: "#88C0D0"}
+	colorDim        = components.ColorDim
+	colorSecondary  = components.ColorSecondary
+	colorFaint      = lipgloss.AdaptiveColor{Light: "252", Dark: "237"}
+	colorError      = components.ColorError
+	colorAccent     = components.ColorAccent
 	colorSelect     = lipgloss.AdaptiveColor{Light: "25", Dark: "111"}
 	colorSelectDesc = lipgloss.AdaptiveColor{Light: "242", Dark: "146"}
-	// colorUserBar — subtle background tint for the full-width user bar.
-	colorUserBar = lipgloss.AdaptiveColor{Light: "254", Dark: "237"}
+	colorUserBar    = components.ColorUserBar
 )
 
-// accentPreset is a selectable accent for /color. Only colorAccent is swapped.
+// accentPreset parametrizes a swap of the accent token.
 type accentPreset struct {
 	name        string
-	desc        string
 	dark, light string
 }
 
-var accentPresets = []accentPreset{
-	{"frost", "cyan (default)", "#88C0D0", "#5E81AC"},
-	{"ocean", "calm blue", "#5CA8FF", "#1060C9"},
-	{"aurora", "green", "#A3BE8C", "#1A8A3A"},
-	{"sunset", "warm orange", "#FF9C5C", "#C95A10"},
-	{"violet", "purple", "#B98CFF", "#6A30C9"},
-}
-
 func applyAccent(p accentPreset) {
-	colorAccent = lipgloss.AdaptiveColor{Light: p.light, Dark: p.dark}
+	components.ColorAccent = lipgloss.AdaptiveColor{Light: p.light, Dark: p.dark}
+	colorAccent = components.ColorAccent
 }
 
-func styleDim() lipgloss.Style       { return lipgloss.NewStyle().Foreground(colorDim) }
-func styleSecondary() lipgloss.Style { return lipgloss.NewStyle().Foreground(colorSecondary) }
+func styleDim() lipgloss.Style       { return components.StyleDim() }
+func styleSecondary() lipgloss.Style { return components.StyleSecondary() }
 func styleFaint() lipgloss.Style     { return lipgloss.NewStyle().Foreground(colorFaint) }
-func styleSuccess() lipgloss.Style   { return lipgloss.NewStyle().Foreground(colorSuccess) }
-func styleError() lipgloss.Style     { return lipgloss.NewStyle().Foreground(colorError) }
-func styleAccent() lipgloss.Style    { return lipgloss.NewStyle().Foreground(colorAccent) }
+func styleSuccess() lipgloss.Style   { return components.StyleSuccess() }
+func styleError() lipgloss.Style     { return components.StyleError() }
+func styleAccent() lipgloss.Style    { return components.StyleAccent() }
