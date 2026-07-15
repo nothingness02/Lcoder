@@ -1,7 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"testing"
 
+	"github.com/lcoder/lcoder/pkg/tui/components"
+)
 func TestDeriveSuggestion_Gating(t *testing.T) {
 	// No completed turns: no suggestion.
 	if s := deriveSuggestion(0, nil); s != "" {
@@ -10,7 +13,7 @@ func TestDeriveSuggestion_Gating(t *testing.T) {
 }
 
 func TestDeriveSuggestion_QuestionPromptsAffirmative(t *testing.T) {
-	last := &block{kind: BlockAssistant, raw: "Do you want me to run the tests?"}
+	last := &block{kind: components.BlockAssistant, raw: "Do you want me to run the tests?"}
 	s := deriveSuggestion(1, last)
 	if s == "" {
 		t.Fatalf("want a suggestion after a question, got empty")

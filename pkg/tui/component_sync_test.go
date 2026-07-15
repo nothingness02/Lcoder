@@ -4,11 +4,12 @@ import (
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 func TestPatchAssistantRebuildsComponent(t *testing.T) {
 	m := &Model{streamMsgID: "a1"}
-	m.blocks = []block{{kind: BlockAssistant, id: "a1", raw: "old"}}
+	m.blocks = []block{{kind: components.BlockAssistant, id: "a1", raw: "old"}}
 	m.components = componentsFromBlocks(m.blocks)
 	m.patchAssistant("new")
 	if m.blocks[0].raw != "new" {
@@ -25,7 +26,7 @@ func TestPatchAssistantRebuildsComponent(t *testing.T) {
 
 func TestCommitAssistantRebuildsComponent(t *testing.T) {
 	m := &Model{}
-	m.blocks = []block{{kind: BlockAssistant, id: "a1", raw: "draft"}}
+	m.blocks = []block{{kind: components.BlockAssistant, id: "a1", raw: "draft"}}
 	m.components = componentsFromBlocks(m.blocks)
 	m.commitAssistant("a1", "final", "think", nil)
 	if m.blocks[0].raw != "final" {
@@ -39,7 +40,7 @@ func TestCommitAssistantRebuildsComponent(t *testing.T) {
 
 func TestFinishToolRebuildsComponent(t *testing.T) {
 	m := &Model{}
-	m.blocks = []block{{kind: BlockTool, id: "t1", toolName: "bash"}}
+	m.blocks = []block{{kind: components.BlockTool, id: "t1", toolName: "bash"}}
 	m.components = componentsFromBlocks(m.blocks)
 	m.finishTool("t1", "bash", models.NewToolExecutionResultText("done"), false)
 	if m.blocks[0].toolResult != "done" {

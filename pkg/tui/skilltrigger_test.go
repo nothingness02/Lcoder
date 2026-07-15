@@ -9,6 +9,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/skills"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 // newSkillModel builds a model with one loaded skill for trigger tests.
@@ -54,7 +55,7 @@ func TestSubmitManualSkillTrigger(t *testing.T) {
 	}
 	var activated bool
 	for _, b := range m.blocks {
-		if b.kind == BlockSystem && strings.Contains(b.raw, "activated skill: tester") {
+		if b.kind == components.BlockSystem && strings.Contains(b.raw, "activated skill: tester") {
 			activated = true
 		}
 	}

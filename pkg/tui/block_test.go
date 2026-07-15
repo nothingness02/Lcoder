@@ -5,10 +5,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 func TestRenderUserBlock(t *testing.T) {
-	b := block{kind: BlockUser, raw: "hello world"}
+	b := block{kind: components.BlockUser, raw: "hello world"}
 	out := b.render(80, false)
 	if !strings.Contains(out, "hello world") {
 		t.Fatalf("user block missing text: %q", out)
@@ -16,7 +18,7 @@ func TestRenderUserBlock(t *testing.T) {
 }
 
 func TestRenderAssistantBlockMarkdown(t *testing.T) {
-	b := block{kind: BlockAssistant, raw: "# Hi\n\ntext"}
+	b := block{kind: components.BlockAssistant, raw: "# Hi\n\ntext"}
 	out := b.render(80, false)
 	if strings.Contains(out, "# Hi") {
 		t.Fatal("assistant block did not render markdown")
@@ -29,7 +31,7 @@ func TestRenderToolBlockCompactVsExpanded(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("line%d", i))
 	}
 	b := block{
-		kind:       BlockTool,
+		kind:       components.BlockTool,
 		toolName:   "bash",
 		toolArgs:   `{"command":"ls"}`,
 		toolResult: strings.Join(lines, "\n"),
@@ -54,7 +56,7 @@ func TestRenderToolBlockCompactVsExpanded(t *testing.T) {
 
 func TestRenderExpandedToolBlockShowsFormattedArgs(t *testing.T) {
 	b := block{
-		kind:       BlockTool,
+		kind:       components.BlockTool,
 		toolName:   "bash",
 		toolArgs:   `{"command":"ls -la","path":"."}`,
 		toolResult: "ok",
@@ -73,7 +75,7 @@ func TestRenderExpandedToolBlockShowsFormattedArgs(t *testing.T) {
 }
 
 func TestRenderRunningToolBlockNoSuccessIcon(t *testing.T) {
-	b := block{kind: BlockTool, toolName: "bash", toolArgs: `{"command":"ls"}`, toolRunning: true, toolStart: time.Now().Add(-200 * time.Millisecond)}
+	b := block{kind: components.BlockTool, toolName: "bash", toolArgs: `{"command":"ls"}`, toolRunning: true, toolStart: time.Now().Add(-200 * time.Millisecond)}
 	out := b.render(80, false)
 	if strings.Contains(out, "✓") {
 		t.Fatalf("running tool block should not show success icon: %q", out)
@@ -85,7 +87,7 @@ func TestRenderRunningToolBlockNoSuccessIcon(t *testing.T) {
 
 func TestRenderAssistantThinkingCompactVsExpanded(t *testing.T) {
 	thinking := "line one\nline two\nline three with a lot of extra detail that only matters when fully expanded"
-	b := block{kind: BlockAssistant, raw: "answer", thinking: thinking}
+	b := block{kind: components.BlockAssistant, raw: "answer", thinking: thinking}
 	compact := b.render(80, false)
 	expanded := b.render(80, true)
 	if compact == expanded {
@@ -102,7 +104,7 @@ func TestRenderAssistantThinkingCompactVsExpanded(t *testing.T) {
 }
 
 func TestRenderSystemBlock(t *testing.T) {
-	b := block{kind: BlockSystem, raw: "switched mode"}
+	b := block{kind: components.BlockSystem, raw: "switched mode"}
 	if out := b.render(80, false); !strings.Contains(out, "switched mode") {
 		t.Fatalf("system block missing text: %q", out)
 	}

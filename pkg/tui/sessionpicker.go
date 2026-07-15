@@ -25,6 +25,7 @@ func (s SessionItem) Description() string {
 type SessionStore interface {
 	List(cwd string) ([]session.Session, error)
 	LoadByID(cwd, id string) (*session.Session, error)
+	Create(cwd string) (*session.Session, error)
 }
 
 // SessionPickerModel is an overlay for selecting sessions.

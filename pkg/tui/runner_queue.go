@@ -92,3 +92,9 @@ func (q *runnerQueue) Results() <-chan tea.Msg {
 func (q *runnerQueue) SetAgent(agent AgentRunner) {
 	q.agent = agent
 }
+
+// SetSession updates the session target. Used after switching or creating a
+// session so subsequent prompts append to the correct conversation.
+func (q *runnerQueue) SetSession(session SessionWriter) {
+	q.session = session
+}

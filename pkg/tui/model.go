@@ -14,6 +14,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 // uiState is the explicit state-machine enum for the top-level model.
@@ -50,7 +51,7 @@ type Model struct {
 
 	// Conversation history, rebuilt into the viewport each frame.
 	blocks     []block
-	components []BlockComponent
+	components []components.BlockComponent
 	viewport   viewport.Model
 
 	// Streaming state for the in-flight assistant message.
@@ -252,13 +253,13 @@ func (m *Model) appendBlock(b block) {
 
 // addSystem appends a dim system line.
 func (m *Model) addSystem(text string) {
-	m.appendBlock(block{kind: BlockSystem, raw: text})
+	m.appendBlock(block{kind: components.BlockSystem, raw: text})
 }
 
 // addUser appends a full-width user bar, tagging any resolvable @file mentions
 // as attachments shown beneath the bar.
 func (m *Model) addUser(text string) {
-	m.appendBlock(block{kind: BlockUser, raw: text, attachments: mentionLabels(m.cwd, text)})
+	m.appendBlock(block{kind: components.BlockUser, raw: text, attachments: mentionLabels(m.cwd, text)})
 }
 
 // updateSizes recomputes layout after a resize, reserving the task sidebar's

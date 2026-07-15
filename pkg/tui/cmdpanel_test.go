@@ -11,6 +11,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/skills"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 func TestCmdPanelHelpShowsPanelNotBlock(t *testing.T) {
@@ -25,7 +26,7 @@ func TestCmdPanelHelpShowsPanelNotBlock(t *testing.T) {
 		t.Fatalf("expected text panel, got %v", m.cmdPanel.kind)
 	}
 	for _, b := range m.blocks {
-		if b.kind == BlockSystem {
+		if b.kind == components.BlockSystem {
 			t.Fatalf("expected no system block, got %q", b.raw)
 		}
 	}

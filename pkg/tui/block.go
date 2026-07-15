@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 // block is one rendered unit of conversation history.
 type block struct {
-	kind BlockKind
+	kind components.BlockKind
 	id   string // message ID or tool-call ID (for in-place updates)
 	raw  string // user text / assistant markdown / tool result content
 
@@ -43,7 +44,7 @@ type blockUsage struct {
 // args/result body on tool blocks.
 func (b block) render(width int, expanded bool) string {
 	switch b.kind {
-	case BlockUser:
+	case components.BlockUser:
 		bar := lipgloss.NewStyle().
 			Background(colorUserBar).
 			Foreground(colorSecondary).
@@ -57,7 +58,7 @@ func (b block) render(width int, expanded bool) string {
 			sb.WriteString(styleDim().Render(seg))
 		}
 		return sb.String()
-	case BlockAssistant:
+	case components.BlockAssistant:
 		var sb strings.Builder
 		if b.thinking != "" {
 			sb.WriteString(renderThinking(b.thinking, expanded))
@@ -69,7 +70,7 @@ func (b block) render(width int, expanded bool) string {
 			sb.WriteString(styleDim().Render(fmt.Sprintf(" · %d tokens · $%.4f", b.usage.totalTokens, b.usage.cost)))
 		}
 		return sb.String()
-	case BlockTool:
+	case components.BlockTool:
 		elapsed := b.elapsed
 		if b.toolRunning {
 			elapsed = time.Since(b.toolStart)
@@ -83,7 +84,7 @@ func (b block) render(width int, expanded bool) string {
 			return formatExpandedToolResult(b.toolName, b.toolArgs, b.toolErr, full, elapsed, b.toolRunning)
 		}
 		return formatCompactToolResult(b.toolName, b.toolArgs, b.toolErr, preview, elapsed, b.toolRunning)
-	default: // BlockSystem
+	default: // components.BlockSystem
 		return styleDim().Italic(true).Render(b.raw)
 	}
 }

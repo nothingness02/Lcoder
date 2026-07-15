@@ -1,9 +1,8 @@
-package tui
+package components
 
 import tea "github.com/charmbracelet/bubbletea"
 
-// BlockKind is the type of a conversation block. Exported as a named type so
-// external renderers (e.g. a web renderer) can identify block categories.
+// BlockKind is the type of a conversation block.
 type BlockKind int
 
 const (

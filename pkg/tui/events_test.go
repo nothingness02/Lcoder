@@ -6,6 +6,7 @@ import (
 
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 func TestCompactionIndicatorLifecycle(t *testing.T) {
@@ -60,7 +61,7 @@ func TestTurnEndEventAddsToolSummaryBelowToolCalls(t *testing.T) {
 		t.Fatalf("expected summary block appended right after tools, got %d blocks (want %d)", len(m.blocks), toolCount+1)
 	}
 	last := m.blocks[len(m.blocks)-1]
-	if last.kind != BlockSystem {
+	if last.kind != components.BlockSystem {
 		t.Fatalf("expected system summary block, got %v", last.kind)
 	}
 	if !strings.Contains(last.raw, "1 tool") {
@@ -112,7 +113,7 @@ func TestMessageEndUsesStreamingBlockID(t *testing.T) {
 	var assistantBlocks int
 	var lastRaw string
 	for _, b := range m.blocks {
-		if b.kind == BlockAssistant {
+		if b.kind == components.BlockAssistant {
 			assistantBlocks++
 			lastRaw = b.raw
 		}
@@ -150,10 +151,10 @@ func TestToolSummaryAppearsBeforeNextAssistantMessage(t *testing.T) {
 	}
 	summaryIdx := len(m.blocks) - 2
 	assistantIdx := len(m.blocks) - 1
-	if m.blocks[summaryIdx].kind != BlockSystem {
+	if m.blocks[summaryIdx].kind != components.BlockSystem {
 		t.Fatalf("expected summary block before final assistant, got %v", m.blocks[summaryIdx].kind)
 	}
-	if m.blocks[assistantIdx].kind != BlockAssistant {
+	if m.blocks[assistantIdx].kind != components.BlockAssistant {
 		t.Fatalf("expected assistant block after summary, got %v", m.blocks[assistantIdx].kind)
 	}
 }

@@ -1,17 +1,21 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/lcoder/lcoder/pkg/tui/components"
+)
 
 // toComponent converts an internal data block into a renderable component.
 // For now all kinds fall back to the legacy block renderer; System/User
 // components will be introduced in the next task.
-func toComponent(b block) BlockComponent {
+func toComponent(b block) components.BlockComponent {
 	return fallbackComponent{b: b}
 }
 
 // componentsFromBlocks converts a slice of blocks in order.
-func componentsFromBlocks(blocks []block) []BlockComponent {
-	out := make([]BlockComponent, len(blocks))
+func componentsFromBlocks(blocks []block) []components.BlockComponent {
+	out := make([]components.BlockComponent, len(blocks))
 	for i, b := range blocks {
 		out[i] = toComponent(b)
 	}
@@ -24,7 +28,7 @@ type fallbackComponent struct {
 }
 
 func (f fallbackComponent) ID() string                     { return f.b.id }
-func (f fallbackComponent) Kind() BlockKind                { return f.b.kind }
+func (f fallbackComponent) Kind() components.BlockKind     { return f.b.kind }
 func (f fallbackComponent) Height(width int, expanded bool) int {
 	lines := len(splitLines(f.b.render(width, expanded)))
 	if lines == 0 {
