@@ -26,16 +26,15 @@ func (c *UserComponent) Height(width int, expanded bool) int {
 
 func (c *UserComponent) Render(width int, expanded bool) string {
 	bar := lipgloss.NewStyle().
-		Background(lipgloss.Color("237")).
-		Foreground(lipgloss.Color("252")).
+		Background(colorUserBar).
+		Foreground(colorSecondary).
 		Width(width).
 		Padding(0, 1)
 	var sb strings.Builder
-	sb.WriteString(bar.Render("> " + c.raw))
+	sb.WriteString(bar.Render("› " + c.raw))
 	if len(c.attachments) > 0 {
 		sb.WriteString("\n")
-		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-		sb.WriteString(dim.Render("↳ " + strings.Join(c.attachments, ", ")))
+		sb.WriteString(styleDim().Render("↳ " + strings.Join(c.attachments, ", ")))
 	}
 	return sb.String()
 }

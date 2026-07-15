@@ -26,8 +26,5 @@ func (c *SystemLogComponent) Render(width int, expanded bool) string {
 	if c.raw == "" {
 		return ""
 	}
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Italic(true).
-		Render(c.raw)
+	return styleDim().Italic(true).Render(c.raw)
 }

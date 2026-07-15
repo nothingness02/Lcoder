@@ -30,7 +30,7 @@ func TestFallbackComponentID(t *testing.T) {
 	}
 }
 
-func TestFallbackComponentRender(t *testing.T) {
+func TestSystemComponentRender(t *testing.T) {
 	b := block{kind: components.BlockSystem, raw: "ready"}
 	comp := toComponent(b)
 	out := comp.Render(40, false)
