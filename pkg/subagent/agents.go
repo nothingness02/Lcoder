@@ -10,6 +10,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	defaultAgentMode       = "code"
+	defaultAgentTimeoutSec = 120
+)
+
 // Agent is a loaded subagent definition.
 type Agent struct {
 	Name        string
@@ -77,39 +82,51 @@ func loadAgentsFromDir(dir string, out map[string]Agent) error {
 }
 
 func parseAgentMarkdown(path string, data []byte) (Agent, error) {
-	text := string(data)
+	// Normalize CRLF so a standalone "---" line is recognized regardless of
+	// line ending style.
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
 		return Agent{}, fmt.Errorf("agent %s: missing frontmatter", path)
 	}
-	parts := strings.SplitN(text[4:], "\n---", 2)
-	if len(parts) != 2 {
+
+	lines := strings.Split(text, "\n")
+	var fmLines []string
+	var bodyLines []string
+	foundClosing := false
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			foundClosing = true
+			bodyLines = lines[i+1:]
+			break
+		}
+		fmLines = append(fmLines, lines[i])
+	}
+	if !foundClosing {
 		return Agent{}, fmt.Errorf("agent %s: malformed frontmatter", path)
 	}
 
 	var fm agentFrontmatter
-	if err := yaml.Unmarshal([]byte(parts[0]), &fm); err != nil {
+	if err := yaml.Unmarshal([]byte(strings.Join(fmLines, "\n")), &fm); err != nil {
 		return Agent{}, fmt.Errorf("agent %s: unmarshal frontmatter: %w", path, err)
 	}
-	if strings.TrimSpace(fm.Name) == "" {
+	name := strings.TrimSpace(fm.Name)
+	if name == "" {
 		return Agent{}, fmt.Errorf("agent %s: name is required", path)
 	}
 
-	prompt := ""
-	if len(parts) == 2 {
-		prompt = strings.TrimSpace(parts[1])
-	}
+	prompt := strings.TrimSpace(strings.Join(bodyLines, "\n"))
 
 	timeout := fm.Timeout
 	if timeout <= 0 {
-		timeout = 120
+		timeout = defaultAgentTimeoutSec
 	}
 	mode := fm.Mode
 	if mode == "" {
-		mode = "code"
+		mode = defaultAgentMode
 	}
 
 	return Agent{
-		Name:        fm.Name,
+		Name:        name,
 		Description: fm.Description,
 		Model:       fm.Model,
 		Provider:    fm.Provider,
