@@ -16,3 +16,4 @@ __pycache__/
 *.pyc
 .lcoder/
 LCODER.md
+docker/manual/workspace
