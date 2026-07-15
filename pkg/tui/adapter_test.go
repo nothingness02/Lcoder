@@ -18,3 +18,20 @@ func TestComponentsFromBlocks(t *testing.T) {
 		t.Fatalf("second kind = %v, want BlockUser", comps[1].Kind())
 	}
 }
+
+func TestFallbackComponentID(t *testing.T) {
+	b := block{id: "b1", kind: BlockUser, raw: "hello"}
+	comp := toComponent(b)
+	if comp.ID() != "b1" {
+		t.Fatalf("ID = %q, want b1", comp.ID())
+	}
+}
+
+func TestFallbackComponentRender(t *testing.T) {
+	b := block{kind: BlockSystem, raw: "ready"}
+	comp := toComponent(b)
+	out := comp.Render(40, false)
+	if out == "" {
+		t.Fatal("expected non-empty render")
+	}
+}
