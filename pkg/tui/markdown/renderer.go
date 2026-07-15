@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
@@ -87,13 +88,27 @@ func isInsideList(n ast.Node) bool {
 }
 
 // RenderMarkdown renders markdown text to an ANSI string using glamour.
-func RenderMarkdown(text string, width int) string {
-	return renderMarkdown(text, width)
+func RenderMarkdown(source string, width int) string {
+	if source == "" {
+		return ""
+	}
+	r := getMarkdownRenderer(width)
+	if r == nil {
+		return source
+	}
+	out, err := r.Render(source)
+	if err != nil {
+		return source
+	}
+	return strings.TrimRight(out, "\n ")
 }
 
 var (
 	mdRendererCache   = map[int]*glamour.TermRenderer{}
 	mdRendererCacheMu sync.RWMutex
+
+	widthStyleCache   = map[int]lipgloss.Style{}
+	widthStyleCacheMu sync.RWMutex
 )
 
 func getMarkdownRenderer(width int) *glamour.TermRenderer {
@@ -120,22 +135,26 @@ func getMarkdownRenderer(width int) *glamour.TermRenderer {
 	return r
 }
 
-func renderMarkdown(text string, width int) string {
-	if text == "" {
-		return ""
+// widthStyle returns a cached lipgloss style constrained to the given width.
+func widthStyle(width int) lipgloss.Style {
+	widthStyleCacheMu.RLock()
+	if s, ok := widthStyleCache[width]; ok {
+		widthStyleCacheMu.RUnlock()
+		return s
 	}
-	r := getMarkdownRenderer(width)
-	if r == nil {
-		return text
+	widthStyleCacheMu.RUnlock()
+
+	widthStyleCacheMu.Lock()
+	defer widthStyleCacheMu.Unlock()
+	if s, ok := widthStyleCache[width]; ok {
+		return s
 	}
-	out, err := r.Render(text)
-	if err != nil {
-		return text
-	}
-	return strings.TrimRight(out, "\n ")
+	s := lipgloss.NewStyle().Width(width)
+	widthStyleCache[width] = s
+	return s
 }
 
 func renderCodeBlock(lang, content string, width int) string {
 	md := "```" + lang + "\n" + content + "\n```"
-	return renderMarkdown(md, width)
+	return RenderMarkdown(md, width)
 }

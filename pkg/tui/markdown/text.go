@@ -12,5 +12,5 @@ func (n *TextNode) Height(width int) int {
 }
 
 func (n *TextNode) Render(width int) string {
-	return lipgloss.NewStyle().Width(width).Render(n.Text)
+	return widthStyle(width).Render(n.Text)
 }

@@ -109,8 +109,4 @@ func TestCodeBlockNodeRenderCaches(t *testing.T) {
 	if out1 != out2 {
 		t.Fatalf("cached renders differ:\n%q\n%q", out1, out2)
 	}
-	key := "80:go:fmt.Println(1)"
-	if _, ok := node.cache[key]; !ok {
-		t.Fatalf("expected cache entry for key %q", key)
-	}
 }

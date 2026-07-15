@@ -19,7 +19,7 @@ func (n *ListNode) Height(width int) int {
 
 func (n *ListNode) Render(width int) string {
 	var sb strings.Builder
-	style := lipgloss.NewStyle().Width(width)
+	style := widthStyle(width)
 	for i, item := range n.Items {
 		prefix := "• "
 		if n.Ordered {
