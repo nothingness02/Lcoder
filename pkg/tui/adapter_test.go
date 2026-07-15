@@ -5,6 +5,7 @@ import (
 
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
+
 func TestComponentsFromBlocks(t *testing.T) {
 	blocks := []block{
 		{kind: components.BlockSystem, raw: "ready"},
@@ -22,7 +23,7 @@ func TestComponentsFromBlocks(t *testing.T) {
 	}
 }
 
-func TestFallbackComponentID(t *testing.T) {
+func TestToComponentID(t *testing.T) {
 	b := block{id: "b1", kind: components.BlockUser, raw: "hello"}
 	comp := toComponent(b)
 	if comp.ID() != "b1" {

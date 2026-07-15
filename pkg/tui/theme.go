@@ -30,13 +30,11 @@ func warmBackgroundColor() { _ = isDarkBackground() }
 // both dark and light terminals. Light = value shown on a light background.
 var (
 	colorDim        = components.ColorDim
-	colorSecondary  = components.ColorSecondary
 	colorFaint      = lipgloss.AdaptiveColor{Light: "252", Dark: "237"}
 	colorError      = components.ColorError
 	colorAccent     = components.ColorAccent
 	colorSelect     = lipgloss.AdaptiveColor{Light: "25", Dark: "111"}
 	colorSelectDesc = lipgloss.AdaptiveColor{Light: "242", Dark: "146"}
-	colorUserBar    = components.ColorUserBar
 )
 
 // accentPreset parametrizes a swap of the accent token.
