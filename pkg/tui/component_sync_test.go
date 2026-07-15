@@ -3,10 +3,24 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
+
+func TestComponentMsgRoutesToComponent(t *testing.T) {
+	m := &Model{}
+	m.components = []components.BlockComponent{
+		components.NewToolResultComponent("t1", "bash", `{"cmd":"ls"}`, "line1\nline2\nline3", false, false, time.Time{}, 0),
+	}
+	before := m.components[0].Render(40, false)
+	m.Update(components.ComponentMsg{ID: "t1", Msg: components.ToggleExpandedMsg{}})
+	after := m.components[0].Render(40, false)
+	if before == after {
+		t.Fatalf("component did not update after ComponentMsg:\nbefore=%q\nafter=%q", before, after)
+	}
+}
 
 func TestPatchAssistantRebuildsComponent(t *testing.T) {
 	m := &Model{streamMsgID: "a1"}

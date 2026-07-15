@@ -13,9 +13,9 @@ type staticComponent struct {
 	text  string
 }
 
-func (s staticComponent) ID() string                            { return s.id }
-func (s staticComponent) Kind() components.BlockKind             { return components.BlockUser }
-func (s staticComponent) Height(width int, expanded bool) int    { return s.lines }
+func (s staticComponent) ID() string                          { return s.id }
+func (s staticComponent) Kind() components.BlockKind          { return components.BlockUser }
+func (s staticComponent) Height(width int, expanded bool) int { return s.lines }
 func (s staticComponent) Render(width int, expanded bool) string {
 	return strings.Repeat(s.text+"\n", s.lines)
 }

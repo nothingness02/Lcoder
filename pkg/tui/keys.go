@@ -11,6 +11,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 // headerTickMsg drives the startup logo / header animation.
@@ -92,6 +93,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
+
+	case components.ComponentMsg:
+		for i, comp := range m.components {
+			if comp.ID() != msg.ID {
+				continue
+			}
+			if upd, ok := comp.(components.UpdatableComponent); ok {
+				newComp, cmd := upd.Update(msg.Msg)
+				m.components[i] = newComp
+				m.rebuildViewport()
+				return m, cmd
+			}
+		}
+		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
