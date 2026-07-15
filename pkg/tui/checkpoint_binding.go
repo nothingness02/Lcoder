@@ -52,6 +52,7 @@ func (m *Model) restoreCheckpoint() {
 	}
 	msgs := m.agent.AllMessages()
 	m.blocks = blocksFromMessages(msgs)
+	m.components = componentsFromBlocks(m.blocks)
 	m.tasks = tasksFromMessages(msgs)
 	m.updateSizes()
 	m.showTextPanel("restore", styleDim().Render("checkpoint restored: "+id))

@@ -11,6 +11,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/mcp"
+	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
 )
@@ -39,7 +40,8 @@ type Model struct {
 	checkpointStore checkpoint.Store
 	bus             *events.Bus
 
-	unsubscribe   func()
+	unsubscribe        func()
+	persistUnsubscribe func()
 	eventCh       chan events.Event
 	runner        *runnerQueue
 	runnerCancel  context.CancelFunc
@@ -47,8 +49,9 @@ type Model struct {
 	state uiState
 
 	// Conversation history, rebuilt into the viewport each frame.
-	blocks   []block
-	viewport viewport.Model
+	blocks     []block
+	components []BlockComponent
+	viewport   viewport.Model
 
 	// Streaming state for the in-flight assistant message.
 	streaming   bool
@@ -162,11 +165,13 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 	// sidebar), matching what /sessions does via loadSession.
 	if msgs := ag.AllMessages(); len(msgs) > 0 {
 		m.blocks = blocksFromMessages(msgs)
+		m.components = componentsFromBlocks(m.blocks)
 	}
 	if ag.TaskManager() != nil {
 		m.tasks = ag.TaskManager().List()
 	}
 	m.unsubscribe = bus.Subscribe(m.onEvent)
+	m.persistUnsubscribe = bus.Subscribe(m.persistFromEvent)
 	runnerCtx, cancel := context.WithCancel(context.Background())
 	m.runnerCancel = cancel
 	m.runner = newRunnerQueue(ag, session)
@@ -200,10 +205,38 @@ func (m *Model) onEvent(ctx context.Context, ev events.Event) error {
 	return nil
 }
 
+// persistFromEvent mirrors the agent's context window into the active session
+// after each turn and records compaction entries. It lives on the model so that
+// /sessions and /new switches use the current session, not the startup session.
+func (m *Model) persistFromEvent(ctx context.Context, ev events.Event) error {
+	sess, ok := m.session.(*session.Session)
+	if !ok {
+		return nil
+	}
+	switch e := ev.(type) {
+	case events.CompactionCommittedEvent:
+		// Append-only: record the compaction entry; raw messages stay on disk.
+		// Degraded folds (breaker open) carry no summary and persist nothing.
+		if !e.Degraded && e.Summary != "" {
+			_ = sess.AppendCompactionEntry(e.Summary, e.FirstKeptID, e.TokensBefore)
+			// Mirror the kept tail now: with the entry on disk, AppendMissing
+			// skips the runtime summary and appends only the not-yet-persisted
+			// kept messages, so a crash before run end cannot lose them.
+			_ = sess.AppendMissing(m.agent.AllMessages())
+		}
+	case events.MessageEndEvent, events.ToolExecutionEndEvent, events.AgentEndEvent:
+		_ = sess.Save()
+	}
+	return nil
+}
+
 // Close cleans up the event subscription and runner queue.
 func (m *Model) Close() {
 	if m.runnerCancel != nil {
 		m.runnerCancel()
+	}
+	if m.persistUnsubscribe != nil {
+		m.persistUnsubscribe()
 	}
 	if m.unsubscribe != nil {
 		m.unsubscribe()
@@ -213,6 +246,7 @@ func (m *Model) Close() {
 // appendBlock adds a block and marks the viewport dirty.
 func (m *Model) appendBlock(b block) {
 	m.blocks = append(m.blocks, b)
+	m.components = append(m.components, toComponent(b))
 	m.rebuildViewport()
 }
 

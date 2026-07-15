@@ -10,6 +10,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
+	"github.com/lcoder/lcoder/pkg/task"
 )
 
 // headerTickMsg drives the startup logo / header animation.
@@ -753,15 +754,28 @@ func (m *Model) retryLast() tea.Cmd {
 }
 
 // loadSession replaces history with a stored session's messages and rebuilds the
-// task sidebar from the latest todo_write call in that history.
+// task sidebar from the latest todo_write call in that history. It also switches
+// the active SessionWriter and runner queue so subsequent prompts go to the new
+// session.
 func (m *Model) loadSession(sess *session.Session) {
 	if sess == nil {
 		return
 	}
 	msgs := sess.ActiveMessages()
 	m.blocks = blocksFromMessages(msgs)
+	m.components = componentsFromBlocks(m.blocks)
 	m.tasks = tasksFromMessages(msgs)
+	m.session = sess
+	m.runner.SetSession(sess)
+	m.agent.SetSessionID(sess.ID)
 	m.agent.SetMessages(sess.EffectiveMessages())
+	if tm := m.agent.TaskManager(); tm != nil {
+		_ = tm.Restore(task.ManagerState{Tasks: m.tasks})
+	}
+	m.history = newInputHistory()
+	m.suggestion = ""
+	m.errMsg = ""
+	m.completedTurns = 0
 	m.updateSizes()
 }
 
