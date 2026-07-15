@@ -17,8 +17,11 @@ func TestBuildInvocation(t *testing.T) {
 		Provider: "openai",
 		Mode:     "code",
 	}
-	args := buildInvocationArgs(agent, "do it", "/tmp/proj")
+	args := buildInvocationArgs(agent, "do it")
 	want := []string{"--json", "-p", "do it", "--model", "gpt-4o-mini", "--provider", "openai", "--mode", "code"}
+	if len(args) != len(want) {
+		t.Errorf("len(args) = %d, want %d", len(args), len(want))
+	}
 	for i, w := range want {
 		if i >= len(args) || args[i] != w {
 			t.Errorf("args[%d] = %q, want %q", i, args[i], w)
