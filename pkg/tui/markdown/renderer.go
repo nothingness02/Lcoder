@@ -56,6 +56,13 @@ func Parse(source string) []Node {
 				}
 			}
 			nodes = append(nodes, &ListNode{Ordered: ordered, Items: items})
+		case *ast.Heading:
+			var buf bytes.Buffer
+			for i := 0; i < n.Lines().Len(); i++ {
+				seg := n.Lines().At(i)
+				buf.Write(seg.Value(reader.Source()))
+			}
+			nodes = append(nodes, &HeadingNode{Level: n.Level, Text: strings.TrimSpace(buf.String())})
 		case *ast.Paragraph:
 			if isInsideList(n) {
 				return ast.WalkSkipChildren, nil

@@ -104,7 +104,11 @@ func (m *Model) patchAssistant(content string) {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == components.BlockAssistant && m.blocks[i].id == m.streamMsgID {
 			m.blocks[i].raw = content
-			m.components[i] = toComponent(m.blocks[i])
+			if ac, ok := m.components[i].(*components.AssistantComponent); ok {
+				ac.SetContent(content)
+			} else {
+				m.components[i] = toComponent(m.blocks[i])
+			}
 			m.rebuildViewport()
 			return
 		}

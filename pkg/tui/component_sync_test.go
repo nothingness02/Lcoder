@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/models"
@@ -15,12 +16,12 @@ func TestPatchAssistantRebuildsComponent(t *testing.T) {
 	if m.blocks[0].raw != "new" {
 		t.Fatalf("block raw = %q, want new", m.blocks[0].raw)
 	}
-	fb, ok := m.components[0].(fallbackComponent)
+	ac, ok := m.components[0].(*components.AssistantComponent)
 	if !ok {
-		t.Fatalf("component type = %T, want fallbackComponent", m.components[0])
+		t.Fatalf("component type = %T, want *components.AssistantComponent", m.components[0])
 	}
-	if fb.b.raw != "new" {
-		t.Fatalf("component raw = %q, want new", fb.b.raw)
+	if !strings.Contains(ac.Render(40, false), "new") {
+		t.Fatalf("component did not update content: %q", ac.Render(40, false))
 	}
 }
 
@@ -32,9 +33,16 @@ func TestCommitAssistantRebuildsComponent(t *testing.T) {
 	if m.blocks[0].raw != "final" {
 		t.Fatalf("block raw = %q, want final", m.blocks[0].raw)
 	}
-	fb := m.components[0].(fallbackComponent)
-	if fb.b.raw != "final" || fb.b.thinking != "think" {
-		t.Fatalf("component not rebuilt: raw=%q thinking=%q", fb.b.raw, fb.b.thinking)
+	ac, ok := m.components[0].(*components.AssistantComponent)
+	if !ok {
+		t.Fatalf("component type = %T, want *components.AssistantComponent", m.components[0])
+	}
+	rendered := ac.Render(40, true)
+	if !strings.Contains(rendered, "final") {
+		t.Fatalf("component missing content: %q", rendered)
+	}
+	if !strings.Contains(rendered, "think") {
+		t.Fatalf("component missing thinking: %q", rendered)
 	}
 }
 

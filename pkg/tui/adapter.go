@@ -13,6 +13,17 @@ func toComponent(b block) components.BlockComponent {
 		return components.NewSystemLogComponent(b.id, b.raw)
 	case components.BlockUser:
 		return components.NewUserComponent(b.id, b.raw, b.attachments)
+	case components.BlockAssistant:
+		var usage *components.UsageInfo
+		if b.usage != nil {
+			usage = &components.UsageInfo{
+				InputTokens:  b.usage.inputTokens,
+				OutputTokens: b.usage.outputTokens,
+				TotalTokens:  b.usage.totalTokens,
+				Cost:         b.usage.cost,
+			}
+		}
+		return components.NewAssistantComponent(b.id, b.thinking, b.raw, usage)
 	default:
 		return fallbackComponent{b: b}
 	}
