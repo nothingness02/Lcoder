@@ -119,6 +119,7 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.blocks = append(m.blocks, block{kind: components.BlockUser, raw: "hello"})
+	m.components = componentsFromBlocks(m.blocks)
 	m.updateSizes()
 
 	resp := make(chan confirmResult, 1)
@@ -228,6 +229,7 @@ func TestConfirmPanelCanScrollLog(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		m.blocks = append(m.blocks, block{kind: components.BlockUser, raw: fmt.Sprintf("line %d", i)})
 	}
+	m.components = componentsFromBlocks(m.blocks)
 	m.rebuildViewport()
 
 	m.Update(confirmRequestMsg{req: confirmRequest{

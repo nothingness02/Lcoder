@@ -11,14 +11,14 @@ import (
 // while streaming or when the user is already at the bottom.
 func (m *Model) rebuildViewport() {
 	atBottom := m.viewport.AtBottom()
-	var parts []string
-	for _, b := range m.blocks {
-		rendered := b.render(m.viewport.Width, m.toolsExpanded)
-		if rendered != "" {
-			parts = append(parts, rendered)
-		}
-	}
-	m.viewport.SetContent(strings.Join(parts, "\n\n"))
+	content := buildVirtualContent(
+		m.components,
+		m.viewport.Width,
+		m.viewport.Height,
+		m.viewport.YOffset,
+		m.toolsExpanded,
+	)
+	m.viewport.SetContent(content)
 	if m.streaming || atBottom {
 		m.viewport.GotoBottom()
 	}
