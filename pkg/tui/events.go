@@ -103,6 +103,7 @@ func (m *Model) patchAssistant(content string) {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == BlockAssistant && m.blocks[i].id == m.streamMsgID {
 			m.blocks[i].raw = content
+			m.components[i] = toComponent(m.blocks[i])
 			m.rebuildViewport()
 			return
 		}
@@ -119,6 +120,7 @@ func (m *Model) commitAssistant(id, content, thinking string, usage *blockUsage)
 			if usage != nil {
 				m.totalCost += usage.cost
 			}
+			m.components[i] = toComponent(m.blocks[i])
 			m.rebuildViewport()
 			return
 		}
@@ -140,6 +142,7 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 			if !m.blocks[i].toolStart.IsZero() {
 				m.blocks[i].elapsed = time.Since(m.blocks[i].toolStart)
 			}
+			m.components[i] = toComponent(m.blocks[i])
 			m.rebuildViewport()
 			return
 		}
