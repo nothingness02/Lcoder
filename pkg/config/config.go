@@ -110,6 +110,11 @@ type HTTPProviderConfig struct {
 	SessionEndPath string            `yaml:"session_end_path"`
 }
 
+// SubagentConfig controls the built-in subagent tool.
+type SubagentConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
 // MemoryConfig controls persistent memory behavior.
 type MemoryConfig struct {
 	Enabled         bool                   `yaml:"enabled"`
@@ -138,6 +143,7 @@ type Config struct {
 	Sandbox        SandboxConfig           `yaml:"sandbox"`
 	Memory         MemoryConfig            `yaml:"memory"`
 	CodeIndex      CodeIndexConfig         `yaml:"code_index"`
+	Subagent       SubagentConfig          `yaml:"subagent"`
 	// Language    string                  `yaml:"language"`
 	// Catalog is the shared model metadata loaded from models.yaml (not parsed
 	// from the main config file). ModelsConfigPath is its resolved location.
@@ -183,6 +189,9 @@ func DefaultConfig() Config {
 			MaxTokens:  8192,
 			Languages:  []string{"go"},
 			Exclude:    []string{".git/", ".claude/", ".worktrees/", "reference/", "vendor/", "node_modules/", "*_test.go"},
+		},
+		Subagent: SubagentConfig{
+			Enabled: false,
 		},
 		Permissions: PermissionConfig{
 			Rules: map[string]map[string]string{
@@ -406,6 +415,9 @@ func Load() (Config, error) {
 			"recall_max_tokens": cfg.Memory.RecallMaxTokens,
 			"recall_min_score":  cfg.Memory.RecallMinScore,
 			"providers":         cfg.Memory.Providers,
+		},
+		"subagent": map[string]any{
+			"enabled": cfg.Subagent.Enabled,
 		},
 	}, "."), nil)
 
