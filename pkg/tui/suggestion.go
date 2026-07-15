@@ -6,7 +6,7 @@ import "strings"
 // It is intentionally cheap and offline: a small heuristic over the last
 // assistant message. Swap the body to wire a real completion source later.
 func deriveSuggestion(completedTurns int, last *block) string {
-	if completedTurns < 1 || last == nil || last.kind != blockAssistant {
+	if completedTurns < 1 || last == nil || last.kind != BlockAssistant {
 		return ""
 	}
 	text := strings.TrimSpace(last.raw)
@@ -32,7 +32,7 @@ func (m *Model) updateSuggestion() {
 // lastAssistantBlock returns the most recent assistant block, or nil.
 func (m *Model) lastAssistantBlock() *block {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
-		if m.blocks[i].kind == blockAssistant {
+		if m.blocks[i].kind == BlockAssistant {
 			return &m.blocks[i]
 		}
 	}

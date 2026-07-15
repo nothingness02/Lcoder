@@ -60,7 +60,7 @@ func TestTurnEndEventAddsToolSummaryBelowToolCalls(t *testing.T) {
 		t.Fatalf("expected summary block appended right after tools, got %d blocks (want %d)", len(m.blocks), toolCount+1)
 	}
 	last := m.blocks[len(m.blocks)-1]
-	if last.kind != blockSystem {
+	if last.kind != BlockSystem {
 		t.Fatalf("expected system summary block, got %v", last.kind)
 	}
 	if !strings.Contains(last.raw, "1 tool") {
@@ -112,7 +112,7 @@ func TestMessageEndUsesStreamingBlockID(t *testing.T) {
 	var assistantBlocks int
 	var lastRaw string
 	for _, b := range m.blocks {
-		if b.kind == blockAssistant {
+		if b.kind == BlockAssistant {
 			assistantBlocks++
 			lastRaw = b.raw
 		}
@@ -150,10 +150,10 @@ func TestToolSummaryAppearsBeforeNextAssistantMessage(t *testing.T) {
 	}
 	summaryIdx := len(m.blocks) - 2
 	assistantIdx := len(m.blocks) - 1
-	if m.blocks[summaryIdx].kind != blockSystem {
+	if m.blocks[summaryIdx].kind != BlockSystem {
 		t.Fatalf("expected summary block before final assistant, got %v", m.blocks[summaryIdx].kind)
 	}
-	if m.blocks[assistantIdx].kind != blockAssistant {
+	if m.blocks[assistantIdx].kind != BlockAssistant {
 		t.Fatalf("expected assistant block after summary, got %v", m.blocks[assistantIdx].kind)
 	}
 }

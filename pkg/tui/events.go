@@ -23,7 +23,7 @@ func (m *Model) handleEvent(ev events.Event) {
 			m.streaming = true
 			m.streamLive = ""
 			m.streamMsgID = e.Message.ID
-			m.appendBlock(block{kind: blockAssistant, id: e.Message.ID, raw: ""})
+			m.appendBlock(block{kind: BlockAssistant, id: e.Message.ID, raw: ""})
 		}
 
 	case events.MessageUpdateEvent:
@@ -58,7 +58,7 @@ func (m *Model) handleEvent(ev events.Event) {
 
 	case events.ToolExecutionStartEvent:
 		m.appendBlock(block{
-			kind:        blockTool,
+			kind:        BlockTool,
 			id:          e.ToolCallID,
 			toolName:    e.ToolName,
 			toolArgs:    FormatArgs(e.Args),
@@ -101,7 +101,7 @@ func (m *Model) handleEvent(ev events.Event) {
 // patchAssistant overwrites the raw content of the in-flight assistant block.
 func (m *Model) patchAssistant(content string) {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
-		if m.blocks[i].kind == blockAssistant && m.blocks[i].id == m.streamMsgID {
+		if m.blocks[i].kind == BlockAssistant && m.blocks[i].id == m.streamMsgID {
 			m.blocks[i].raw = content
 			m.rebuildViewport()
 			return
@@ -112,7 +112,7 @@ func (m *Model) patchAssistant(content string) {
 // commitAssistant finalizes the assistant block with content, thinking, and usage.
 func (m *Model) commitAssistant(id, content, thinking string, usage *blockUsage) {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
-		if m.blocks[i].kind == blockAssistant && m.blocks[i].id == id {
+		if m.blocks[i].kind == BlockAssistant && m.blocks[i].id == id {
 			m.blocks[i].raw = content
 			m.blocks[i].thinking = thinking
 			m.blocks[i].usage = usage
@@ -123,7 +123,7 @@ func (m *Model) commitAssistant(id, content, thinking string, usage *blockUsage)
 			return
 		}
 	}
-	m.appendBlock(block{kind: blockAssistant, id: id, raw: content, thinking: thinking, usage: usage})
+	m.appendBlock(block{kind: BlockAssistant, id: id, raw: content, thinking: thinking, usage: usage})
 	if usage != nil {
 		m.totalCost += usage.cost
 	}
@@ -133,7 +133,7 @@ func (m *Model) commitAssistant(id, content, thinking string, usage *blockUsage)
 func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, isError bool) {
 	text := result.Text()
 	for i := len(m.blocks) - 1; i >= 0; i-- {
-		if m.blocks[i].kind == blockTool && m.blocks[i].id == id {
+		if m.blocks[i].kind == BlockTool && m.blocks[i].id == id {
 			m.blocks[i].toolResult = text
 			m.blocks[i].toolErr = isError
 			m.blocks[i].toolRunning = false
@@ -144,7 +144,7 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 			return
 		}
 	}
-	m.appendBlock(block{kind: blockTool, id: id, toolName: name, toolResult: text, toolErr: isError})
+	m.appendBlock(block{kind: BlockTool, id: id, toolName: name, toolResult: text, toolErr: isError})
 }
 
 // blocksFromMessages rebuilds the block history from a stored conversation.
@@ -153,10 +153,10 @@ func blocksFromMessages(msgs []models.AgentMessage) []block {
 	for _, msg := range msgs {
 		switch msg.Role {
 		case models.RoleUser:
-			out = append(out, block{kind: blockUser, id: msg.ID, raw: msg.Text()})
+			out = append(out, block{kind: BlockUser, id: msg.ID, raw: msg.Text()})
 		case models.RoleAssistant:
 			out = append(out, block{
-				kind:     blockAssistant,
+				kind:     BlockAssistant,
 				id:       msg.ID,
 				raw:      msg.Text(),
 				thinking: msg.Thinking(),
@@ -164,16 +164,16 @@ func blocksFromMessages(msgs []models.AgentMessage) []block {
 			})
 			for _, tc := range msg.ToolCalls() {
 				out = append(out, block{
-					kind:     blockTool,
+					kind:     BlockTool,
 					id:       tc.ID,
 					toolName: tc.Name,
 					toolArgs: FormatArgs(tc.Arguments),
 				})
 			}
 		case models.RoleToolResult:
-			out = append(out, block{kind: blockTool, id: msg.ID, toolResult: msg.Text()})
+			out = append(out, block{kind: BlockTool, id: msg.ID, toolResult: msg.Text()})
 		case models.RoleSystem:
-			out = append(out, block{kind: blockSystem, raw: msg.Text()})
+			out = append(out, block{kind: BlockSystem, raw: msg.Text()})
 		}
 	}
 	return out

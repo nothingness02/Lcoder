@@ -50,7 +50,7 @@ func TestModelHandlesUserInput(t *testing.T) {
 	var userBlocks int
 	var last string
 	for _, b := range m2.blocks {
-		if b.kind == blockUser {
+		if b.kind == BlockUser {
 			userBlocks++
 			last = b.raw
 		}
@@ -84,7 +84,7 @@ func TestModelHandlesEvents(t *testing.T) {
 	var n int
 	var got string
 	for _, b := range m2.blocks {
-		if b.kind == blockAssistant {
+		if b.kind == BlockAssistant {
 			n++
 			got = b.raw
 		}
@@ -101,7 +101,7 @@ func TestCtrlOTogglesToolExpansionInInputState(t *testing.T) {
 	m, _, _ := newTestModel()
 	m.state = stateInput
 	m.blocks = append(m.blocks, block{
-		kind:       blockTool,
+		kind:       BlockTool,
 		toolName:   "bash",
 		toolArgs:   `{"command":"ls"}`,
 		toolResult: "line1\nline2\nline3\nline4",

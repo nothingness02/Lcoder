@@ -218,13 +218,13 @@ func (m *Model) appendBlock(b block) {
 
 // addSystem appends a dim system line.
 func (m *Model) addSystem(text string) {
-	m.appendBlock(block{kind: blockSystem, raw: text})
+	m.appendBlock(block{kind: BlockSystem, raw: text})
 }
 
 // addUser appends a full-width user bar, tagging any resolvable @file mentions
 // as attachments shown beneath the bar.
 func (m *Model) addUser(text string) {
-	m.appendBlock(block{kind: blockUser, raw: text, attachments: mentionLabels(m.cwd, text)})
+	m.appendBlock(block{kind: BlockUser, raw: text, attachments: mentionLabels(m.cwd, text)})
 }
 
 // updateSizes recomputes layout after a resize, reserving the task sidebar's

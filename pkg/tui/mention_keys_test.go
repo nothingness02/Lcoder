@@ -30,7 +30,7 @@ func TestMissingMentionBlocksSubmit(t *testing.T) {
 		t.Fatalf("expected no prompt dispatched, got %d", len(agent.Prompts))
 	}
 	for _, b := range m2.blocks {
-		if b.kind == blockUser {
+		if b.kind == BlockUser {
 			t.Fatal("expected no user block recorded")
 		}
 	}
@@ -56,7 +56,7 @@ func TestValidMentionSubmitsWithAttachment(t *testing.T) {
 	}
 	var found *block
 	for i := range m2.blocks {
-		if m2.blocks[i].kind == blockUser {
+		if m2.blocks[i].kind == BlockUser {
 			found = &m2.blocks[i]
 		}
 	}

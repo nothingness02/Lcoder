@@ -42,9 +42,9 @@ func TestNewModelRestoresPriorConversation(t *testing.T) {
 	var userText, asstText string
 	for _, b := range m.blocks {
 		switch b.kind {
-		case blockUser:
+		case BlockUser:
 			userText = b.raw
-		case blockAssistant:
+		case BlockAssistant:
 			asstText = b.raw
 		}
 	}

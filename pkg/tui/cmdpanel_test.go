@@ -25,7 +25,7 @@ func TestCmdPanelHelpShowsPanelNotBlock(t *testing.T) {
 		t.Fatalf("expected text panel, got %v", m.cmdPanel.kind)
 	}
 	for _, b := range m.blocks {
-		if b.kind == blockSystem {
+		if b.kind == BlockSystem {
 			t.Fatalf("expected no system block, got %q", b.raw)
 		}
 	}

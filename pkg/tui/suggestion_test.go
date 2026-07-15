@@ -10,7 +10,7 @@ func TestDeriveSuggestion_Gating(t *testing.T) {
 }
 
 func TestDeriveSuggestion_QuestionPromptsAffirmative(t *testing.T) {
-	last := &block{kind: blockAssistant, raw: "Do you want me to run the tests?"}
+	last := &block{kind: BlockAssistant, raw: "Do you want me to run the tests?"}
 	s := deriveSuggestion(1, last)
 	if s == "" {
 		t.Fatalf("want a suggestion after a question, got empty")

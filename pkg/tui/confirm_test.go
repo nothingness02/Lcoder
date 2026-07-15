@@ -117,7 +117,7 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
 	m.width = 80
 	m.height = 24
-	m.blocks = append(m.blocks, block{kind: blockUser, raw: "hello"})
+	m.blocks = append(m.blocks, block{kind: BlockUser, raw: "hello"})
 	m.updateSizes()
 
 	resp := make(chan confirmResult, 1)
@@ -225,7 +225,7 @@ func TestConfirmPanelCanScrollLog(t *testing.T) {
 
 	// Fill the viewport with enough content to scroll.
 	for i := 0; i < 50; i++ {
-		m.blocks = append(m.blocks, block{kind: blockUser, raw: fmt.Sprintf("line %d", i)})
+		m.blocks = append(m.blocks, block{kind: BlockUser, raw: fmt.Sprintf("line %d", i)})
 	}
 	m.rebuildViewport()
 
