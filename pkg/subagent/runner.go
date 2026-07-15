@@ -15,19 +15,18 @@ const (
 	parallelConcurrency = 4
 )
 
-// TaskItem is one task in a parallel invocation.
-type TaskItem struct {
+// Invocation is a single subagent invocation.
+type Invocation struct {
 	Agent string
 	Task  string
 	CWD   string
 }
 
+// TaskItem is one task in a parallel invocation.
+type TaskItem = Invocation
+
 // ChainItem is one step in a chain invocation.
-type ChainItem struct {
-	Agent string
-	Task  string
-	CWD   string
-}
+type ChainItem = Invocation
 
 // Result is the outcome of one parallel task.
 type Result struct {
@@ -46,7 +45,7 @@ type Runner interface {
 type DefaultRunner struct {
 	projectRoot string
 	agents      map[string]Agent
-	lcoderPath  string
+	LCoderPath  string
 }
 
 // NewRunner creates a Runner for the given project root.
@@ -58,7 +57,7 @@ func NewRunner(projectRoot string) (Runner, error) {
 	return &DefaultRunner{
 		projectRoot: projectRoot,
 		agents:      agents,
-		lcoderPath:  "lcoder",
+		LCoderPath:  "lcoder",
 	}, nil
 }
 
@@ -79,7 +78,11 @@ func (r *DefaultRunner) validateCWD(cwd string) (string, error) {
 		return "", fmt.Errorf("subagent: resolve cwd: %w", err)
 	}
 	rel, err := filepath.Rel(r.projectRoot, abs)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil {
+		return "", fmt.Errorf("subagent: cwd %q is outside project root %q", cwd, r.projectRoot)
+	}
+	parentPrefix := ".." + string(filepath.Separator)
+	if rel == ".." || strings.HasPrefix(rel, parentPrefix) {
 		return "", fmt.Errorf("subagent: cwd %q is outside project root %q", cwd, r.projectRoot)
 	}
 	return abs, nil
@@ -95,7 +98,7 @@ func (r *DefaultRunner) RunSingle(ctx context.Context, agentName string, task st
 		return "", err
 	}
 	args := buildInvocationArgs(agent, task)
-	out, err := runSubprocess(ctx, r.lcoderPath, args, workDir, time.Duration(agent.Timeout)*time.Second)
+	out, err := runSubprocess(ctx, r.LCoderPath, args, workDir, time.Duration(agent.Timeout)*time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +115,12 @@ func (r *DefaultRunner) RunParallel(ctx context.Context, items []TaskItem) ([]Re
 	for i, item := range items {
 		i, item := i, item
 		g.Go(func() error {
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				results[i] = Result{Err: ctx.Err()}
+				return nil
+			}
 			defer func() { <-sem }()
 			text, err := r.RunSingle(ctx, item.Agent, item.Task, item.CWD)
 			results[i] = Result{Text: text, Err: err}
