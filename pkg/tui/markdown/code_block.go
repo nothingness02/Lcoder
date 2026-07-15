@@ -21,7 +21,7 @@ func (n *CodeBlockNode) Render(width int) string {
 	if n.cache == nil {
 		n.cache = make(map[string]string)
 	}
-	key := fmt.Sprintf("%d:%s", width, n.Lang)
+	key := fmt.Sprintf("%d:%s:%s", width, n.Lang, n.Content)
 	if out, ok := n.cache[key]; ok {
 		return out
 	}

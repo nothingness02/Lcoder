@@ -3,6 +3,7 @@ package markdown
 import (
 	"bytes"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/yuin/goldmark"
@@ -12,8 +13,6 @@ import (
 
 // Parse converts markdown text into a Node tree.
 func Parse(source string) []Node {
-	source = strings.ReplaceAll(source, "\\n", "\n")
-	source = strings.ReplaceAll(source, "\\t", "\t")
 	md := goldmark.New()
 	reader := text.NewReader([]byte(source))
 	root := md.Parser().Parse(reader)
@@ -39,9 +38,15 @@ func Parse(source string) []Node {
 				if li, ok := c.(*ast.ListItem); ok {
 					var text bytes.Buffer
 					for cc := li.FirstChild(); cc != nil; cc = cc.NextSibling() {
-						if para, ok := cc.(*ast.Paragraph); ok {
-							for l := 0; l < para.Lines().Len(); l++ {
-								seg := para.Lines().At(l)
+						switch block := cc.(type) {
+						case *ast.Paragraph:
+							for l := 0; l < block.Lines().Len(); l++ {
+								seg := block.Lines().At(l)
+								text.Write(seg.Value(reader.Source()))
+							}
+						case *ast.TextBlock:
+							for l := 0; l < block.Lines().Len(); l++ {
+								seg := block.Lines().At(l)
 								text.Write(seg.Value(reader.Source()))
 							}
 						}
@@ -86,15 +91,41 @@ func RenderMarkdown(text string, width int) string {
 	return renderMarkdown(text, width)
 }
 
-func renderMarkdown(text string, width int) string {
-	if text == "" {
-		return ""
+var (
+	mdRendererCache   = map[int]*glamour.TermRenderer{}
+	mdRendererCacheMu sync.RWMutex
+)
+
+func getMarkdownRenderer(width int) *glamour.TermRenderer {
+	mdRendererCacheMu.RLock()
+	if r, ok := mdRendererCache[width]; ok {
+		mdRendererCacheMu.RUnlock()
+		return r
+	}
+	mdRendererCacheMu.RUnlock()
+
+	mdRendererCacheMu.Lock()
+	defer mdRendererCacheMu.Unlock()
+	if r, ok := mdRendererCache[width]; ok {
+		return r
 	}
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {
+		return nil
+	}
+	mdRendererCache[width] = r
+	return r
+}
+
+func renderMarkdown(text string, width int) string {
+	if text == "" {
+		return ""
+	}
+	r := getMarkdownRenderer(width)
+	if r == nil {
 		return text
 	}
 	out, err := r.Render(text)

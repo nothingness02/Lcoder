@@ -3,6 +3,8 @@ package markdown
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ListNode renders ordered or unordered lists.
@@ -12,17 +14,21 @@ type ListNode struct {
 }
 
 func (n *ListNode) Height(width int) int {
-	return len(n.Items)
+	return lipgloss.Height(n.Render(width))
 }
 
 func (n *ListNode) Render(width int) string {
 	var sb strings.Builder
+	style := lipgloss.NewStyle().Width(width)
 	for i, item := range n.Items {
 		prefix := "• "
 		if n.Ordered {
 			prefix = fmt.Sprintf("%d. ", i+1)
 		}
-		sb.WriteString(prefix + item + "\n")
+		sb.WriteString(style.Render(prefix + item))
+		if i < len(n.Items)-1 {
+			sb.WriteString("\n")
+		}
 	}
-	return strings.TrimRight(sb.String(), "\n")
+	return sb.String()
 }
