@@ -158,3 +158,44 @@ func TestToolSummaryAppearsBeforeNextAssistantMessage(t *testing.T) {
 		t.Fatalf("expected assistant block after summary, got %v", m.blocks[assistantIdx].kind)
 	}
 }
+
+func TestBlocksFromMessagesMergesToolResults(t *testing.T) {
+	toolCallID := "call-1"
+	prior := []models.AgentMessage{
+		models.UserMessage("q"),
+		models.NewAgentMessage(models.RoleAssistant,
+			models.TextContent{Text: "let me check"},
+			models.ToolCallContent{ID: toolCallID, Name: "bash", Arguments: map[string]any{"command": "ls"}},
+		),
+		models.NewAgentMessage(models.RoleToolResult, models.ToolResultContent{
+			ToolCallID: toolCallID,
+			Name:       "bash",
+			Content:    []models.ContentPart{models.TextContent{Text: "file1"}},
+			IsError:    false,
+		}),
+	}
+
+	blocks := blocksFromMessages(prior)
+	if len(blocks) != 3 {
+		t.Fatalf("expected 3 blocks (user, assistant, merged tool), got %d", len(blocks))
+	}
+	if blocks[0].kind != components.BlockUser || blocks[0].raw != "q" {
+		t.Fatalf("first block should be user question, got %+v", blocks[0])
+	}
+	if blocks[1].kind != components.BlockAssistant || blocks[1].raw != "let me check" {
+		t.Fatalf("second block should be assistant reply, got %+v", blocks[1])
+	}
+	tool := blocks[2]
+	if tool.kind != components.BlockTool {
+		t.Fatalf("third block should be tool, got %v", tool.kind)
+	}
+	if tool.toolName != "bash" {
+		t.Fatalf("tool name = %q, want bash", tool.toolName)
+	}
+	if tool.toolResult != "file1" {
+		t.Fatalf("tool result = %q, want file1", tool.toolResult)
+	}
+	if tool.toolErr {
+		t.Fatal("tool error should be false")
+	}
+}

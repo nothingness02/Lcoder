@@ -164,6 +164,10 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 // blocksFromMessages rebuilds the block history from a stored conversation.
 func blocksFromMessages(msgs []models.AgentMessage) []block {
 	var out []block
+	// Map tool-call ID to the index of its BlockTool so a later RoleToolResult
+	// can be merged into the same visual row.
+	toolIdx := make(map[string]int)
+
 	for _, msg := range msgs {
 		switch msg.Role {
 		case models.RoleUser:
@@ -177,6 +181,7 @@ func blocksFromMessages(msgs []models.AgentMessage) []block {
 				usage:    usagePtr(msg),
 			})
 			for _, tc := range msg.ToolCalls() {
+				toolIdx[tc.ID] = len(out)
 				out = append(out, block{
 					kind:     components.BlockTool,
 					id:       tc.ID,
@@ -185,12 +190,40 @@ func blocksFromMessages(msgs []models.AgentMessage) []block {
 				})
 			}
 		case models.RoleToolResult:
-			out = append(out, block{kind: components.BlockTool, id: msg.ID, toolResult: msg.Text()})
+			toolCallID, name, resultText, isError := extractToolResult(msg)
+			if idx, ok := toolIdx[toolCallID]; ok && toolCallID != "" {
+				out[idx].toolResult = resultText
+				out[idx].toolErr = isError
+				if out[idx].toolName == "" {
+					out[idx].toolName = name
+				}
+				continue
+			}
+			out = append(out, block{kind: components.BlockTool, id: msg.ID, toolName: name, toolResult: resultText, toolErr: isError})
 		case models.RoleSystem:
 			out = append(out, block{kind: components.BlockSystem, raw: msg.Text()})
 		}
 	}
 	return out
+}
+
+// extractToolResult pulls the call ID, name, text, and error flag from a tool
+// result message. It prefers the structured ToolResultContent envelope, falling
+// back to plain text content when the provider stored a simpler message.
+func extractToolResult(msg models.AgentMessage) (toolCallID, name, resultText string, isError bool) {
+	for _, part := range msg.Content {
+		if tr, ok := part.(models.ToolResultContent); ok {
+			toolCallID = tr.ToolCallID
+			name = tr.Name
+			isError = tr.IsError
+			resultText = tr.Text()
+			break
+		}
+	}
+	if resultText == "" {
+		resultText = msg.Text()
+	}
+	return
 }
 
 // --- Relocated helpers (VERIFIED against pkg/models/message.go + old model.go) ---
