@@ -72,8 +72,9 @@ func (a *App) startup(ctx context.Context) {
 	a.bridge.Start()
 
 	runtime.EventsEmit(ctx, "app:ready", map[string]any{
-		"config":   a.AgentService.GetConfig(),
-		"messages": a.AgentService.GetMessages(),
+		"config":     a.AgentService.GetConfig(),
+		"messages":   a.AgentService.GetMessages(),
+		"session_id": a.runtime.Agent.SessionID(),
 	})
 }
 

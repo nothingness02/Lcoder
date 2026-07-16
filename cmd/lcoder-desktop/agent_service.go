@@ -150,10 +150,11 @@ func (s *AgentService) GetMessages() []desktop.UIMessage {
 
 func (s *AgentService) GetConfig() desktop.UIConfig {
 	return desktop.UIConfig{
-		Provider: s.runtime.Config.Provider,
-		Model:    s.runtime.Config.Model,
-		Mode:     s.runtime.Agent.Mode(),
-		CWD:      s.runtime.CWD,
+		Provider:  s.runtime.Config.Provider,
+		Model:     s.runtime.Config.Model,
+		Mode:      s.runtime.Agent.Mode(),
+		CWD:       s.runtime.CWD,
+		SessionID: s.runtime.Agent.SessionID(),
 	}
 }
 

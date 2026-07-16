@@ -5,18 +5,20 @@ import type { PermissionRequest } from '../types';
 import './PermissionDialog.css';
 
 export default function PermissionDialog() {
-  const [request, setRequest] = useState<PermissionRequest | null>(null);
+  const [requests, setRequests] = useState<PermissionRequest[]>([]);
 
   useEffect(() => {
     return EventsOn('permission:request', (payload: PermissionRequest) => {
-      setRequest(payload);
+      setRequests((prev) => [...prev, payload]);
     });
   }, []);
+
+  const request = requests[0] ?? null;
 
   const respond = (allow: boolean, scope: string) => {
     if (!request) return;
     SubmitPermission(request.id, allow, scope);
-    setRequest(null);
+    setRequests((prev) => prev.slice(1));
   };
 
   if (!request) return null;

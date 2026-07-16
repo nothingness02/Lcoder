@@ -71,4 +71,18 @@ describe('PermissionDialog', () => {
     fireEvent.click(screen.getByText('允许本项目'));
     expect(SubmitPermission).toHaveBeenCalledWith('req-1', true, 'project');
   });
+
+  it('queues multiple requests and processes them in order', () => {
+    vi.mocked(EventsOn).mockReturnValue(() => {});
+    render(<PermissionDialog />);
+    act(() => getPermissionCallback()(sample));
+    act(() => getPermissionCallback()({ id: 'req-2', tool_name: 'read_file', args: { path: 'x' } }));
+    expect(screen.getByText('bash')).toBeTruthy();
+    fireEvent.click(screen.getByText('允许一次'));
+    expect(SubmitPermission).toHaveBeenCalledWith('req-1', true, 'once');
+    expect(screen.getByText('read_file')).toBeTruthy();
+    fireEvent.click(screen.getByText('拒绝'));
+    expect(SubmitPermission).toHaveBeenCalledWith('req-2', false, 'deny');
+    expect(screen.queryByText('权限请求')).toBeNull();
+  });
 });

@@ -45,6 +45,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: cmd/lcoder-desktop/frontend/package-lock.json
       - name: Build desktop frontend
         run: |
           cd cmd/lcoder-desktop/frontend

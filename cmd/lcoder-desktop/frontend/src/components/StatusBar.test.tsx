@@ -18,6 +18,7 @@ const config: UIConfig = {
   model: 'gpt-5',
   mode: 'code',
   cwd: 'D:/work/project',
+  session_id: 's1',
 };
 
 function getCallback(name: string): (payload: any) => void {

@@ -35,10 +35,11 @@ type SessionSummary struct {
 
 // UIConfig is the read-only runtime config shown in the status bar.
 type UIConfig struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	Mode     string `json:"mode"`
-	CWD      string `json:"cwd"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+	Mode      string `json:"mode"`
+	CWD       string `json:"cwd"`
+	SessionID string `json:"session_id"`
 }
 
 // PermissionRequest is sent to the frontend when a tool needs approval.

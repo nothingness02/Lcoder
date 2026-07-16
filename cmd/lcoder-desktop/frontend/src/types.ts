@@ -32,10 +32,15 @@ export interface UIConfig {
   model: string;
   mode: string;
   cwd: string;
+  session_id: string;
 }
 
 export interface PermissionRequest {
   id: string;
   tool_name: string;
   args: Record<string, any>;
+}
+
+export interface FatalErrorProps {
+  message: string;
 }

@@ -19,6 +19,7 @@ export namespace desktop {
 	    model: string;
 	    mode: string;
 	    cwd: string;
+	    session_id: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UIConfig(source);
@@ -30,6 +31,7 @@ export namespace desktop {
 	        this.model = source["model"];
 	        this.mode = source["mode"];
 	        this.cwd = source["cwd"];
+	        this.session_id = source["session_id"];
 	    }
 	}
 	export class UIToolResult {
