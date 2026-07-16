@@ -81,7 +81,8 @@ type Model struct {
 	picker   SessionPickerModel
 	extPanel ExtensionsPanelModel
 
-	toolsExpanded bool
+	toolsExpanded     bool
+	focusedBlockIndex int // -1 means no block is focused
 
 	// Task sidebar: tasks declared via the todo_write tool, the user's manual
 	// hide override, and the cached main-content width set by updateSizes.
@@ -160,6 +161,7 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		needsProviderSetup: needsProviderSetup,
 		mcpRegistry:        mcpRegistry,
 		header:             headerInfo{model: model, cwd: cwd, version: "0.1"},
+		focusedBlockIndex:  -1,
 	}
 	// Restore the display from the agent's already-loaded context window so a
 	// session reloaded at startup shows its prior conversation (and task

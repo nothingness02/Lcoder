@@ -119,6 +119,9 @@ func (m *Model) patchAssistant(content string) {
 func (m *Model) commitAssistant(id, content, thinking string, usage *blockUsage) {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == components.BlockAssistant && m.blocks[i].id == id {
+			if ec, ok := m.components[i].(components.ExpandableComponent); ok {
+				m.blocks[i].expanded = ec.Expanded()
+			}
 			m.blocks[i].raw = content
 			m.blocks[i].thinking = thinking
 			m.blocks[i].usage = usage
@@ -141,6 +144,9 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 	text := result.Text()
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == components.BlockTool && m.blocks[i].id == id {
+			if ec, ok := m.components[i].(components.ExpandableComponent); ok {
+				m.blocks[i].expanded = ec.Expanded()
+			}
 			m.blocks[i].toolResult = text
 			m.blocks[i].toolErr = isError
 			m.blocks[i].toolRunning = false

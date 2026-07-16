@@ -21,9 +21,11 @@ func toComponent(b block) components.BlockComponent {
 				Cost:         b.usage.cost,
 			}
 		}
-		return components.NewAssistantComponent(b.id, b.thinking, b.raw, usage)
+		comp := components.NewAssistantComponent(b.id, b.thinking, b.raw, usage)
+		comp.SetExpanded(b.expanded)
+		return comp
 	case components.BlockTool:
-		return components.NewToolResultComponent(
+		comp := components.NewToolResultComponent(
 			b.id,
 			b.toolName,
 			b.toolArgs,
@@ -33,6 +35,8 @@ func toComponent(b block) components.BlockComponent {
 			b.toolStart,
 			b.elapsed,
 		)
+		comp.SetExpanded(b.expanded)
+		return comp
 	}
 	return components.NewSystemLogComponent(b.id, b.raw)
 }

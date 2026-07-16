@@ -102,6 +102,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if upd, ok := comp.(components.UpdatableComponent); ok {
 				newComp, cmd := upd.Update(msg.Msg)
 				m.components[i] = newComp
+				if i < len(m.blocks) {
+					if ec, ok := newComp.(components.ExpandableComponent); ok {
+						m.blocks[i].expanded = ec.Expanded()
+					}
+				}
 				m.rebuildViewport()
 				return m, cmd
 			}
@@ -358,6 +363,22 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Per-block focus and expansion toggles (after overlays/menus close).
+	switch k.Type {
+	case tea.KeyShiftUp:
+		m.moveFocus(-1)
+		return m, nil
+	case tea.KeyShiftDown:
+		m.moveFocus(1)
+		return m, nil
+	case tea.KeyCtrlE:
+		m.toggleFocusedBlock()
+		return m, nil
+	case tea.KeyEsc:
+		m.clearFocus()
+		return m, nil
+	}
+
 	switch k.Type {
 	case tea.KeyEnter:
 		if m.menuVisible {
@@ -408,8 +429,21 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 func (m *Model) handleProcessingKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 	switch k.Type {
 	case tea.KeyEsc:
+		if m.focusedBlockIndex != -1 {
+			m.clearFocus()
+			return m, nil
+		}
 		m.agent.Abort()
 		m.addSystem(styleDim().Render("interrupted"))
+		return m, nil
+	case tea.KeyCtrlE:
+		m.toggleFocusedBlock()
+		return m, nil
+	case tea.KeyShiftUp:
+		m.moveFocus(-1)
+		return m, nil
+	case tea.KeyShiftDown:
+		m.moveFocus(1)
 		return m, nil
 	case tea.KeyCtrlO:
 		m.toolsExpanded = !m.toolsExpanded
@@ -492,6 +526,7 @@ func (m *Model) startPrompt(text string) tea.Cmd {
 	m.state = stateProcessing
 	m.input.SetProcessing(true)
 	m.errMsg = ""
+	m.focusedBlockIndex = -1
 	m.runner.SubmitPrompt(expandHomeMentions(text))
 	return spinnerTick()
 }
@@ -791,6 +826,7 @@ func (m *Model) loadSession(sess *session.Session) {
 	m.suggestion = ""
 	m.errMsg = ""
 	m.completedTurns = 0
+	m.focusedBlockIndex = -1
 	m.updateSizes()
 }
 
@@ -811,4 +847,98 @@ func (m *Model) persistSession() {
 	if sess, ok := m.session.(*session.Session); ok {
 		_ = sess.AppendMissing(m.agent.AllMessages())
 	}
+}
+
+// moveFocus shifts the focused block index among interactive (UpdatableComponent)
+// blocks. Starting from -1, Shift+Up selects the last interactive block and
+// Shift+Down selects the first. The index is clamped to the available range.
+func (m *Model) moveFocus(delta int) {
+	start := m.focusedBlockIndex
+	defer func() {
+		if m.focusedBlockIndex != start {
+			m.rebuildViewport()
+		}
+	}()
+
+	var interactive []int
+	for i, comp := range m.components {
+		if _, ok := comp.(components.UpdatableComponent); ok {
+			interactive = append(interactive, i)
+		}
+	}
+	if len(interactive) == 0 {
+		m.focusedBlockIndex = -1
+		return
+	}
+	if m.focusedBlockIndex == -1 {
+		if delta > 0 {
+			m.focusedBlockIndex = interactive[0]
+		} else {
+			m.focusedBlockIndex = interactive[len(interactive)-1]
+		}
+		return
+	}
+	pos := -1
+	for i, idx := range interactive {
+		if idx == m.focusedBlockIndex {
+			pos = i
+			break
+		}
+	}
+	if pos == -1 {
+		// Current focus is no longer interactive; snap to the nearest one.
+		if delta > 0 {
+			for _, idx := range interactive {
+				if idx > m.focusedBlockIndex {
+					m.focusedBlockIndex = idx
+					return
+				}
+			}
+			m.focusedBlockIndex = interactive[len(interactive)-1]
+		} else {
+			for i := len(interactive) - 1; i >= 0; i-- {
+				if interactive[i] < m.focusedBlockIndex {
+					m.focusedBlockIndex = interactive[i]
+					return
+				}
+			}
+			m.focusedBlockIndex = interactive[0]
+		}
+		return
+	}
+	pos += delta
+	if pos < 0 {
+		pos = 0
+	}
+	if pos >= len(interactive) {
+		pos = len(interactive) - 1
+	}
+	m.focusedBlockIndex = interactive[pos]
+}
+
+// toggleFocusedBlock toggles the expanded state of the currently focused block.
+func (m *Model) toggleFocusedBlock() {
+	if m.focusedBlockIndex < 0 || m.focusedBlockIndex >= len(m.components) || m.focusedBlockIndex >= len(m.blocks) {
+		return
+	}
+	comp := m.components[m.focusedBlockIndex]
+	upd, ok := comp.(components.UpdatableComponent)
+	if !ok {
+		return
+	}
+	newComp, _ := upd.Update(components.ToggleExpandedMsg{})
+	m.components[m.focusedBlockIndex] = newComp
+	if ec, ok := newComp.(components.ExpandableComponent); ok {
+		m.blocks[m.focusedBlockIndex].expanded = ec.Expanded()
+	}
+	m.rebuildViewport()
+}
+
+// clearFocus removes the per-block focus.
+func (m *Model) clearFocus() {
+	if m.focusedBlockIndex == -1 {
+		return
+	}
+	m.focusedBlockIndex = -1
+	m.rebuildViewport()
 }

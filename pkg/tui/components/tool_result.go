@@ -37,6 +37,10 @@ func NewToolResultComponent(id, toolName, toolArgs, result string, isError bool,
 
 func (c *ToolResultComponent) ID() string      { return c.id }
 func (c *ToolResultComponent) Kind() BlockKind { return BlockTool }
+func (c *ToolResultComponent) Expanded() bool  { return c.expanded }
+func (c *ToolResultComponent) SetExpanded(v bool) {
+	c.expanded = v
+}
 
 func (c *ToolResultComponent) Height(width int, expanded bool) int {
 	return lipgloss.Height(c.Render(width, expanded))

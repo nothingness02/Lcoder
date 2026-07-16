@@ -76,3 +76,52 @@ func TestFinishToolRebuildsComponent(t *testing.T) {
 		t.Fatalf("component did not update content: %q", tr.Render(40, false))
 	}
 }
+
+func TestComponentMsgSyncsExpandedToBlock(t *testing.T) {
+	m := &Model{}
+	m.blocks = []block{{kind: components.BlockTool, id: "t1", toolName: "bash", toolResult: "line1\nline2\nline3"}}
+	m.components = componentsFromBlocks(m.blocks)
+
+	m.Update(components.ComponentMsg{ID: "t1", Msg: components.ToggleExpandedMsg{}})
+	if !m.blocks[0].expanded {
+		t.Fatal("expected block.expanded to be synced to true")
+	}
+	tr := m.components[0].(*components.ToolResultComponent)
+	if !tr.Expanded() {
+		t.Fatal("expected component Expanded() to be true")
+	}
+}
+
+func TestCommitAssistantPreservesExpanded(t *testing.T) {
+	m := &Model{}
+	m.blocks = []block{{kind: components.BlockAssistant, id: "a1", raw: "draft"}}
+	m.components = componentsFromBlocks(m.blocks)
+	m.blocks[0].expanded = true
+	m.components[0] = toComponent(m.blocks[0])
+
+	m.commitAssistant("a1", "final", "think", nil)
+	if !m.blocks[0].expanded {
+		t.Fatal("expected block.expanded to remain true")
+	}
+	ac := m.components[0].(*components.AssistantComponent)
+	if !ac.Expanded() {
+		t.Fatal("expected rebuilt assistant component Expanded() to be true")
+	}
+}
+
+func TestFinishToolPreservesExpanded(t *testing.T) {
+	m := &Model{}
+	m.blocks = []block{{kind: components.BlockTool, id: "t1", toolName: "bash"}}
+	m.components = componentsFromBlocks(m.blocks)
+	m.blocks[0].expanded = true
+	m.components[0] = toComponent(m.blocks[0])
+
+	m.finishTool("t1", "bash", models.NewToolExecutionResultText("done"), false)
+	if !m.blocks[0].expanded {
+		t.Fatal("expected block.expanded to remain true")
+	}
+	tr := m.components[0].(*components.ToolResultComponent)
+	if !tr.Expanded() {
+		t.Fatal("expected rebuilt tool component Expanded() to be true")
+	}
+}

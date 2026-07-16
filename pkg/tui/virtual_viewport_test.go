@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
@@ -37,7 +38,8 @@ func TestVirtualViewportPreservesTotalHeight(t *testing.T) {
 	}
 
 	for scrollY := 0; scrollY <= totalHeight; scrollY++ {
-		content := buildVirtualContent(comps, 80, 5, scrollY, false)
+		layouts := layoutComponents(comps, 80, false, -1)
+		content := buildVirtualContent(layouts, 5, scrollY, false, -1)
 		got := lineCount(content)
 		if got != totalHeight {
 			t.Fatalf("scrollY=%d: expected %d lines, got %d", scrollY, totalHeight, got)
@@ -52,7 +54,8 @@ func TestVirtualViewportRendersOnlyVisible(t *testing.T) {
 		staticComponent{id: "c", lines: 5, text: "C"},
 	}
 	// viewport height 5, scrolled to line 5: visible lines are 5-9, so only b is rendered.
-	content := buildVirtualContent(comps, 80, 5, 5, false)
+	layouts := layoutComponents(comps, 80, false, -1)
+	content := buildVirtualContent(layouts, 5, 5, false, -1)
 	if strings.Contains(content, "A") {
 		t.Fatal("off-screen component A should not be rendered")
 	}
@@ -61,5 +64,34 @@ func TestVirtualViewportRendersOnlyVisible(t *testing.T) {
 	}
 	if strings.Contains(content, "C") {
 		t.Fatal("off-screen component C should not be rendered")
+	}
+}
+
+func TestFocusedComponentRendersLeftBorder(t *testing.T) {
+	comps := []components.BlockComponent{
+		staticComponent{id: "a", lines: 3, text: "A"},
+		staticComponent{id: "b", lines: 2, text: "B"},
+	}
+	layouts := layoutComponents(comps, 20, false, 0)
+	content := buildVirtualContent(layouts, 10, 0, false, 0)
+	if !strings.Contains(content, "┃") {
+		t.Fatalf("expected left border in focused component output, got %q", content)
+	}
+	// Each rendered line should still fit within the original viewport width.
+	for _, ln := range strings.Split(content, "\n") {
+		if w := lipgloss.Width(ln); w > 20 {
+			t.Fatalf("line width %d exceeds viewport width 20: %q", w, ln)
+		}
+	}
+}
+
+func TestFocusedComponentHeightMatchesLayout(t *testing.T) {
+	comps := []components.BlockComponent{
+		staticComponent{id: "a", lines: 3, text: "A"},
+	}
+	layouts := layoutComponents(comps, 20, false, 0)
+	content := buildVirtualContent(layouts, 10, 0, false, 0)
+	if got := strings.Count(content, "\n") + 1; got != 3 {
+		t.Fatalf("expected 3 lines for focused component, got %d", got)
 	}
 }

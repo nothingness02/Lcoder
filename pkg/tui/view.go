@@ -8,18 +8,18 @@ import (
 )
 
 // rebuildViewport re-renders all blocks into the viewport and pins to bottom
-// while streaming or when the user is already at the bottom.
+// while streaming or when the user is already at the bottom. When a block is
+// focused, the viewport is scrolled to keep that block visible.
 func (m *Model) rebuildViewport() {
+	layouts := layoutComponents(m.components, m.viewport.Width, m.toolsExpanded, m.focusedBlockIndex)
+	if m.focusedBlockIndex >= 0 && m.focusedBlockIndex < len(layouts) {
+		focused := layouts[m.focusedBlockIndex]
+		m.viewport.SetYOffset(clamp(focused.offset, 0, maxTotalHeight(layouts)-m.viewport.Height))
+	}
 	atBottom := m.viewport.AtBottom()
-	content := buildVirtualContent(
-		m.components,
-		m.viewport.Width,
-		m.viewport.Height,
-		m.viewport.YOffset,
-		m.toolsExpanded,
-	)
+	content := buildVirtualContent(layouts, m.viewport.Height, m.viewport.YOffset, m.toolsExpanded, m.focusedBlockIndex)
 	m.viewport.SetContent(content)
-	if m.streaming || atBottom {
+	if m.focusedBlockIndex < 0 && (m.streaming || atBottom) {
 		m.viewport.GotoBottom()
 	}
 }

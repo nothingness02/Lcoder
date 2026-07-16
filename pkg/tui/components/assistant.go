@@ -42,6 +42,10 @@ func NewAssistantComponent(id, thinking, content string, usage *UsageInfo) *Assi
 
 func (c *AssistantComponent) ID() string      { return c.id }
 func (c *AssistantComponent) Kind() BlockKind { return BlockAssistant }
+func (c *AssistantComponent) Expanded() bool  { return c.expanded }
+func (c *AssistantComponent) SetExpanded(v bool) {
+	c.expanded = v
+}
 
 func (c *AssistantComponent) Height(width int, expanded bool) int {
 	effectiveExpanded := expanded || c.expanded

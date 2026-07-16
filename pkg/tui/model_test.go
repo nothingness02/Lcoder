@@ -206,3 +206,162 @@ func TestParseSlashCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestShiftUpFocusesLastBlock(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateInput
+	m.blocks = []block{
+		{kind: components.BlockUser, raw: "hello"},
+		{kind: components.BlockAssistant, id: "a1", raw: "hi"},
+		{kind: components.BlockSystem, raw: "sys"},
+		{kind: components.BlockTool, id: "t1", toolName: "bash", toolResult: "out"},
+	}
+	m.components = componentsFromBlocks(m.blocks)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftUp})
+	m2 := updated.(*Model)
+	if m2.focusedBlockIndex != 3 {
+		t.Fatalf("expected focus on last interactive block (3), got %d", m2.focusedBlockIndex)
+	}
+}
+
+func TestShiftUpDownClampsFocus(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateInput
+	m.blocks = []block{
+		{kind: components.BlockAssistant, id: "a1", raw: "hi"},
+		{kind: components.BlockTool, id: "t1", toolName: "bash", toolResult: "out"},
+	}
+	m.components = componentsFromBlocks(m.blocks)
+
+	// Focus first interactive block.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftDown})
+	m2 := updated.(*Model)
+	if m2.focusedBlockIndex != 0 {
+		t.Fatalf("expected focus on first interactive block (0), got %d", m2.focusedBlockIndex)
+	}
+
+	// Clamped at the first block.
+	updated, _ = m2.Update(tea.KeyMsg{Type: tea.KeyShiftUp})
+	m3 := updated.(*Model)
+	if m3.focusedBlockIndex != 0 {
+		t.Fatalf("expected focus to clamp at 0, got %d", m3.focusedBlockIndex)
+	}
+
+	// Move to last block and clamp there.
+	updated, _ = m3.Update(tea.KeyMsg{Type: tea.KeyShiftDown})
+	m4 := updated.(*Model)
+	if m4.focusedBlockIndex != 1 {
+		t.Fatalf("expected focus on last interactive block (1), got %d", m4.focusedBlockIndex)
+	}
+	updated, _ = m4.Update(tea.KeyMsg{Type: tea.KeyShiftDown})
+	m5 := updated.(*Model)
+	if m5.focusedBlockIndex != 1 {
+		t.Fatalf("expected focus to clamp at 1, got %d", m5.focusedBlockIndex)
+	}
+}
+
+func TestCtrlETogglesFocusedAssistant(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateInput
+	m.blocks = []block{
+		{kind: components.BlockAssistant, id: "a1", raw: "hi", thinking: "step one\nstep two"},
+	}
+	m.components = componentsFromBlocks(m.blocks)
+	m.focusedBlockIndex = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	m2 := updated.(*Model)
+	if !m2.blocks[0].expanded {
+		t.Fatal("expected block.expanded to be true after Ctrl+E")
+	}
+	ac, ok := m2.components[0].(*components.AssistantComponent)
+	if !ok {
+		t.Fatalf("expected *components.AssistantComponent, got %T", m2.components[0])
+	}
+	if !ac.Expanded() {
+		t.Fatal("expected assistant component Expanded() to be true")
+	}
+}
+
+func TestCtrlETogglesFocusedTool(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateInput
+	m.blocks = []block{
+		{kind: components.BlockTool, id: "t1", toolName: "bash", toolArgs: `{"command":"ls"}`, toolResult: "line1\nline2\nline3\nline4"},
+	}
+	m.components = componentsFromBlocks(m.blocks)
+	m.focusedBlockIndex = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	m2 := updated.(*Model)
+	if !m2.blocks[0].expanded {
+		t.Fatal("expected block.expanded to be true after Ctrl+E")
+	}
+	tr, ok := m2.components[0].(*components.ToolResultComponent)
+	if !ok {
+		t.Fatalf("expected *components.ToolResultComponent, got %T", m2.components[0])
+	}
+	if !tr.Expanded() {
+		t.Fatal("expected tool component Expanded() to be true")
+	}
+}
+
+func TestEscClearsFocusInInputState(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateInput
+	m.blocks = []block{{kind: components.BlockAssistant, id: "a1", raw: "hi"}}
+	m.components = componentsFromBlocks(m.blocks)
+	m.focusedBlockIndex = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m2 := updated.(*Model)
+	if m2.focusedBlockIndex != -1 {
+		t.Fatalf("expected focus cleared, got %d", m2.focusedBlockIndex)
+	}
+}
+
+func TestEscClearsFocusBeforeAbortInProcessingState(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateProcessing
+	m.blocks = []block{{kind: components.BlockAssistant, id: "a1", raw: "hi"}}
+	m.components = componentsFromBlocks(m.blocks)
+	m.focusedBlockIndex = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m2 := updated.(*Model)
+	if m2.focusedBlockIndex != -1 {
+		t.Fatalf("expected first Esc to clear focus, got %d", m2.focusedBlockIndex)
+	}
+
+	updated, _ = m2.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m3 := updated.(*Model)
+	if m3.focusedBlockIndex != -1 {
+		t.Fatalf("expected focus to remain -1 after abort, got %d", m3.focusedBlockIndex)
+	}
+	// The abort path adds a system "interrupted" line.
+	var found bool
+	for _, b := range m3.blocks {
+		if b.kind == components.BlockSystem && strings.Contains(b.raw, "interrupted") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'interrupted' system block after second Esc")
+	}
+}
+
+func TestCtrlEDoesNothingWhenNoFocus(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateInput
+	m.blocks = []block{{kind: components.BlockAssistant, id: "a1", raw: "hi"}}
+	m.components = componentsFromBlocks(m.blocks)
+	m.focusedBlockIndex = -1
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	m2 := updated.(*Model)
+	if m2.focusedBlockIndex != -1 {
+		t.Fatalf("expected no focus change, got %d", m2.focusedBlockIndex)
+	}
+}

@@ -18,6 +18,7 @@ type block struct {
 	// assistant extras
 	thinking string
 	usage    *blockUsage
+	expanded bool
 
 	// tool extras
 	toolName    string

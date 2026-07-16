@@ -26,6 +26,12 @@ type UpdatableComponent interface {
 	Update(msg tea.Msg) (BlockComponent, tea.Cmd)
 }
 
+// ExpandableComponent is used for blocks whose expanded state can be queried.
+type ExpandableComponent interface {
+	BlockComponent
+	Expanded() bool
+}
+
 // ComponentMsg routes a tea.Msg to the component with the given ID.
 type ComponentMsg struct {
 	ID  string
