@@ -1,0 +1,43 @@
+.permission-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.permission-dialog {
+  background: #1f2937;
+  padding: 1.5rem;
+  border-radius: 8px;
+  min-width: 360px;
+  max-width: 80vw;
+}
+
+.permission-dialog pre {
+  background: #111827;
+  padding: 0.75rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.permission-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.permission-actions button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
+
+.permission-actions .deny {
+  background: #dc2626;
+  color: white;
+}

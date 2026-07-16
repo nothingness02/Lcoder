@@ -1,0 +1,23 @@
+.status-bar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  background: #111827;
+  border-top: 1px solid #374151;
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+.status-bar .cwd {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: right;
+}
+
+.status-bar .compacting {
+  color: #fbbf24;
+}

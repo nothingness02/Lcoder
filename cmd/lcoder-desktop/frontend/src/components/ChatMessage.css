@@ -1,0 +1,100 @@
+.chat-message {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  max-width: 96%;
+}
+
+.chat-message.user {
+  align-self: flex-end;
+  background: #2563eb;
+  color: white;
+}
+
+.chat-message.assistant {
+  align-self: flex-start;
+  background: #1f2937;
+  color: #e5e7eb;
+}
+
+.chat-message.tool {
+  align-self: flex-start;
+  background: #111827;
+  color: #9ca3af;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.chat-message.system {
+  align-self: center;
+  background: transparent;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.system-banner {
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  background: #111827;
+}
+
+.thinking {
+  margin-bottom: 0.5rem;
+}
+
+.thinking-toggle {
+  background: transparent;
+  border: 1px solid #4b5563;
+  color: #9ca3af;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.thinking-content {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #111827;
+  color: #6b7280;
+  border-radius: 4px;
+  white-space: pre-wrap;
+}
+
+.tool-call {
+  margin-top: 0.75rem;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tool-call-header {
+  padding: 0.5rem;
+  background: #111827;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.tool-call pre {
+  margin: 0;
+  padding: 0.5rem;
+  background: #0b0f19;
+  overflow-x: auto;
+}
+
+.tool-error {
+  color: #f87171;
+}
+
+.markdown-body pre {
+  background: #111827;
+  padding: 0.75rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.markdown-body code {
+  background: #1f2937;
+  padding: 0.125rem 0.25rem;
+  border-radius: 4px;
+}

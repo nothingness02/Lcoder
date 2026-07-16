@@ -24,6 +24,8 @@ const (
 	Error               EventType = "error"
 	CompactionCommitted EventType = "compaction_committed"
 	CompactionStarted   EventType = "compaction_started"
+	SessionLoaded       EventType = "session_loaded"
+	PermissionRequest   EventType = "permission_request"
 )
 
 // Event is the interface implemented by all agent events.
@@ -148,6 +150,23 @@ type AuditEvent struct {
 	Allowed     bool           `json:"allowed"`
 	Blocked     bool           `json:"blocked"`
 	BlockReason string         `json:"block_reason,omitempty"`
+}
+
+// SessionLoadedEvent signals that the active session has changed and the UI
+// should replace its message list.
+type SessionLoadedEvent struct {
+	Base
+	SessionID string                `json:"session_id"`
+	Messages  []models.AgentMessage `json:"messages"`
+}
+
+// PermissionRequestEvent signals that a tool call needs user approval.
+type PermissionRequestEvent struct {
+	Base
+	RequestID  string         `json:"request_id"`
+	ToolCallID string         `json:"tool_call_id"`
+	ToolName   string         `json:"tool_name"`
+	Args       map[string]any `json:"args"`
 }
 
 // MarshalJSON serializes an event using its concrete fields.
