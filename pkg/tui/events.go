@@ -23,6 +23,7 @@ func (m *Model) handleEvent(ev events.Event) {
 		if e.Message.Role == models.RoleAssistant {
 			m.streaming = true
 			m.streamLive = ""
+			m.streamLiveThinking = ""
 			m.streamMsgID = e.Message.ID
 			m.appendBlock(block{kind: components.BlockAssistant, id: e.Message.ID, raw: ""})
 		}
@@ -31,8 +32,13 @@ func (m *Model) handleEvent(ev events.Event) {
 		if !m.streaming {
 			break
 		}
-		m.streamLive += e.Delta
-		m.patchAssistant(m.streamLive)
+		if e.IsThinking {
+			m.streamLiveThinking += e.Delta
+			m.patchThinking(m.streamLiveThinking)
+		} else {
+			m.streamLive += e.Delta
+			m.patchAssistant(m.streamLive)
+		}
 
 	case events.MessageEndEvent:
 		if e.Message.Role == models.RoleAssistant {
@@ -50,6 +56,7 @@ func (m *Model) handleEvent(ev events.Event) {
 			m.commitAssistant(id, final, e.Message.Thinking(), usagePtr(e.Message))
 			m.streaming = false
 			m.streamLive = ""
+			m.streamLiveThinking = ""
 			m.streamMsgID = ""
 		}
 
@@ -106,6 +113,22 @@ func (m *Model) patchAssistant(content string) {
 			m.blocks[i].raw = content
 			if ac, ok := m.components[i].(*components.AssistantComponent); ok {
 				ac.SetContent(content)
+			} else {
+				m.components[i] = toComponent(m.blocks[i])
+			}
+			m.rebuildViewport()
+			return
+		}
+	}
+}
+
+// patchThinking overwrites the thinking trace of the in-flight assistant block.
+func (m *Model) patchThinking(thinking string) {
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind == components.BlockAssistant && m.blocks[i].id == m.streamMsgID {
+			m.blocks[i].thinking = thinking
+			if ac, ok := m.components[i].(*components.AssistantComponent); ok {
+				ac.SetThinking(thinking)
 			} else {
 				m.components[i] = toComponent(m.blocks[i])
 			}

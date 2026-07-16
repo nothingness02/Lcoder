@@ -43,9 +43,9 @@ type Model struct {
 
 	unsubscribe        func()
 	persistUnsubscribe func()
-	eventCh       chan events.Event
-	runner        *runnerQueue
-	runnerCancel  context.CancelFunc
+	eventCh            chan events.Event
+	runner             *runnerQueue
+	runnerCancel       context.CancelFunc
 
 	state uiState
 
@@ -55,10 +55,11 @@ type Model struct {
 	viewport   viewport.Model
 
 	// Streaming state for the in-flight assistant message.
-	streaming   bool
-	streamLive  string
-	streamMsgID string
-	turnTools   []toolResultEntry
+	streaming          bool
+	streamLive         string
+	streamLiveThinking string
+	streamMsgID        string
+	turnTools          []toolResultEntry
 
 	input   InputModel
 	spinner spinner

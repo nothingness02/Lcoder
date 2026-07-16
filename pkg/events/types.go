@@ -46,10 +46,10 @@ type AgentStartEvent struct{ Base }
 type AgentEndReason string
 
 const (
-	EndReasonCompleted  AgentEndReason = "completed"
-	EndReasonTerminated AgentEndReason = "terminated"
+	EndReasonCompleted   AgentEndReason = "completed"
+	EndReasonTerminated  AgentEndReason = "terminated"
 	EndReasonInterrupted AgentEndReason = "interrupted"
-	EndReasonError      AgentEndReason = "error"
+	EndReasonError       AgentEndReason = "error"
 )
 
 // AgentEndEvent signals the end of an agent run.
@@ -84,8 +84,9 @@ type MessageEndEvent struct {
 // MessageUpdateEvent carries a streaming delta.
 type MessageUpdateEvent struct {
 	Base
-	Delta   string              `json:"delta"`
-	Message models.AgentMessage `json:"message"`
+	Delta      string              `json:"delta"`
+	IsThinking bool                `json:"is_thinking"`
+	Message    models.AgentMessage `json:"message"`
 }
 
 // ToolExecutionStartEvent signals that a tool is about to run.

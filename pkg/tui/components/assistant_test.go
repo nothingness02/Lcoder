@@ -19,8 +19,8 @@ func TestAssistantComponentRendersMarkdown(t *testing.T) {
 func TestAssistantComponentThinking(t *testing.T) {
 	comp := NewAssistantComponent("a1", "step one\nstep two", "result", nil)
 	out := comp.Render(40, false)
-	if !strings.Contains(out, "Thinking:") {
-		t.Fatalf("missing thinking preview: %q", out)
+	if !strings.Contains(out, "Thinking…") {
+		t.Fatalf("missing thinking indicator: %q", out)
 	}
 
 	expanded := comp.Render(40, true)

@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lcoder/lcoder/pkg/tui/markdown"
-	"github.com/mattn/go-runewidth"
 )
 
 // UsageInfo carries token and cost metadata for an assistant message.
@@ -19,14 +18,19 @@ type UsageInfo struct {
 }
 
 // AssistantComponent renders an assistant message, optional thinking trace,
-// and usage metadata using the markdown node tree.
+// and usage metadata using glamour for full markdown rendering.
 type AssistantComponent struct {
 	id       string
 	thinking string
 	content  string
-	nodes    []markdown.Node
 	usage    *UsageInfo
 	expanded bool
+
+	// rendered cache keyed by width + content to avoid re-rendering glamour on
+	// every frame.
+	cachedRenderWidth   int
+	cachedRenderContent string
+	cachedRender        string
 }
 
 // NewAssistantComponent creates a fully initialized assistant component.
@@ -35,7 +39,6 @@ func NewAssistantComponent(id, thinking, content string, usage *UsageInfo) *Assi
 		id:       id,
 		thinking: thinking,
 		content:  content,
-		nodes:    markdown.Parse(content),
 		usage:    usage,
 	}
 }
@@ -48,8 +51,7 @@ func (c *AssistantComponent) SetExpanded(v bool) {
 }
 
 func (c *AssistantComponent) Height(width int, expanded bool) int {
-	effectiveExpanded := expanded || c.expanded
-	return lipgloss.Height(c.Render(width, effectiveExpanded))
+	return lipgloss.Height(c.Render(width, expanded))
 }
 
 func (c *AssistantComponent) Render(width int, expanded bool) string {
@@ -57,13 +59,12 @@ func (c *AssistantComponent) Render(width int, expanded bool) string {
 	var sb strings.Builder
 	if c.thinking != "" {
 		sb.WriteString(c.renderThinking(effectiveExpanded))
-		sb.WriteString("\n\n")
-	}
-	for i, n := range c.nodes {
-		if i > 0 {
-			sb.WriteString("\n")
+		if c.content != "" {
+			sb.WriteString("\n\n")
 		}
-		sb.WriteString(n.Render(width))
+	}
+	if c.content != "" {
+		sb.WriteString(c.renderedContent(width))
 	}
 	if c.usage != nil {
 		sb.WriteString("\n")
@@ -81,20 +82,36 @@ func (c *AssistantComponent) Update(msg tea.Msg) (BlockComponent, tea.Cmd) {
 	return c, nil
 }
 
-// SetContent replaces the streamed content and re-parses the markdown tree.
+// SetContent replaces the streamed content and invalidates the render cache.
 func (c *AssistantComponent) SetContent(content string) {
 	c.content = content
-	c.nodes = markdown.Parse(content)
+	c.cachedRenderContent = ""
 }
 
-// renderThinking renders the assistant's reasoning trace. Compact mode shows a
-// dimmed one-line preview (whitespace collapsed, clipped to 200 cells);
-// expanded mode shows the full multi-line trace under a "Thinking:" header.
+// SetThinking replaces the reasoning trace.
+func (c *AssistantComponent) SetThinking(thinking string) {
+	c.thinking = thinking
+}
+
+// renderedContent returns the glamour-rendered markdown for the current width.
+func (c *AssistantComponent) renderedContent(width int) string {
+	if c.cachedRenderWidth == width && c.cachedRenderContent == c.content {
+		return c.cachedRender
+	}
+	out := markdown.RenderMarkdown(c.content, width)
+	c.cachedRenderWidth = width
+	c.cachedRenderContent = c.content
+	c.cachedRender = out
+	return out
+}
+
+// renderThinking renders the assistant's reasoning trace. Collapsed mode shows
+// a single dim indicator line; expanded mode shows the full multi-line trace
+// under a "Thinking:" header.
 func (c *AssistantComponent) renderThinking(expanded bool) string {
 	style := styleDim().Italic(true)
 	if !expanded {
-		preview := strings.Join(strings.Fields(c.thinking), " ")
-		return style.Render("Thinking: " + truncate(preview, 200))
+		return style.Render("Thinking…")
 	}
 	var sb strings.Builder
 	sb.WriteString(style.Render("Thinking:"))
@@ -117,7 +134,7 @@ func truncate(s string, width int) string {
 	var runes []rune
 	w := 0
 	for _, r := range s {
-		rw := runewidth.RuneWidth(r)
+		rw := lipgloss.Width(string(r))
 		if w+rw > width-1 {
 			break
 		}

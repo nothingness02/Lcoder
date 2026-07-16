@@ -109,9 +109,10 @@ loop:
 					partial = updateThinking(partial, delta)
 				}
 				s.emitter.emit(streamCtx, events.MessageUpdateEvent{
-					Base:    events.Base{Type: events.MessageUpdate, Turn: turn},
-					Delta:   delta,
-					Message: partial,
+					Base:       events.Base{Type: events.MessageUpdate, Turn: turn},
+					Delta:      delta,
+					IsThinking: ev.Kind == provider.KindThinkingDelta,
+					Message:    partial,
 				})
 			case provider.KindToolCallDelta:
 				if !started {

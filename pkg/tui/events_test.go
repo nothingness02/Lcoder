@@ -126,6 +126,43 @@ func TestMessageEndUsesStreamingBlockID(t *testing.T) {
 	}
 }
 
+func TestThinkingDeltaDoesNotLeakIntoContent(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateProcessing
+
+	m.handleEvent(events.MessageStartEvent{Message: models.AgentMessage{Role: models.RoleAssistant, ID: "a1"}})
+	m.handleEvent(events.MessageUpdateEvent{Delta: "reasoning ", IsThinking: true})
+	m.handleEvent(events.MessageUpdateEvent{Delta: "step", IsThinking: true})
+	m.handleEvent(events.MessageUpdateEvent{Delta: "answer"})
+
+	final := models.NewAgentMessage(models.RoleAssistant,
+		models.ThinkingContent{Text: "reasoning step"},
+		models.TextContent{Text: "answer"},
+	)
+	final.ID = "a1"
+	m.handleEvent(events.MessageEndEvent{Message: final})
+
+	for _, b := range m.blocks {
+		if b.kind != components.BlockAssistant {
+			continue
+		}
+		if b.raw != "answer" {
+			t.Fatalf("content should be answer only, got %q", b.raw)
+		}
+		if b.thinking != "reasoning step" {
+			t.Fatalf("thinking should be reasoning step, got %q", b.thinking)
+		}
+		ac, ok := m.components[0].(*components.AssistantComponent)
+		if !ok {
+			t.Fatalf("expected assistant component, got %T", m.components[0])
+		}
+		rendered := ac.Render(40, false)
+		if strings.Contains(rendered, "reasoning") {
+			t.Fatalf("collapsed thinking should not leak reasoning, got %q", rendered)
+		}
+	}
+}
+
 func TestToolSummaryAppearsBeforeNextAssistantMessage(t *testing.T) {
 	m, _, _ := newTestModel()
 

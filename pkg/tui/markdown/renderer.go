@@ -1,104 +1,21 @@
+// pkg/tui/markdown/renderer.go
 package markdown
 
 import (
-	"bytes"
 	"strings"
 	"sync"
 
 	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
 )
 
-// Parse converts markdown text into a Node tree.
-func Parse(source string) []Node {
-	md := goldmark.New()
-	reader := text.NewReader([]byte(source))
-	root := md.Parser().Parse(reader)
-
-	var nodes []Node
-	err := ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		if !entering {
-			return ast.WalkContinue, nil
-		}
-		switch n := n.(type) {
-		case *ast.FencedCodeBlock:
-			lang := string(n.Language(reader.Source()))
-			var buf bytes.Buffer
-			for i := 0; i < n.Lines().Len(); i++ {
-				seg := n.Lines().At(i)
-				buf.Write(seg.Value(reader.Source()))
-			}
-			nodes = append(nodes, &CodeBlockNode{Lang: lang, Content: buf.String()})
-		case *ast.List:
-			ordered := n.Marker == '.'
-			var items []string
-			for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-				if li, ok := c.(*ast.ListItem); ok {
-					var text bytes.Buffer
-					for cc := li.FirstChild(); cc != nil; cc = cc.NextSibling() {
-						switch block := cc.(type) {
-						case *ast.Paragraph:
-							for l := 0; l < block.Lines().Len(); l++ {
-								seg := block.Lines().At(l)
-								text.Write(seg.Value(reader.Source()))
-							}
-						case *ast.TextBlock:
-							for l := 0; l < block.Lines().Len(); l++ {
-								seg := block.Lines().At(l)
-								text.Write(seg.Value(reader.Source()))
-							}
-						}
-					}
-					items = append(items, strings.TrimSpace(text.String()))
-				}
-			}
-			nodes = append(nodes, &ListNode{Ordered: ordered, Items: items})
-		case *ast.Heading:
-			var buf bytes.Buffer
-			for i := 0; i < n.Lines().Len(); i++ {
-				seg := n.Lines().At(i)
-				buf.Write(seg.Value(reader.Source()))
-			}
-			nodes = append(nodes, &HeadingNode{Level: n.Level, Text: strings.TrimSpace(buf.String())})
-		case *ast.Paragraph:
-			if isInsideList(n) {
-				return ast.WalkSkipChildren, nil
-			}
-			var buf bytes.Buffer
-			for i := 0; i < n.Lines().Len(); i++ {
-				seg := n.Lines().At(i)
-				buf.Write(seg.Value(reader.Source()))
-			}
-			nodes = append(nodes, &TextNode{Text: strings.TrimSpace(buf.String())})
-		}
-		return ast.WalkContinue, nil
-	})
-	if err != nil {
-		return []Node{&TextNode{Text: source}}
-	}
-	if len(nodes) == 0 {
-		return []Node{&TextNode{Text: source}}
-	}
-	return nodes
-}
-
-func isInsideList(n ast.Node) bool {
-	for p := n.Parent(); p != nil; p = p.Parent() {
-		if _, ok := p.(*ast.List); ok {
-			return true
-		}
-	}
-	return false
-}
-
 // RenderMarkdown renders markdown text to an ANSI string using glamour.
+// Inline and display math ($...$ / $$...$$) are converted to code blocks/spans
+// before rendering so the formulas are preserved and styled in the terminal.
 func RenderMarkdown(source string, width int) string {
 	if source == "" {
 		return ""
 	}
+	source = preprocessMath(source)
 	r := getMarkdownRenderer(width)
 	if r == nil {
 		return source
@@ -113,9 +30,6 @@ func RenderMarkdown(source string, width int) string {
 var (
 	mdRendererCache   = map[int]*glamour.TermRenderer{}
 	mdRendererCacheMu sync.RWMutex
-
-	widthStyleCache   = map[int]lipgloss.Style{}
-	widthStyleCacheMu sync.RWMutex
 )
 
 func getMarkdownRenderer(width int) *glamour.TermRenderer {
@@ -142,26 +56,74 @@ func getMarkdownRenderer(width int) *glamour.TermRenderer {
 	return r
 }
 
-// widthStyle returns a cached lipgloss style constrained to the given width.
-func widthStyle(width int) lipgloss.Style {
-	widthStyleCacheMu.RLock()
-	if s, ok := widthStyleCache[width]; ok {
-		widthStyleCacheMu.RUnlock()
-		return s
+// preprocessMath converts LaTeX-style math markers into glamour-friendly code
+// blocks/spans so the formulas survive markdown rendering. Display math
+// ($$...$$) becomes a fenced code block; inline math ($...$) becomes inline
+// code. Escaped dollar signs (\$) are left alone.
+func preprocessMath(source string) string {
+	var sb strings.Builder
+	for i := 0; i < len(source); {
+		if source[i] == '$' && !isEscaped(source, i) {
+			if i+1 < len(source) && source[i+1] == '$' {
+				if end := findUnescaped(source, i+2, "$$"); end != -1 {
+					sb.WriteString("\n\n```math\n")
+					sb.WriteString(source[i+2 : end])
+					sb.WriteString("\n```\n\n")
+					i = end + 2
+					continue
+				}
+			}
+			if end := findUnescaped(source, i+1, "$"); end != -1 {
+				sb.WriteString(mathInlineCode(source[i+1 : end]))
+				i = end + 1
+				continue
+			}
+		}
+		sb.WriteByte(source[i])
+		i++
 	}
-	widthStyleCacheMu.RUnlock()
-
-	widthStyleCacheMu.Lock()
-	defer widthStyleCacheMu.Unlock()
-	if s, ok := widthStyleCache[width]; ok {
-		return s
-	}
-	s := lipgloss.NewStyle().Width(width)
-	widthStyleCache[width] = s
-	return s
+	return sb.String()
 }
 
-func renderCodeBlock(lang, content string, width int) string {
-	md := "```" + lang + "\n" + content + "\n```"
-	return RenderMarkdown(md, width)
+// isEscaped reports whether the byte at idx is preceded by an odd number of
+// backslashes.
+func isEscaped(source string, idx int) bool {
+	if idx == 0 {
+		return false
+	}
+	backslashes := 0
+	for j := idx - 1; j >= 0 && source[j] == '\\'; j-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
+}
+
+// findUnescaped returns the index of the first occurrence of delim after start
+// that is not escaped, or -1 if none is found.
+func findUnescaped(source string, start int, delim string) int {
+	for i := start; i <= len(source)-len(delim); i++ {
+		if source[i:i+len(delim)] == delim && !isEscaped(source, i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// mathInlineCode wraps math source in backticks, choosing enough backticks to
+// avoid clashing with backticks inside the formula.
+func mathInlineCode(src string) string {
+	max := 0
+	cur := 0
+	for i := 0; i < len(src); i++ {
+		if src[i] == '`' {
+			cur++
+			if cur > max {
+				max = cur
+			}
+		} else {
+			cur = 0
+		}
+	}
+	ticks := strings.Repeat("`", max+1)
+	return ticks + src + ticks
 }
