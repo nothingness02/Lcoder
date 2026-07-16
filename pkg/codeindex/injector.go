@@ -84,8 +84,10 @@ func (inj *Injector) Inject(ctx context.Context, query string, maxResults int) e
 	}
 
 	text := strings.Join(stubs, "\n\n")
+	var msgs []models.AgentMessage
 	if text != "" {
 		text = fmt.Sprintf("// Repository code index results for query %q\n\n%s", query, text)
+		msgs = append(msgs, models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: text}))
 	}
 	block := contextmgr.NewBlockWithCacheHint(
 		contextmgr.BlockRetrieval,
@@ -93,7 +95,7 @@ func (inj *Injector) Inject(ctx context.Context, query string, maxResults int) e
 		contextmgr.StabilityDynamic,
 		50,
 		contextmgr.CacheHintSkip,
-		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: text}),
+		msgs...,
 	)
 	inj.manager.SetBlock(block)
 	return nil

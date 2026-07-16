@@ -50,6 +50,28 @@ func TestOpenAIMessagesToolResult(t *testing.T) {
 	}
 }
 
+func TestOpenAIMessagesDropsEmptySystem(t *testing.T) {
+	msgs := []models.AgentMessage{
+		models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hi"}),
+		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: ""}),
+	}
+	got := openAIMessages(msgs)
+	if len(got) != 1 || got[0]["role"] != "user" {
+		t.Fatalf("expected empty system message to be dropped, got %v", got)
+	}
+}
+
+func TestOpenAIMessagesDropsEmptyUser(t *testing.T) {
+	msgs := []models.AgentMessage{
+		models.NewAgentMessage(models.RoleUser, models.TextContent{Text: ""}),
+		models.NewAgentMessage(models.RoleAssistant, models.TextContent{Text: "hello"}),
+	}
+	got := openAIMessages(msgs)
+	if len(got) != 1 || got[0]["role"] != "assistant" {
+		t.Fatalf("expected empty user message to be dropped, got %v", got)
+	}
+}
+
 func TestOpenAITools(t *testing.T) {
 	tools := []models.ToolDefinition{{Name: "read", Description: "read a file", Parameters: map[string]any{"type": "object"}}}
 	got := openAITools(tools)

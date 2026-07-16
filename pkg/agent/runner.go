@@ -19,6 +19,8 @@ type Runner interface {
 	SetUserConfirm(uc UserConfirmation)
 	Stats() map[string]int
 	Mode() string
+	SessionID() string
+	SetSessionID(id string)
 	Steer(msg models.AgentMessage)
 	Abort()
 	SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget)

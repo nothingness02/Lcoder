@@ -317,6 +317,18 @@ func (a *Agent) SetMessages(msgs []models.AgentMessage) {
 	a.mgr.SetMessages(msgs)
 }
 
+// SessionID returns the session this agent is currently associated with.
+func (a *Agent) SessionID() string {
+	return a.cfg.SessionID
+}
+
+// SetSessionID changes the session identifier the agent uses for checkpoints
+// and session-scoped callbacks. It is used by the TUI when the user switches
+// to a different session or starts a new one.
+func (a *Agent) SetSessionID(id string) {
+	a.cfg.SessionID = id
+}
+
 // AllMessages returns the full conversation from the context manager.
 func (a *Agent) AllMessages() []models.AgentMessage {
 	return a.mgr.AllMessages()

@@ -21,6 +21,18 @@ models:
       cache_read: 0.064
       cache_write: 0.128
 
+  - id: "K2.7 Code"
+    provider: kimi-code
+    aliases:
+      - kimi-k2.7-code
+      - k2.7-code
+    capabilities:
+      - tools
+      - reasoning
+    context_window: 262144
+    budget:
+      max_output: 16384
+
   - id: gpt-4o-mini
     provider: openai
     aliases:

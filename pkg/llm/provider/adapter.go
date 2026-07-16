@@ -30,6 +30,7 @@ var defaultBaseURLs = map[string]string{
 	"deepseek":   "https://api.deepseek.com/v1",
 	"gemini":     "https://generativelanguage.googleapis.com/v1beta/openai",
 	"moonshot":   "https://api.moonshot.cn/v1",
+	"kimi-code":  "https://api.kimi.com/coding/v1",
 	"xai":        "https://api.x.ai/v1",
 	"alibaba":    "https://dashscope.aliyuncs.com/compatible-mode/v1",
 	"zhipu":      "https://open.bigmodel.cn/api/paas/v4",

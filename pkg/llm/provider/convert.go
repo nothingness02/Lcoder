@@ -38,16 +38,33 @@ func openAIContent(parts []models.ContentPart) any {
 	return out
 }
 
+// isEmptyContent reports whether an openAIContent result carries no usable parts.
+func isEmptyContent(content any) bool {
+	switch c := content.(type) {
+	case string:
+		return c == ""
+	case []map[string]any:
+		return len(c) == 0
+	}
+	return false
+}
+
 // openAIMessages converts agent messages to OpenAI chat messages, dropping any
 // message that produces no representable content.
 func openAIMessages(msgs []models.AgentMessage) []map[string]any {
 	out := []map[string]any{}
 	for _, m := range msgs {
 		switch m.Role {
-		case models.RoleSystem:
-			out = append(out, map[string]any{"role": "system", "content": openAIContent(m.Content)})
-		case models.RoleUser:
-			out = append(out, map[string]any{"role": "user", "content": openAIContent(m.Content)})
+		case models.RoleSystem, models.RoleUser:
+			content := openAIContent(m.Content)
+			if isEmptyContent(content) {
+				continue
+			}
+			role := "system"
+			if m.Role == models.RoleUser {
+				role = "user"
+			}
+			out = append(out, map[string]any{"role": role, "content": content})
 		case models.RoleAssistant:
 			var assistantContent []map[string]any
 			var toolCalls []map[string]any

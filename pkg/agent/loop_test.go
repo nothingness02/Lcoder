@@ -29,6 +29,26 @@ func testRegistry(root string) *tools.Registry {
 // can wait for the tool to be in-flight before calling Abort.
 var abortTestToolStarted = make(chan struct{}, 1)
 
+func TestAgentSessionID(t *testing.T) {
+	ag := New(Config{SessionID: "initial"}, nil, nil, nil, nil)
+	if ag.SessionID() != "initial" {
+		t.Fatalf("SessionID() = %q, want %q", ag.SessionID(), "initial")
+	}
+	ag.SetSessionID("switched")
+	if ag.SessionID() != "switched" {
+		t.Fatalf("SetSessionID did not update session id: got %q", ag.SessionID())
+	}
+
+	// Checkpoints created after the switch must carry the new session id.
+	cp, err := ag.Checkpoint()
+	if err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+	if cp.Session.SessionID != "switched" {
+		t.Fatalf("checkpoint session id = %q, want %q", cp.Session.SessionID, "switched")
+	}
+}
+
 func TestAgentOneTurn(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(
 		llmtest.Start(),

@@ -44,6 +44,19 @@ func TestInjectorWritesBlock(t *testing.T) {
 	require.Contains(t, text, "Repository code index results")
 }
 
+func TestInjectorEmptyResultsProduceNoMessages(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	idx := &fakeIndexer{results: nil}
+	inj := NewInjector(idx, mgr, "/tmp/demo", 2000)
+
+	require.NoError(t, inj.Inject(context.Background(), "unknown", 5))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "repo_index")
+	require.True(t, ok)
+	require.Empty(t, block.Text())
+	require.Empty(t, block.Messages, "empty index block must not contain a system message with empty content")
+}
+
 func TestInjectorParsesQuery(t *testing.T) {
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
 	idx := &fakeIndexer{}

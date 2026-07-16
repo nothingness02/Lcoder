@@ -18,3 +18,10 @@ func TestBuiltinProviderMoonshot(t *testing.T) {
 		t.Fatalf("unexpected moonshot entry: %+v ok=%v", p, ok)
 	}
 }
+
+func TestBuiltinProviderKimiCode(t *testing.T) {
+	p, ok := BuiltinProvider("kimi-code")
+	if !ok || p.DefaultBase != "https://api.kimi.com/coding/v1" || p.Route != "openai" || p.KeyEnv != "KIMI_CODE_API_KEY" {
+		t.Fatalf("unexpected kimi-code entry: %+v ok=%v", p, ok)
+	}
+}

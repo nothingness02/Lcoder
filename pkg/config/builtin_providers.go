@@ -18,6 +18,7 @@ var BuiltinProviders = []ProviderInfo{
 	{Name: "anthropic", Display: "Anthropic", KeyEnv: "ANTHROPIC_API_KEY", Route: "anthropic"},
 	{Name: "deepseek", Display: "DeepSeek", KeyEnv: "DEEPSEEK_API_KEY", Route: "deepseek"},
 	{Name: "moonshot", Display: "Moonshot (Kimi)", KeyEnv: "MOONSHOT_API_KEY", Route: "openai", DefaultBase: "https://api.moonshot.cn/v1"},
+	{Name: "kimi-code", Display: "Kimi Code", KeyEnv: "KIMI_CODE_API_KEY", Route: "openai", DefaultBase: "https://api.kimi.com/coding/v1"},
 	{Name: "gemini", Display: "Google Gemini", KeyEnv: "GEMINI_API_KEY", Route: "gemini"},
 	{Name: "xai", Display: "xAI", KeyEnv: "XAI_API_KEY", Route: "xai"},
 	{Name: "alibaba", Display: "Alibaba (Qwen)", KeyEnv: "ALIBABA_API_KEY", Route: "alibaba"},

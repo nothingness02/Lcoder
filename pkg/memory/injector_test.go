@@ -80,6 +80,20 @@ func TestInjectorClearsBlockWhenNoMatch(t *testing.T) {
 	require.Empty(t, block.Text())
 }
 
+func TestInjectorEmptyResultsProduceNoMessages(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
+	store, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	inj := NewInjector(store, mgr, 1024)
+	require.NoError(t, inj.Prefetch(context.Background(), "graphql"))
+
+	block, ok := mgr.GetBlock(contextmgr.BlockRetrieval, "memory_recall")
+	require.True(t, ok)
+	require.Empty(t, block.Text())
+	require.Empty(t, block.Messages, "empty recall block must not contain a system message with empty content")
+}
+
 func TestInjectorDefaultMaxTokens(t *testing.T) {
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192})
 	store, err := NewStore(t.TempDir())

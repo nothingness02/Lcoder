@@ -8,6 +8,7 @@ func TestDefaultBaseURL(t *testing.T) {
 		"openai":     "https://api.openai.com/v1",
 		"deepseek":   "https://api.deepseek.com/v1",
 		"moonshot":   "https://api.moonshot.cn/v1",
+		"kimi-code":  "https://api.kimi.com/coding/v1",
 		"openrouter": "https://openrouter.ai/api/v1",
 		"gemini":     "https://generativelanguage.googleapis.com/v1beta/openai",
 		"anthropic":  "https://api.anthropic.com/v1",

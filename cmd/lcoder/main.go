@@ -534,7 +534,11 @@ func runRoot(cmd *cobra.Command, args []string) error {
 // It is used for both crash recovery and clean-exit snapshots. Errors are
 // logged to stderr and do not affect the exit path.
 func writeBestEffortCheckpoint(setup *agentSetup, reason string) {
-	if setup.checkpointStore == nil || setup.sess == nil {
+	if setup.checkpointStore == nil {
+		return
+	}
+	sessionID := setup.ag.SessionID()
+	if sessionID == "" {
 		return
 	}
 	cp, err := setup.ag.CheckpointWithReason(reason)
@@ -542,7 +546,7 @@ func writeBestEffortCheckpoint(setup *agentSetup, reason string) {
 		fmt.Fprintf(os.Stderr, "warning: failed to capture %s checkpoint: %v\n", reason, err)
 		return
 	}
-	if err := setup.checkpointStore.Save(setup.sess.ID, cp); err != nil {
+	if err := setup.checkpointStore.Save(sessionID, cp); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to save %s checkpoint: %v\n", reason, err)
 	}
 }
@@ -677,27 +681,6 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 		})
 	}
 	modelRef := setup.cfg.Provider + "/" + setup.cfg.Model
-
-	// Persist after each assistant/tool message turn.
-	persistHandler := func(ctx context.Context, ev events.Event) error {
-		switch e := ev.(type) {
-		case events.CompactionCommittedEvent:
-			// Append-only: record the compaction entry; raw messages stay on disk.
-			// Degraded folds (breaker open) carry no summary and persist nothing.
-			if !e.Degraded && e.Summary != "" {
-				_ = setup.sess.AppendCompactionEntry(e.Summary, e.FirstKeptID, e.TokensBefore)
-				// Mirror the kept tail now: with the entry on disk, AppendMissing
-				// skips the runtime summary and appends only the not-yet-persisted
-				// kept messages, so a crash before run end cannot lose them.
-				_ = setup.sess.AppendMissing(setup.ag.AllMessages())
-			}
-		case events.MessageEndEvent, events.ToolExecutionEndEvent, events.AgentEndEvent:
-			_ = setup.sess.Save()
-		}
-		return nil
-	}
-	unsub := setup.bus.Subscribe(persistHandler)
-	defer unsub()
 
 	var caps []string
 	if meta, ok := setup.cfg.ModelMeta(); ok {

@@ -3,6 +3,7 @@ package testutil
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
@@ -22,6 +23,7 @@ type FakeAgent struct {
 	TaskMgr        *task.Manager
 	SwitchedModel  models.ModelRef
 	SwitchedBudget contextmgr.TokenBudget
+	SessionIDVal   string
 }
 
 func (f *FakeAgent) Prompt(_ context.Context, msg models.AgentMessage) error {
@@ -41,6 +43,8 @@ func (f *FakeAgent) Mode() string {
 	}
 	return f.ModeName
 }
+func (f *FakeAgent) SessionID() string   { return f.SessionIDVal }
+func (f *FakeAgent) SetSessionID(id string) { f.SessionIDVal = id }
 func (f *FakeAgent) SetUserConfirm(uc agent.UserConfirmation) {}
 func (f *FakeAgent) Steer(models.AgentMessage)                {}
 func (f *FakeAgent) Abort()                                   {}
@@ -81,6 +85,10 @@ type FakeSessionStore struct {
 	Sessions []session.Session
 	Session  *session.Session
 	Err      error
+	// Dir, when set, causes Create to delegate to a real session store in that
+	// directory so tests can exercise new-session creation end-to-end.
+	Dir     string
+	Created []*session.Session
 }
 
 func (f *FakeSessionStore) List(cwd string) ([]session.Session, error) {
@@ -88,6 +96,25 @@ func (f *FakeSessionStore) List(cwd string) ([]session.Session, error) {
 }
 func (f *FakeSessionStore) LoadByID(cwd, id string) (*session.Session, error) {
 	return f.Session, f.Err
+}
+func (f *FakeSessionStore) Create(cwd string) (*session.Session, error) {
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	if f.Dir != "" {
+		s, err := session.NewStore(f.Dir).Create(cwd)
+		if err != nil {
+			return nil, err
+		}
+		f.Created = append(f.Created, s)
+		return s, nil
+	}
+	s := f.Session
+	if s == nil {
+		s = &session.Session{ID: "fake-created-" + strconv.Itoa(len(f.Created)), CWD: cwd}
+	}
+	f.Created = append(f.Created, s)
+	return s, nil
 }
 
 // FakeSandbox re-exports the sandbox package fake for consumers that want a

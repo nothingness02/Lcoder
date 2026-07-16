@@ -176,13 +176,17 @@ func (inj *Injector) setBlock(query, text, failureSuffix string) {
 		}
 	}
 
+	var msgs []models.AgentMessage
+	if text != "" {
+		msgs = append(msgs, models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: text}))
+	}
 	block := contextmgr.NewBlockWithCacheHint(
 		contextmgr.BlockRetrieval,
 		"memory_recall",
 		contextmgr.StabilityDynamic,
 		60,
 		contextmgr.CacheHintSkip,
-		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: text}),
+		msgs...,
 	)
 	inj.manager.SetBlock(block)
 }
