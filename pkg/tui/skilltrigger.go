@@ -31,7 +31,7 @@ func (m *Model) handleSkillTrigger(name, rest string) tea.Cmd {
 		return nil
 	}
 
-	m.addSystem(styleDim().Render("activated skill: " + skill.Name))
+	m.addSystem(styleInfo().Render("activated skill: " + skill.Name))
 	for _, msg := range expanded {
 		if err := m.session.Append(msg); err != nil {
 			m.addSystem(styleError().Render(err.Error()))

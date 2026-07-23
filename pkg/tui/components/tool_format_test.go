@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -48,5 +49,53 @@ func TestFormatCompactToolResultRunning(t *testing.T) {
 	}
 	if !strings.Contains(out, "Running a command") {
 		t.Fatalf("running tool should still show label: %q", out)
+	}
+}
+
+func TestBuildEditDiff(t *testing.T) {
+	args := `{"path":"main.go","edits":[{"oldText":"foo\nbar","newText":"baz"}]}`
+	diff := buildEditDiff(args)
+	if !strings.Contains(diff, "-foo") || !strings.Contains(diff, "-bar") || !strings.Contains(diff, "+baz") {
+		t.Fatalf("expected old/new diff markers, got %q", diff)
+	}
+	if got := buildEditDiff(`{"path":"x"}`); got != "" {
+		t.Fatalf("expected empty for missing edits, got %q", got)
+	}
+	if got := buildEditDiff(`not json`); got != "" {
+		t.Fatalf("expected empty for invalid json, got %q", got)
+	}
+}
+
+func TestFormatExpandedToolResultEditDiff(t *testing.T) {
+	args := `{"path":"main.go","edits":[{"oldText":"foo","newText":"baz"}]}`
+	out := formatExpandedToolResult("edit", args, false, "Edited main.go", 0, false, 80)
+	if !strings.Contains(out, "Changes:") {
+		t.Fatalf("expected Changes section, got %q", out)
+	}
+	if !strings.Contains(out, "-foo") || !strings.Contains(out, "+baz") {
+		t.Fatalf("expected colored diff lines, got %q", out)
+	}
+	if strings.Contains(out, "Arguments:") {
+		t.Fatalf("edit should not echo raw JSON arguments, got %q", out)
+	}
+}
+
+func TestToolPreviewHeadTail(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 10; i++ {
+		lines = append(lines, fmt.Sprintf("line%d", i))
+	}
+	out := toolPreview(strings.Join(lines, "\n"), 2, 1, 80)
+	if !strings.Contains(out, "line1") || !strings.Contains(out, "line2") {
+		t.Fatalf("expected head lines, got %q", out)
+	}
+	if !strings.Contains(out, "line10") {
+		t.Fatalf("expected tail line, got %q", out)
+	}
+	if !strings.Contains(out, "+7 more") {
+		t.Fatalf("expected elision marker, got %q", out)
+	}
+	if strings.Contains(out, "line5") {
+		t.Fatalf("middle lines should be elided, got %q", out)
 	}
 }

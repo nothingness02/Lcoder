@@ -66,6 +66,10 @@ type Model struct {
 	paste   *pasteStash
 	history *inputHistory
 
+	// turnStartFrame is the spinner frame at which the current turn began, so the
+	// processing status line can show the elapsed seconds.
+	turnStartFrame int
+
 	// Slash menu (inline dropdown over the composer within stateInput).
 	menuVisible  bool
 	menuSelected int
@@ -98,6 +102,12 @@ type Model struct {
 	themeStyle string
 	totalCost  float64
 	errMsg     string
+
+	// contextPct caches context budget usage (0-100) for the status line.
+	// Stats() walks blocks and estimates tokens, so it must not run per-frame;
+	// refreshed at turn/compaction boundaries via updateContextStats. -1 when
+	// unknown (no budget limit reported yet).
+	contextPct int
 
 	// compacting is set between CompactionStarted and the next terminal event
 	// (commit/error/message/agent-end); the status line shows an indicator.
@@ -163,6 +173,7 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		mcpRegistry:        mcpRegistry,
 		header:             headerInfo{model: model, cwd: cwd, version: "0.1"},
 		focusedBlockIndex:  -1,
+		contextPct:         -1,
 	}
 	// Restore the display from the agent's already-loaded context window so a
 	// session reloaded at startup shows its prior conversation (and task
@@ -257,6 +268,16 @@ func (m *Model) appendBlock(b block) {
 // addSystem appends a dim system line.
 func (m *Model) addSystem(text string) {
 	m.appendBlock(block{kind: components.BlockSystem, raw: text})
+}
+
+// commitStartupHeader renders the final startup banner and commits it as the
+// first conversation block, then transitions to the input state. Called when
+// the startup animation finishes or the user presses a key to skip it.
+func (m *Model) commitStartupHeader() {
+	banner := renderHeader(m.header, headerTotalFrames-1, m.width)
+	m.appendBlock(block{kind: components.BlockBanner, raw: banner})
+	m.state = stateInput
+	m.updateSizes()
 }
 
 // addUser appends a full-width user bar, tagging any resolvable @file mentions

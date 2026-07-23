@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -8,6 +9,35 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
+
+func TestErrorEventShowsInFixedRegionNotTranscript(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.mainWidth = 80
+	before := len(m.blocks)
+	m.handleEvent(events.ErrorEvent{Base: events.Base{Type: events.Error, Turn: 1}, Message: "boom"})
+	if len(m.blocks) != before {
+		t.Fatalf("error must not append a transcript block: %d -> %d", before, len(m.blocks))
+	}
+	if m.errMsg != "boom" {
+		t.Fatalf("errMsg = %q, want boom", m.errMsg)
+	}
+	if !strings.Contains(stripANSI(m.bottomRegion()), "boom") {
+		t.Fatal("error should render in the fixed bottom region")
+	}
+}
+
+func TestAgentDoneErrorGoesToFixedRegion(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.mainWidth = 80
+	before := len(m.blocks)
+	m.onAgentDone(errors.New("run failed"))
+	if len(m.blocks) != before {
+		t.Fatalf("run error must not append a transcript block: %d -> %d", before, len(m.blocks))
+	}
+	if m.errMsg != "run failed" {
+		t.Fatalf("errMsg = %q, want run failed", m.errMsg)
+	}
+}
 
 func TestCompactionIndicatorLifecycle(t *testing.T) {
 	m, _, _ := newTestModel()
@@ -157,8 +187,11 @@ func TestThinkingDeltaDoesNotLeakIntoContent(t *testing.T) {
 			t.Fatalf("expected assistant component, got %T", m.components[0])
 		}
 		rendered := ac.Render(40, false)
-		if strings.Contains(rendered, "reasoning") {
-			t.Fatalf("collapsed thinking should not leak reasoning, got %q", rendered)
+		// Collapsed thinking renders as a one-line summary ("Thinking: <first
+		// line>"). The reasoning trace must stay out of the content area, which
+		// the b.raw assertion above already pins to "answer".
+		if !strings.Contains(rendered, "Thinking: reasoning step") {
+			t.Fatalf("collapsed thinking should show first-line summary, got %q", rendered)
 		}
 	}
 }
@@ -234,5 +267,52 @@ func TestBlocksFromMessagesMergesToolResults(t *testing.T) {
 	}
 	if tool.toolErr {
 		t.Fatal("tool error should be false")
+	}
+}
+
+// The idle status line surfaces context budget usage once the agent reports a
+// drop limit. Stats() is expensive, so it is sampled only at the AgentEnd
+// boundary and cached on the model.
+func TestContextPctShownAfterAgentEnd(t *testing.T) {
+	m, ag, _ := newTestModel()
+	ag.StatsVal = map[string]int{"total": 40000, "drop_limit": 100000}
+	m.mainWidth = 80
+
+	m.handleEvent(events.AgentEndEvent{})
+
+	if m.contextPct != 40 {
+		t.Fatalf("contextPct = %d, want 40", m.contextPct)
+	}
+	if view := stripANSI(m.statusLineView()); !strings.Contains(view, "ctx 40%") {
+		t.Fatalf("status line should show ctx%%, got %q", view)
+	}
+}
+
+// A nil/absent drop limit (tests, unconfigured budget) must hide the segment
+// rather than divide by zero or render a bogus 0%.
+func TestContextPctHiddenWithoutDropLimit(t *testing.T) {
+	m, ag, _ := newTestModel()
+	ag.StatsVal = nil // FakeAgent default: no stats
+	m.mainWidth = 80
+
+	m.handleEvent(events.AgentEndEvent{})
+
+	if m.contextPct != -1 {
+		t.Fatalf("contextPct = %d, want -1 (hidden)", m.contextPct)
+	}
+	if view := stripANSI(m.statusLineView()); strings.Contains(view, "ctx") {
+		t.Fatalf("status line must hide ctx%% without a drop limit, got %q", view)
+	}
+}
+
+// A drop limit of zero is as unusable as a missing one; guard the division.
+func TestContextPctHiddenOnZeroDropLimit(t *testing.T) {
+	m, ag, _ := newTestModel()
+	ag.StatsVal = map[string]int{"total": 5000, "drop_limit": 0}
+
+	m.handleEvent(events.AgentEndEvent{})
+
+	if m.contextPct != -1 {
+		t.Fatalf("contextPct = %d, want -1 on zero drop limit", m.contextPct)
 	}
 }

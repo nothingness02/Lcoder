@@ -603,7 +603,9 @@ func (a *Agent) maybeCompact(ctx context.Context, turn int) {
 			Summary:      res.Summary,
 			FirstKeptID:  res.FirstKeptID,
 			TokensBefore: res.TokensBefore,
-			Degraded:     res.Degraded,
+			// Stats() reflects the post-fold context, so its total is the after count.
+			TokensAfter: a.mgr.Stats()["total"],
+			Degraded:    res.Degraded,
 		})
 		if level == contextmgr.CompactionReactive {
 			if total := a.mgr.Stats()["total"]; total > a.mgr.Budget().DropLimit() {

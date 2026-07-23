@@ -42,6 +42,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case headerTickMsg:
 		m.headerFrame++
 		if m.state == stateStartup {
+			if m.headerFrame >= headerTotalFrames {
+				m.commitStartupHeader()
+				return m, nil
+			}
 			return m, headerTick()
 		}
 		return m, nil
@@ -128,8 +132,7 @@ func (m *Model) handleKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 
 	switch m.state {
 	case stateStartup:
-		m.state = stateInput
-		m.updateSizes()
+		m.commitStartupHeader()
 		return m, nil
 
 	case stateSessionPicker:
@@ -527,16 +530,18 @@ func (m *Model) startPrompt(text string) tea.Cmd {
 	m.input.SetProcessing(true)
 	m.errMsg = ""
 	m.focusedBlockIndex = -1
+	m.turnStartFrame = m.spinner.frame
 	m.runner.SubmitPrompt(expandHomeMentions(text))
 	return spinnerTick()
 }
 
 // onAgentDone returns the model to the input state and persists the session.
+// A run error goes to the fixed region (errMsg), not the transcript.
 func (m *Model) onAgentDone(err error) {
 	m.state = stateInput
 	m.input.SetProcessing(false)
 	if err != nil {
-		m.addSystem(styleError().Render("error: " + err.Error()))
+		m.errMsg = err.Error()
 	}
 	m.persistSession()
 	m.updateSuggestion()
@@ -742,6 +747,18 @@ func (m *Model) openMCPPanel() {
 	m.updateSizes()
 }
 
+// openColorPanel shows the accent color presets as a selection box. Choosing a
+// row swaps the global accent token via applyAccent; new renders pick it up,
+// already-committed scrollback keeps its original color. Not persisted.
+func (m *Model) openColorPanel() {
+	items := make([]cmdPanelItem, 0, len(accentPresets))
+	for _, p := range accentPresets {
+		items = append(items, cmdPanelItem{label: p.name, desc: p.desc, value: p.name})
+	}
+	m.cmdPanel = cmdPanel{visible: true, kind: cmdPanelSelect, title: "color", items: items, action: actionApplyAccent}
+	m.updateSizes()
+}
+
 // execCmdPanel runs the selected row's action and closes the panel.
 func (m *Model) execCmdPanel() (*Model, tea.Cmd) {
 	p := m.cmdPanel
@@ -760,6 +777,15 @@ func (m *Model) execCmdPanel() (*Model, tea.Cmd) {
 			err := m.mcpRegistry.Reconnect(name)
 			return mcpActionMsg{name: name, op: "reconnect", err: err}
 		}
+	case actionApplyAccent:
+		name := p.items[p.selected].value
+		for _, preset := range accentPresets {
+			if preset.name == name {
+				applyAccent(preset)
+				break
+			}
+		}
+		m.rebuildViewport()
 	}
 	return m, nil
 }
@@ -789,7 +815,7 @@ func (m *Model) retryLast() tea.Cmd {
 		}
 	}
 	if lastUser == "" {
-		m.addSystem(styleDim().Render("nothing to retry"))
+		m.addSystem(styleWarn().Render("nothing to retry"))
 		return nil
 	}
 	var pruned []models.AgentMessage

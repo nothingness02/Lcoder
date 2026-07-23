@@ -1,8 +1,17 @@
 package components
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
 
-// SystemLogComponent renders a dim, italic system line.
+	"github.com/charmbracelet/lipgloss"
+)
+
+// SystemLogComponent renders a system line. Callers express severity through
+// their own styling (StyleError / StyleWarn / StyleInfo / StyleDim); text that
+// already carries ANSI styling is rendered as-is so an error line stays red
+// instead of being flattened to one dim-italic look. Unstyled text falls back
+// to the dim-italic info baseline (e.g. system lines rebuilt from a reloaded
+// session, which carry no styling).
 type SystemLogComponent struct {
 	id  string
 	raw string
@@ -25,6 +34,9 @@ func (c *SystemLogComponent) Height(width int, expanded bool) int {
 func (c *SystemLogComponent) Render(width int, expanded bool) string {
 	if c.raw == "" {
 		return ""
+	}
+	if strings.ContainsRune(c.raw, '\x1b') {
+		return c.raw
 	}
 	return styleDim().Italic(true).Render(c.raw)
 }

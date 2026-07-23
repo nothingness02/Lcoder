@@ -51,6 +51,12 @@ func (m *Model) bottomRegion() string {
 		sections = append(sections, renderCmdPanel(m.cmdPanel, m.mainWidth))
 	}
 
+	// Run errors surface here, pinned above the composer, instead of being
+	// appended to the scrollback where they would scroll out of view.
+	if m.errMsg != "" {
+		sections = append(sections, styleError().Render("  ✗ "+m.errMsg))
+	}
+
 	sections = append(sections, m.input.View())
 
 	if m.suggestion != "" {
@@ -64,16 +70,17 @@ func (m *Model) bottomRegion() string {
 
 // statusLineView builds the one-line status bar for the current state.
 func (m *Model) statusLineView() string {
-	var left string
-	switch m.state {
-	case stateProcessing:
-		left = m.spinner.view()
+	if m.state == stateProcessing {
+		left := m.spinner.view()
 		if m.compacting {
 			left += styleDim().Render(" 压缩中…")
 		}
-	default:
-		left = styleDim().Render(m.modeLabel())
+		// Spinner frames tick ~100ms, so the frame delta is deciseconds.
+		elapsed := (m.spinner.frame - m.turnStartFrame) / 10
+		right := styleDim().Render(fmt.Sprintf("esc to interrupt · %s · %ds", m.model, elapsed))
+		return statusLine(m.mainWidth, left, right)
 	}
+	left := styleDim().Render(m.modeLabel())
 	return statusLine(m.mainWidth, left, m.contextRight())
 }
 
@@ -85,13 +92,35 @@ func (m *Model) modeLabel() string {
 	return "ready"
 }
 
-// contextRight builds the right-aligned status segment (model + cost).
+// contextRight builds the right-aligned status segment (ctx% + model + cost).
 func (m *Model) contextRight() string {
 	seg := m.model
+	if m.contextPct >= 0 {
+		seg = fmt.Sprintf("ctx %d%% · %s", m.contextPct, seg)
+	}
 	if m.totalCost > 0 {
 		seg += fmtCost(m.totalCost)
 	}
 	return styleDim().Render(seg)
+}
+
+// updateContextStats refreshes the cached context budget usage from the agent.
+// Stats() walks every block and estimates tokens, so it is too expensive for
+// the per-frame View path; it runs only at turn/compaction boundaries. When the
+// agent reports no drop limit (tests, unconfigured budget) the cache is reset
+// to -1 so the status line hides the segment.
+func (m *Model) updateContextStats() {
+	if m.agent == nil {
+		m.contextPct = -1
+		return
+	}
+	stats := m.agent.Stats()
+	drop := stats["drop_limit"]
+	if drop <= 0 {
+		m.contextPct = -1
+		return
+	}
+	m.contextPct = stats["total"] * 100 / drop
 }
 
 // View implements tea.Model.
@@ -116,16 +145,20 @@ func (m Model) View() string {
 	return main
 }
 
-// startupView renders the animated logo + header over an empty body.
+// startupView renders the animated brand banner over an empty body.
 func (m Model) startupView() string {
-	logo := logoFrame(m.headerFrame)
 	hdr := renderHeader(m.header, m.headerFrame, m.width)
 	hint := styleDim().Render("  Press any key to begin")
-	body := lipgloss.JoinVertical(lipgloss.Center, logo, "", hdr, "", hint)
+	body := lipgloss.JoinVertical(lipgloss.Center, hdr, "", hint)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, body)
 }
 
-// fmtCost formats a dollar cost segment (" · $0.0123").
+// fmtCost formats a dollar cost segment (" · $0.01"). Costs at or above a cent
+// use two decimals; smaller costs keep four so a cheap-but-nonzero turn doesn't
+// read as "$0.00".
 func fmtCost(c float64) string {
+	if c >= 0.01 {
+		return fmt.Sprintf(" · $%.2f", c)
+	}
 	return fmt.Sprintf(" · $%.4f", c)
 }

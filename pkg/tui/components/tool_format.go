@@ -13,13 +13,17 @@ var spinnerGlyphs = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // toolFriendlyLabels maps built-in tool names to human-friendly descriptions.
 var toolFriendlyLabels = map[string]string{
-	"bash":  "Running a command",
-	"read":  "Reading a file",
-	"write": "Writing a file",
-	"edit":  "Editing a file",
-	"grep":  "Searching in files",
-	"find":  "Finding files",
-	"ls":    "Listing files",
+	"bash":        "Running a command",
+	"read":        "Reading a file",
+	"write":       "Writing a file",
+	"edit":        "Editing a file",
+	"grep":        "Searching in files",
+	"find":        "Finding files",
+	"ls":          "Listing files",
+	"memory":      "Updating memory",
+	"repo_index":  "Indexing the repository",
+	"subagent":    "Running a subagent",
+	"tool_search": "Searching for tools",
 }
 
 // friendlyToolLabel returns a human-friendly label for a tool name, falling back
@@ -53,18 +57,23 @@ func toolResultBrief(elapsed time.Duration) string {
 	return ""
 }
 
-// toolPreview returns the first maxLines of content, each truncated to maxWidth,
-// followed by a "+N more" hint when there are additional lines.
-func toolPreview(content string, maxLines, maxWidth int) string {
+// toolPreview returns a head/tail sample of content: the first head lines and
+// last tail lines with an elision marker between when content is longer. Each
+// line is clipped to maxWidth. Keeping the tail matters for logs and stack
+// traces, where the salient error is usually at the end.
+func toolPreview(content string, head, tail, maxWidth int) string {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return ""
 	}
 	lines := strings.Split(content, "\n")
-	if len(lines) > maxLines {
-		extra := len(lines) - maxLines
-		lines = lines[:maxLines]
-		lines = append(lines, fmt.Sprintf("… +%d more", extra))
+	if head+tail < len(lines) {
+		omitted := len(lines) - head - tail
+		sampled := make([]string, 0, head+tail+1)
+		sampled = append(sampled, lines[:head]...)
+		sampled = append(sampled, fmt.Sprintf("… +%d more …", omitted))
+		sampled = append(sampled, lines[len(lines)-tail:]...)
+		lines = sampled
 	}
 	for i, ln := range lines {
 		lines[i] = truncate(ln, maxWidth)
@@ -118,10 +127,11 @@ func formatCompactToolResult(toolName, args string, isError bool, preview string
 	return sb.String()
 }
 
-// formatExpandedToolResult renders the Ctrl+O expanded view with the complete
-// tool arguments and full output. No head/tail truncation is applied so the user
-// can inspect everything the tool returned.
-func formatExpandedToolResult(toolName, args string, isError bool, content string, elapsed time.Duration, running bool) string {
+// formatExpandedToolResult renders the Ctrl+O expanded view with the full tool
+// arguments and output. Edit calls render their change as a colored diff built
+// from the arguments instead of raw JSON. No head/tail truncation is applied so
+// the user can inspect everything the tool returned; width clips the body lines.
+func formatExpandedToolResult(toolName, args string, isError bool, content string, elapsed time.Duration, running bool, width int) string {
 	dimStyle := styleDim()
 	bodyStyle := dimStyle
 	if isError {
@@ -145,8 +155,19 @@ func formatExpandedToolResult(toolName, args string, isError bool, content strin
 	}
 	sb.WriteString(dimStyle.Render(header))
 
-	// Arguments section with pretty-printed JSON when possible.
-	if args != "" {
+	// For edit calls the interesting payload is the change itself; render it as a
+	// colored diff built from the arguments rather than echoing raw JSON.
+	if toolName == "edit" {
+		if diff := buildEditDiff(args); diff != "" {
+			sb.WriteString("\n")
+			sb.WriteString(dimStyle.Render("  Changes:"))
+			for _, ln := range strings.Split(RenderDiff(ParseDiff(diff), width-4), "\n") {
+				sb.WriteString("\n")
+				sb.WriteString("    " + ln)
+			}
+		}
+	} else if args != "" {
+		// Arguments section with pretty-printed JSON when possible.
 		sb.WriteString("\n")
 		sb.WriteString(dimStyle.Render("  Arguments:"))
 		for _, ln := range strings.Split(formatArgsForDisplay(args), "\n") {
@@ -186,6 +207,37 @@ func formatArgsForDisplay(args string) string {
 		return truncate(args, 500)
 	}
 	return string(data)
+}
+
+// buildEditDiff constructs a unified-diff-like rendering of an edit tool call
+// from its arguments: each edit's oldText lines are marked removed and its
+// newText lines marked added. Returns "" when the args cannot be parsed into
+// edits, so the caller can fall back to the generic arguments section.
+func buildEditDiff(argsJSON string) string {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(argsJSON), &m); err != nil {
+		return ""
+	}
+	edits, ok := m["edits"].([]any)
+	if !ok || len(edits) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, raw := range edits {
+		edit, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		oldText, _ := edit["oldText"].(string)
+		newText, _ := edit["newText"].(string)
+		for _, ln := range strings.Split(oldText, "\n") {
+			sb.WriteString("-" + ln + "\n")
+		}
+		for _, ln := range strings.Split(newText, "\n") {
+			sb.WriteString("+" + ln + "\n")
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // toolKeyArg extracts the most meaningful argument from a tool's JSON args.

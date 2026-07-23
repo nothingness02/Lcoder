@@ -1,22 +1,19 @@
-package tui
+package components
 
-import (
-	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-)
+import "strings"
 
 // DiffLine represents a single line in a diff.
 type DiffLine struct {
-	Kind string // add | remove | context
+	Kind string // add | remove | header | context
 	Text string
 }
 
-// ParseDiff parses a unified-diff-like text into diff lines.
+// ParseDiff parses a unified-diff-like text into diff lines, classifying each
+// line by its leading marker ('+' add, '-' remove, '@' header, else context).
 func ParseDiff(text string) []DiffLine {
 	var lines []DiffLine
 	for _, raw := range strings.Split(text, "\n") {
-		if len(raw) == 0 {
+		if raw == "" {
 			continue
 		}
 		switch raw[0] {
@@ -33,36 +30,26 @@ func ParseDiff(text string) []DiffLine {
 	return lines
 }
 
-// RenderDiff renders diff lines with color coding.
+// RenderDiff renders diff lines with add/remove/context color coding, one line
+// per entry, each clipped to width cells. It renders inline (no box) so it sits
+// naturally inside the expanded tool view.
 func RenderDiff(lines []DiffLine, width int) string {
 	if len(lines) == 0 {
 		return styleDim().Render("No diff to display.")
 	}
-
-	addStyle := styleSuccess()
-	removeStyle := styleError()
-	headerStyle := styleAccent()
-	contextStyle := styleSecondary()
-
-	var out []string
+	out := make([]string, 0, len(lines))
 	for _, line := range lines {
-		text := truncate(line.Text, width-4)
+		text := truncate(line.Text, width)
 		switch line.Kind {
 		case "add":
-			out = append(out, addStyle.Render(text))
+			out = append(out, styleSuccess().Render(text))
 		case "remove":
-			out = append(out, removeStyle.Render(text))
+			out = append(out, styleError().Render(text))
 		case "header":
-			out = append(out, headerStyle.Render(text))
+			out = append(out, styleAccent().Render(text))
 		default:
-			out = append(out, contextStyle.Render(text))
+			out = append(out, styleSecondary().Render(text))
 		}
 	}
-
-	border := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorFaint).
-		Padding(0, 1).
-		Width(width)
-	return border.Render(strings.Join(out, "\n"))
+	return strings.Join(out, "\n")
 }

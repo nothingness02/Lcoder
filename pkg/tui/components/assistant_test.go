@@ -19,8 +19,12 @@ func TestAssistantComponentRendersMarkdown(t *testing.T) {
 func TestAssistantComponentThinking(t *testing.T) {
 	comp := NewAssistantComponent("a1", "step one\nstep two", "result", nil)
 	out := comp.Render(40, false)
-	if !strings.Contains(out, "Thinking…") {
-		t.Fatalf("missing thinking indicator: %q", out)
+	// Collapsed mode surfaces the first non-empty line under "Thinking:".
+	if !strings.Contains(out, "Thinking: step one") {
+		t.Fatalf("missing collapsed thinking preview: %q", out)
+	}
+	if strings.Contains(out, "step two") {
+		t.Fatalf("collapsed thinking should not show the full trace: %q", out)
 	}
 
 	expanded := comp.Render(40, true)

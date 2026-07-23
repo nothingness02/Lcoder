@@ -9,6 +9,8 @@ func toComponent(b block) components.BlockComponent {
 	switch b.kind {
 	case components.BlockSystem:
 		return components.NewSystemLogComponent(b.id, b.raw)
+	case components.BlockBanner:
+		return components.NewBannerComponent(b.id, b.raw)
 	case components.BlockUser:
 		return components.NewUserComponent(b.id, b.raw, b.attachments)
 	case components.BlockAssistant:

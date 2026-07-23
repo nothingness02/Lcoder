@@ -151,7 +151,7 @@ func (p *confirmPanel) View(width int) string {
 	box := lipgloss.NewStyle().
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderTop(true).
-		BorderForeground(colorError).
+		BorderForeground(colorWarn).
 		Padding(0, 1).
 		Width(width)
 
@@ -161,7 +161,7 @@ func (p *confirmPanel) View(width int) string {
 func optionStyle(selected bool) lipgloss.Style {
 	if selected {
 		return lipgloss.NewStyle().
-			Background(colorError).
+			Background(colorWarn).
 			Foreground(lipgloss.Color("#ffffff")).
 			Padding(0, 1).
 			Bold(true)

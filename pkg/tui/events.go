@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	"github.com/lcoder/lcoder/pkg/events"
@@ -91,28 +92,55 @@ func (m *Model) handleEvent(ev events.Event) {
 	case events.AgentEndEvent:
 		m.completedTurns++
 		m.compacting = false
+		m.updateContextStats()
 
 	case events.CompactionStartedEvent:
 		m.compacting = true
 
 	case events.CompactionCommittedEvent:
 		m.compacting = false
-		m.addSystem("↧ 已压缩早前对话以节省 token(原始记录已合并为摘要)")
+		m.addSystem(formatCompactResult(e.TokensBefore, e.TokensAfter, e.Summary))
+		m.updateContextStats()
 
 	case events.ErrorEvent:
 		m.compacting = false
+		// Errors surface in the fixed region above the composer (see
+		// bottomRegion), not as a transcript block, so they don't get buried in
+		// the scrollback and clear on the next prompt.
 		m.errMsg = e.Message
-		m.addSystem(styleError().Render("error: " + e.Message))
 	}
 }
 
+// streamLiveMaxBytes caps the in-flight assistant text that is re-rendered as
+// markdown on every delta. The full content is still accumulated in streamLive
+// (and used as the commit fallback); only the rendered tail is clipped so each
+// frame stays O(maxBytes) during long streams. Mirrors Kocoro's boundStreamTail.
+const streamLiveMaxBytes = 32768
+
+// boundStreamTail returns the tail of s capped at maxBytes, cut at the first
+// line boundary so the clip does not start mid-line. Strings at or below
+// maxBytes are returned unchanged.
+func boundStreamTail(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	tail := s[len(s)-maxBytes:]
+	if i := strings.IndexByte(tail, '\n'); i >= 0 {
+		tail = tail[i+1:]
+	}
+	return tail
+}
+
 // patchAssistant overwrites the raw content of the in-flight assistant block.
+// The rendered input is capped to streamLiveMaxBytes (see boundStreamTail); the
+// full text lives on in streamLive and is restored when commitAssistant runs.
 func (m *Model) patchAssistant(content string) {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == components.BlockAssistant && m.blocks[i].id == m.streamMsgID {
-			m.blocks[i].raw = content
+			rendered := boundStreamTail(content, streamLiveMaxBytes)
+			m.blocks[i].raw = rendered
 			if ac, ok := m.components[i].(*components.AssistantComponent); ok {
-				ac.SetContent(content)
+				ac.SetContent(rendered)
 			} else {
 				m.components[i] = toComponent(m.blocks[i])
 			}

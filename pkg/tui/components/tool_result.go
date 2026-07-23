@@ -52,9 +52,9 @@ func (c *ToolResultComponent) Render(width int, expanded bool) string {
 		elapsed = time.Since(c.toolStart)
 	}
 	if expanded || c.expanded {
-		return formatExpandedToolResult(c.toolName, c.toolArgs, c.isError, c.result, elapsed, c.running)
+		return formatExpandedToolResult(c.toolName, c.toolArgs, c.isError, c.result, elapsed, c.running, width)
 	}
-	preview := toolPreview(c.result, 3, width)
+	preview := toolPreview(c.result, 2, 1, width)
 	return formatCompactToolResult(c.toolName, c.toolArgs, c.isError, preview, elapsed, c.running)
 }
 

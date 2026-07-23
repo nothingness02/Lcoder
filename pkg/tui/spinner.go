@@ -35,9 +35,11 @@ func (s spinner) phrase() string {
 	return spinnerPhrases[(s.frame/50)%len(spinnerPhrases)]
 }
 
-// view renders the accent-colored glyph plus the dim phrase + "…".
+// view renders the accent-colored glyph plus the shimmering phrase + "…". The
+// phrase uses a soft highlight sweep so the working status reads as an animated
+// glow (the Kocoro status-line treatment), on the Lcoder cyan gradient.
 func (s spinner) view() string {
-	return styleAccent().Render(s.glyph()) + " " + styleDim().Render(s.phrase()+"…")
+	return styleAccent().Render(s.glyph()) + " " + renderWaveText(s.phrase()+"…", s.frame)
 }
 
 // spinnerTick schedules the next spinner frame. Caller only batches this in

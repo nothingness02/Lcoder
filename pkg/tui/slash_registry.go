@@ -112,6 +112,11 @@ func init() {
 				m.toggleTaskSidebar()
 				return nil
 			}},
+		{Name: "color", Aliases: []string{"theme"}, Description: "Switch accent color", Category: "Theme",
+			Handler: func(m *Model, _ string) tea.Cmd {
+				m.openColorPanel()
+				return nil
+			}},
 		{Name: "extensions", Aliases: []string{"ext"}, Description: "Toggle extensions panel", Category: "View",
 			Handler: func(m *Model, _ string) tea.Cmd {
 				m.extPanel.Visible = true

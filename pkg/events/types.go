@@ -137,7 +137,10 @@ type CompactionCommittedEvent struct {
 	Summary      string `json:"summary,omitempty"`
 	FirstKeptID  string `json:"first_kept_entry_id,omitempty"`
 	TokensBefore int    `json:"tokens_before,omitempty"`
-	Degraded     bool   `json:"degraded,omitempty"`
+	// TokensAfter is the context size right after the fold, so the UI can show a
+	// before/after comparison. Zero when the emitter can't measure it.
+	TokensAfter int  `json:"tokens_after,omitempty"`
+	Degraded    bool `json:"degraded,omitempty"`
 }
 
 // AuditEvent records a security/permission decision or tool invocation audit.

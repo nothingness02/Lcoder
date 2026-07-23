@@ -106,20 +106,35 @@ func (c *AssistantComponent) renderedContent(width int) string {
 }
 
 // renderThinking renders the assistant's reasoning trace. Collapsed mode shows
-// a single dim indicator line; expanded mode shows the full multi-line trace
-// under a "Thinking:" header.
+// the first non-empty line (so the user can tell what the model is reasoning
+// about without expanding) or a plain "Thinking…" placeholder; expanded mode
+// shows the full trace under a "Thinking:" header, dim and italic.
 func (c *AssistantComponent) renderThinking(expanded bool) string {
 	style := styleDim().Italic(true)
+	thinking := strings.TrimRight(c.thinking, "\n")
 	if !expanded {
+		if first := firstNonEmptyLine(thinking); first != "" {
+			return style.Render("Thinking: " + truncate(first, 60))
+		}
 		return style.Render("Thinking…")
 	}
 	var sb strings.Builder
 	sb.WriteString(style.Render("Thinking:"))
-	for ln := range strings.SplitSeq(strings.TrimRight(c.thinking, "\n"), "\n") {
+	for ln := range strings.SplitSeq(thinking, "\n") {
 		sb.WriteString("\n")
 		sb.WriteString(style.Render("  " + ln))
 	}
 	return sb.String()
+}
+
+// firstNonEmptyLine returns the first trimmed non-empty line of s, or "".
+func firstNonEmptyLine(s string) string {
+	for ln := range strings.SplitSeq(s, "\n") {
+		if t := strings.TrimSpace(ln); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // truncate clips s to at most width cells, appending an ellipsis when it does

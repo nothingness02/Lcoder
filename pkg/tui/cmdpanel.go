@@ -22,6 +22,7 @@ const (
 	actionSwitchMode
 	actionTriggerSkill
 	actionMCPManage
+	actionApplyAccent
 )
 
 // cmdPanelItem is one selectable row (mode or skill).

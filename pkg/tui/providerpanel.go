@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/models"
@@ -93,7 +94,7 @@ func (m *Model) renderProviderPanel() string {
 		for i, pi := range p.providers {
 			cursor := "  "
 			if i == p.provIdx {
-				cursor = "> "
+				cursor = lipgloss.NewStyle().Foreground(colorSelect).Render("› ")
 			}
 			b.WriteString(fmt.Sprintf("%s%s\n", cursor, pi.Display))
 		}
@@ -130,7 +131,7 @@ func (m *Model) renderProviderPanel() string {
 				id := p.models[i]
 				cursor := "  "
 				if i == p.modelIdx {
-					cursor = "> "
+					cursor = lipgloss.NewStyle().Foreground(colorSelect).Render("› ")
 				}
 				b.WriteString(fmt.Sprintf("%s%s\n", cursor, id))
 			}
@@ -143,7 +144,12 @@ func (m *Model) renderProviderPanel() string {
 		b.WriteString("\n\n")
 		b.WriteString(styleError().Render(p.errMsg))
 	}
-	return b.String()
+	// Round the whole panel in the same faint box the menus/cmd panel use, so
+	// the overlay styling is consistent across surfaces.
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorFaint)
+	return box.Render(b.String())
 }
 
 // enterModelStep records the chosen provider and loads its model candidates from

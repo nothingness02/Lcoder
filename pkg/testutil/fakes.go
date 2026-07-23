@@ -24,6 +24,9 @@ type FakeAgent struct {
 	SwitchedModel  models.ModelRef
 	SwitchedBudget contextmgr.TokenBudget
 	SessionIDVal   string
+	// StatsVal, when non-nil, is returned by Stats so tests can program the
+	// context-budget figures the TUI status line consumes.
+	StatsVal map[string]int
 }
 
 func (f *FakeAgent) Prompt(_ context.Context, msg models.AgentMessage) error {
@@ -36,7 +39,7 @@ func (f *FakeAgent) AllMessages() []models.AgentMessage { return f.Messages }
 func (f *FakeAgent) SetMessages(msgs []models.AgentMessage) {
 	f.Messages = msgs
 }
-func (f *FakeAgent) Stats() map[string]int { return nil }
+func (f *FakeAgent) Stats() map[string]int { return f.StatsVal }
 func (f *FakeAgent) Mode() string {
 	if f.ModeName == "" {
 		return "code"

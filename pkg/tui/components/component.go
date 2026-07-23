@@ -10,6 +10,7 @@ const (
 	BlockAssistant
 	BlockTool
 	BlockSystem
+	BlockBanner
 )
 
 // BlockComponent is a renderable unit inside the conversation view.
