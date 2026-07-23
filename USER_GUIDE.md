@@ -422,7 +422,7 @@ TUI（Terminal User Interface）是 Lcoder 的默认交互方式，基于 `charm
 
 ## 7. Agent 模式（Modes）
 
-模式是一组针对特定任务优化的 system prompt 与行为配置。Lcoder 启动时会加载内置模式，以及 `<repo>/configs/agents/` 和 `~/.lcoder/agents/` 下的自定义模式。
+模式是一组针对特定任务优化的 system prompt 与行为配置。Lcoder 启动时会加载内置模式，以及 `<repo>/.lcoder/modes/` 和 `~/.lcoder/modes/` 下的自定义模式。
 
 ### 7.1 内置模式
 
@@ -464,8 +464,8 @@ TUI（Terminal User Interface）是 Lcoder 的默认交互方式，基于 `charm
 
 自定义模式以 YAML 文件形式存在，放在以下目录：
 
-- `<repo>/configs/agents/`
-- `~/.lcoder/agents/`
+- `<repo>/.lcoder/modes/`
+- `~/.lcoder/modes/`
 
 每个模式是一个独立的 `.yaml` 文件，如 `review.yaml`。启动时由 `agent.ModeManager` 加载。
 
@@ -1284,14 +1284,14 @@ extensions:
 | `~/.lcoder/sessions/<project-hash>/<session-id>.jsonl` | 会话存储。 |
 | `~/.lcoder/observability/sessions/<session-id>.jsonl` | 可观测数据。 |
 | `~/.lcoder/skills/<name>/SKILL.md` | 全局技能。 |
-| `~/.lcoder/agents/` | 全局模式目录。 |
+| `~/.lcoder/modes/` | 全局模式目录。 |
 | `~/.lcoder/memory/{MEMORY,USER}.md` | 全局记忆文件。 |
 | `~/.lcoder/packages/` | 已安装的包。 |
 | `~/.lcoder/extensions/` | 已安装的 Go 扩展源码。 |
 | `<repo>/AGENTS.md` | 项目级 agent 说明（从当前目录向上搜索到 git 根）。 |
 | `<repo>/CLAUDE.md` | 项目级 Claude Code 原则（搜索方式同上）。 |
 | `<repo>/LCODER.md` | 项目级 Lcoder 说明（搜索方式同上）。 |
-| `<repo>/configs/agents/` | 项目级模式目录。 |
+| `<repo>/.lcoder/modes/` | 项目级模式目录。 |
 | `<repo>/.lcoder/skills/<name>/SKILL.md` | 项目级技能。 |
 | `<repo>/.lcoder/memory/{MEMORY,USER}.md` | 项目级记忆文件。 |
 | `<repo>/.lcoder/permissions.yaml` | 项目级权限规则。 |

@@ -6,5 +6,5 @@ import "embed"
 // These are embedded at build time so the binary carries its default modes
 // regardless of the working directory.
 //
-//go:embed configs/agents/*.yaml
+//go:embed configs/modes/*.yaml
 var AgentModes embed.FS

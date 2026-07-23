@@ -39,8 +39,11 @@ func NewModeManager() *ModeManager {
 	return mm
 }
 
+// loadEmbeddedModes preloads the built-in modes shipped inside the binary so
+// they are always available, even for a single-file install run from any
+// directory. User/project dirs loaded later shadow these by name.
 func loadEmbeddedModes(mm *ModeManager) error {
-	entries, err := lcoder.AgentModes.ReadDir("configs/agents")
+	entries, err := lcoder.AgentModes.ReadDir("configs/modes")
 	if err != nil {
 		return err
 	}
@@ -52,7 +55,7 @@ func loadEmbeddedModes(mm *ModeManager) error {
 		if !(strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
 			continue
 		}
-		data, err := lcoder.AgentModes.ReadFile(path.Join("configs/agents", name))
+		data, err := lcoder.AgentModes.ReadFile(path.Join("configs/modes", name))
 		if err != nil {
 			return err
 		}
@@ -159,10 +162,13 @@ func (mm *ModeManager) fallback(name string) string {
 	return name
 }
 
-// DefaultModeDirs returns the default directories to search for mode configs.
+// DefaultModeDirs returns the default directories to search for mode configs,
+// lowest precedence first: LoadModes applies them in order, so the project dir
+// shadows the user dir on name conflicts (same convention as subagent
+// discovery, which uses *.md files under ~/.lcoder/agents and .lcoder/agents).
 func DefaultModeDirs(cwd string) []string {
 	return []string{
-		filepath.Join(cwd, "configs", "agents"),
-		paths.LCoderHome("agents"),
+		paths.LCoderHome("modes"),
+		filepath.Join(cwd, ".lcoder", "modes"),
 	}
 }

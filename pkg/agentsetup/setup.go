@@ -32,9 +32,9 @@ func BuildSystemPrompt() string {
 	// return b.String()
 	// 开发环境用txt来快速构建和查看提示词的更改带来的效果的影响
 	candidates := []string{
-		"configs/agents/system.txt",              // 从项目根目录运行
-		"../../configs/agents/system.txt",        // 从 pkg/agentsetup 测试
-		paths.LCoderHome("agents", "system.txt"), // 用户全局覆盖
+		"configs/modes/system.txt",              // 从项目根目录运行
+		"../../configs/modes/system.txt",        // 从 pkg/agentsetup 测试
+		paths.LCoderHome("modes", "system.txt"), // 用户全局覆盖
 	}
 	for _, path := range candidates {
 		if content, err := os.ReadFile(path); err == nil {

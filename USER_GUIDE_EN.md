@@ -433,7 +433,7 @@ Type `/extensions` or `/mcp` to open the extensions panel, which shows:
 
 ## 7. Agent Modes
 
-Modes are sets of system prompts and behavior tuned for specific tasks. Lcoder loads built-in modes as well as custom modes from `<repo>/configs/agents/` and `~/.lcoder/agents/`.
+Modes are sets of system prompts and behavior tuned for specific tasks. Lcoder loads built-in modes as well as custom modes from `<repo>/.lcoder/modes/` and `~/.lcoder/modes/`.
 
 ### 7.1 Built-In Modes
 
@@ -475,8 +475,8 @@ If not specified, the default mode is `code`.
 
 Custom modes are YAML files placed in:
 
-- `<repo>/configs/agents/`
-- `~/.lcoder/agents/`
+- `<repo>/.lcoder/modes/`
+- `~/.lcoder/modes/`
 
 Each mode is a standalone `.yaml` file, such as `review.yaml`, loaded by `agent.ModeManager` at startup. For more details, see `DEVELOPER_GUIDE_EN.md`.
 
@@ -1288,7 +1288,7 @@ extensions:
 | `~/.lcoder/sessions/<project-hash>/<session-id>.jsonl` | Session storage. |
 | `~/.lcoder/observability/sessions/<session-id>.jsonl` | Observability data. |
 | `~/.lcoder/skills/<name>/SKILL.md` | Global skills. |
-| `~/.lcoder/agents/` | Global modes. |
+| `~/.lcoder/modes/` | Global modes. |
 | `~/.lcoder/memory/{MEMORY,USER}.md` | Global memory files. |
 | `~/.lcoder/packages/` | Installed packages. |
 | `~/.lcoder/extensions/` | Installed Go extension source files. |
@@ -1296,7 +1296,7 @@ extensions:
 | `<repo>/CLAUDE.md` | Project-level Claude Code principles (searched upward to the git root). |
 | `<repo>/LCODER.md` | Project-level Lcoder notes (searched upward to the git root). |
 | `<repo>/.lcoder/skills/<name>/SKILL.md` | Project-level skills. |
-| `<repo>/configs/agents/` | Project-level modes. |
+| `<repo>/.lcoder/modes/` | Project-level modes. |
 | `<repo>/.lcoder/memory/{MEMORY,USER}.md` | Project-level memory files. |
 | `<repo>/.lcoder/permissions.yaml` | Project-level permission rules. |
 

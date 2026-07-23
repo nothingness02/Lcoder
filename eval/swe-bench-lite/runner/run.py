@@ -21,11 +21,11 @@ REPO_ROOT = os.path.abspath(os.path.join(EVAL_DIR, "..", ".."))
 IMAGE_BASE = "lcoder-swe-bench-lite"
 DATA_DIR = os.path.join(EVAL_DIR, "data")
 RESULTS_DIR = os.path.join(EVAL_DIR, "results")
-AGENTS_DIR = os.path.join(REPO_ROOT, "configs", "agents")
+MODES_DIR = os.path.join(REPO_ROOT, "configs", "modes")
 CONFIGS_DIR = os.path.join(REPO_ROOT, "configs")
-# 容器内 agent 的 cwd 是 /workspace/repo，不能把 agents 挂载到该目录下（会干扰源码移动）。
-# DefaultModeDirs 还会查找 ~/.lcoder/agents，所以挂载到 /root/.lcoder/agents。
-AGENTS_CONTAINER_DIR = "/root/.lcoder/agents"
+# 容器内 agent 的 cwd 是 /workspace/repo，不能把 modes 挂载到该目录下（会干扰源码移动）。
+# DefaultModeDirs 还会查找 ~/.lcoder/modes，所以挂载到 /root/.lcoder/modes。
+MODES_CONTAINER_DIR = "/root/.lcoder/modes"
 CONFIGS_CONTAINER_DIR = "/eval/configs"
 BIN_PATH = os.path.join(EVAL_DIR, "bin", "lcoder-linux")
 TASKS_FILE = os.path.join(DATA_DIR, "tasks.json")
@@ -100,7 +100,7 @@ def run_task(task):
         "-e", "LCODER_MODELS_CONFIG=/eval/configs/models.yaml",
         "-v", f"{DATA_DIR}:/eval/data:ro",
         "-v", f"{RESULTS_DIR}:/eval/results",
-        "-v", f"{AGENTS_DIR}:{AGENTS_CONTAINER_DIR}:ro",
+        "-v", f"{MODES_DIR}:{MODES_CONTAINER_DIR}:ro",
         "-v", f"{CONFIGS_DIR}:{CONFIGS_CONTAINER_DIR}:ro",
         tag, "python", "/eval/scripts/run_in_container.py",
     ]

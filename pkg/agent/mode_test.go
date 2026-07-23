@@ -71,7 +71,46 @@ func TestModeManagerDefaultModeDirs(t *testing.T) {
 	if len(dirs) != 2 {
 		t.Fatalf("expected 2 dirs, got %d", len(dirs))
 	}
-	if dirs[0] != filepath.Join("/tmp/proj", "configs", "agents") {
-		t.Fatalf("unexpected dir: %s", dirs[0])
+	// Lowest precedence first: the project dir comes last so LoadModes lets it
+	// shadow the user dir on name conflicts.
+	if dirs[1] != filepath.Join("/tmp/proj", ".lcoder", "modes") {
+		t.Fatalf("unexpected project dir: %s", dirs[1])
+	}
+}
+
+// The embedded defaults ship inside the binary, so a fresh install run from
+// any directory still has all built-in modes without any filesystem setup.
+func TestNewModeManagerLoadsEmbeddedDefaults(t *testing.T) {
+	mm := NewModeManager()
+	for _, name := range []string{"code", "plan", "test", "review", "explore"} {
+		mode := mm.Get(name)
+		if mode.Name != name {
+			t.Fatalf("embedded mode %q missing, got %q", name, mode.Name)
+		}
+	}
+}
+
+// A user/project dir shadows an embedded default by name, and removing the
+// file would fall back to the embedded version.
+func TestFilesystemModeOverridesEmbedded(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte(`name: code
+description: Custom code mode
+`)
+	if err := os.WriteFile(filepath.Join(dir, "code.yaml"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mm := NewModeManager()
+	embeddedDesc := mm.Get("code").Description
+	if err := mm.LoadModes([]string{dir}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := mm.Get("code").Description; got != "Custom code mode" {
+		t.Fatalf("expected filesystem override, got %q", got)
+	}
+	if embeddedDesc == "Custom code mode" {
+		t.Fatal("embedded default should exist before the override")
 	}
 }
