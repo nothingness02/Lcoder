@@ -484,7 +484,7 @@ Each mode is a standalone `.yaml` file, such as `review.yaml`, loaded by `agent.
 
 ## 8. Skills
 
-Skills are Markdown packages injected into the system prompt to give the agent extra instructions, templates, or background knowledge for specific scenarios.
+Skills are Markdown instruction packages loaded on demand to give the agent extra instructions, templates, or background knowledge for specific scenarios. At startup only each skill's `name + description` enters the system prompt (the catalog); the full body is loaded only when the skill is activated.
 
 ### 8.1 Skill File Locations
 
@@ -508,28 +508,35 @@ Example output:
 - commit-message: Generate conventional commit messages
 ```
 
-### 8.3 Manually Trigger a Skill
+### 8.3 How Skills Are Activated
 
-In a one-shot conversation, trigger a skill with `/skill:name`:
+**Model-driven activation (default)**: the catalog in the system prompt lists every skill's name and purpose. When the model decides the request matches a skill, it calls the `use_skill` tool; the skill body enters the conversation as that tool's result and flows naturally with the turns.
+
+**Manual trigger**: in a one-shot conversation, force activation with `/skill:name`:
 
 ```bash
 ./lcoder -p "/skill:security-review Please review pkg/auth/jwt.go"
 ```
 
-In the TUI, you can also type `/skill:security-review` in the input box.
+In the TUI, you can also type `/skill:security-review` in the input box. A manual trigger folds the skill body into that user message — the same content the model-driven path sees.
 
-### 8.4 Auto-Detect Skills
+### 8.4 Restricting Tools with allowed_tools
 
-When `context.mode` is set to `auto` (the default), Lcoder matches the most relevant skill from the user's input and injects it automatically.
+A skill can declare `allowed_tools` in its frontmatter to restrict which tools may be called while it is active:
 
-```yaml
-context:
-  mode: auto   # auto | manual | off
+```markdown
+---
+name: security-review
+description: Review code for security vulnerabilities
+allowed_tools:
+  - read
+  - grep
+  - ls
+  - find
+---
 ```
 
-- `auto`: Auto-detect and inject.
-- `manual`: Trigger only via `/skill:name`.
-- `off`: Disable skill injection completely.
+While active, calls to tools outside the list are rejected at execution time (`use_skill` itself always stays available, so the model can switch to another skill; activating a skill without `allowed_tools` lifts the restriction). The restriction lives in the current process only and is not written to checkpoints.
 
 ### 8.5 Example Skill
 
@@ -1145,7 +1152,6 @@ providers:
 
 ```yaml
 context:
-  mode: auto
   # max_tokens: 128000
   # target_tokens: 120000
   # reserve_output: 8192
@@ -1158,7 +1164,6 @@ context:
 
 | Field | Type | Description |
 |---|---|---|
-| `mode` | string | Skill trigger mode: `auto`, `manual` (only `/skill:name`), or `off`. Note: although this field is under `context`, it controls skill-injection behavior. |
 | `max_tokens` | int | Force-override the context window size. |
 | `target_tokens` | int | Target token usage. |
 | `reserve_output` | int | Tokens reserved for model output. |

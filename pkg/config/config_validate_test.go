@@ -44,14 +44,6 @@ func TestValidate_InvalidNetworkDefault(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidContextMode(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.Context.Mode = "fast"
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "mode") {
-		t.Fatalf("expected context mode error, got %v", err)
-	}
-}
-
 func TestValidate_InvalidCacheHintPolicy(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Context.CacheHintPolicy = "always"

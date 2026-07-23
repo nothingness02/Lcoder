@@ -39,7 +39,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/permissions"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/tools"
-	_ "github.com/lcoder/lcoder/pkg/tools/builtin" // registers builtin tool factories via init()
+	"github.com/lcoder/lcoder/pkg/tools/builtin"
 )
 
 // toolCallRecord captures a single tool invocation observed on the event bus.
@@ -368,6 +368,7 @@ func TestAgentRealRun(t *testing.T) {
 	if err := registry.RegisterBuiltinFactories(repoRoot); err != nil {
 		t.Fatalf("register builtin tools: %v", err)
 	}
+	registry.Register(skills.UseSkillToolName, builtin.NewUseSkill(repoRoot, loadedSkillCatalog))
 
 	// 6. Event bus + capture handler for per-turn structured snapshots.
 	bus := events.New()

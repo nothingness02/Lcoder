@@ -40,7 +40,7 @@ Write a test for the user's request.
 }
 
 func TestSubmitManualSkillTrigger(t *testing.T) {
-	m, _, sess := newSkillModel(t)
+	m, _, _ := newSkillModel(t)
 
 	cmd := m.submit("/skill:tester add a case")
 	if cmd == nil {
@@ -49,18 +49,24 @@ func TestSubmitManualSkillTrigger(t *testing.T) {
 	if m.state != stateProcessing {
 		t.Fatalf("expected stateProcessing, got %v", m.state)
 	}
-	// ExpandManualTrigger appends a system + user message to the session.
-	if len(sess.Messages) != 2 {
-		t.Fatalf("expected 2 expanded messages appended, got %d", len(sess.Messages))
-	}
-	var activated bool
+	// The skill body is folded into the user message (queued for session
+	// append by the runner), not written as a separate system message.
+	var activated, folded bool
 	for _, b := range m.blocks {
 		if b.kind == components.BlockSystem && strings.Contains(b.raw, "activated skill: tester") {
 			activated = true
 		}
+		if b.kind == components.BlockUser &&
+			strings.Contains(b.raw, "You are now using the tester skill") &&
+			strings.Contains(b.raw, "add a case") {
+			folded = true
+		}
 	}
 	if !activated {
 		t.Fatal("expected an 'activated skill' system block")
+	}
+	if !folded {
+		t.Fatal("expected the user block to contain the expanded skill body and request")
 	}
 }
 

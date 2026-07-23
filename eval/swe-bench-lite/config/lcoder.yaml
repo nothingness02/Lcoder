@@ -19,7 +19,6 @@ providers:
 # max_tokens 对齐 models.dev 的 K2.7 窗口 262144;models.dev 的 output 字段为
 # 占位值(=context window),不可信作单次输出上限,故显式 cap max_output。
 context:
-  mode: auto
   max_tokens: 262144
   max_output: 16384
   static_ratio: 60

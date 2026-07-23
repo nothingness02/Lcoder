@@ -35,9 +35,14 @@ func ParseManualTrigger(text string) (name string, rest string, ok bool) {
 	return name, rest, true
 }
 
-// ExpandManualTrigger returns system/user messages that activate a skill.
-func ExpandManualTrigger(skill Skill, originalText string) []models.AgentMessage {
-	system := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: RenderActiveSkill(skill)})
-	user := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: originalText})
-	return []models.AgentMessage{system, user}
+// ExpandManualTrigger folds an activated skill into a single user message: the
+// skill instructions followed by the user's request. Activation no longer
+// writes a permanent system message into the session — on the model-driven
+// path the same body arrives as a use_skill tool result.
+func ExpandManualTrigger(skill Skill, originalText string) models.AgentMessage {
+	text := RenderActiveSkill(skill)
+	if strings.TrimSpace(originalText) != "" {
+		text += "\n\nUser request: " + originalText
+	}
+	return models.NewAgentMessage(models.RoleUser, models.TextContent{Text: text})
 }

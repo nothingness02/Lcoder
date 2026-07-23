@@ -9,8 +9,9 @@ import (
 )
 
 // handleSkillTrigger activates a named skill and starts the agent on the
-// expanded prompt. Ported from the pre-rewrite TUI so manual `/skill:name`
-// triggers and auto-detection keep working under the state-machine model.
+// expanded prompt. The skill body is folded into the user message — the same
+// content the model-driven path receives as a use_skill tool result — so no
+// permanent system message is written into the session.
 func (m *Model) handleSkillTrigger(name, rest string) tea.Cmd {
 	meta, found := skills.FindByName(m.skills, name)
 	if !found {
@@ -25,28 +26,10 @@ func (m *Model) handleSkillTrigger(name, rest string) tea.Cmd {
 		return nil
 	}
 
-	expanded := skills.ExpandManualTrigger(skill, rest)
-	if len(expanded) == 0 {
-		m.addSystem(styleError().Render(fmt.Sprintf("skill %q produced no messages", name)))
-		return nil
-	}
-
 	m.addSystem(styleInfo().Render("activated skill: " + skill.Name))
-	for _, msg := range expanded {
-		if err := m.session.Append(msg); err != nil {
-			m.addSystem(styleError().Render(err.Error()))
-			return nil
-		}
-	}
-
-	// The last expanded message is the user request; use it to start the run.
-	last := expanded[len(expanded)-1]
-	return m.startPrompt(last.Text())
+	// startPrompt appends the expanded message to the session and submits it.
+	return m.startPrompt(skills.ExpandManualTrigger(skill, rest).Text())
 }
-
-// autoDetectEnabled reports whether plain prompts should be screened for a
-// matching skill. The TUI has no direct access to config; default to enabled.
-func (m *Model) autoDetectEnabled() bool { return true }
 
 // availableSkillNames lists the loaded skills for error messages.
 func (m *Model) availableSkillNames() string {

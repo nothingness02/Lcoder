@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
 	"github.com/lcoder/lcoder/pkg/permissions/bashrisk"
+	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
@@ -50,6 +53,13 @@ type executor struct {
 	mu             sync.Mutex
 	activeDeferred map[string]bool
 	taskMgr        *task.Manager
+
+	// skillFilter is the active skill's tool restriction (nil = unrestricted).
+	// Set when a use_skill call activates a skill whose frontmatter declares
+	// allowed_tools; replaced or cleared by the next activation. In-memory
+	// only: it is intentionally not part of checkpoints.
+	skillFilterMu sync.Mutex
+	skillFilter   map[string]bool
 
 	dedupMu sync.Mutex
 	dedup   map[string]models.AgentMessage
@@ -155,6 +165,17 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		return e.handleSwitchMode(ctx, turn, assistantMsg, call)
 	}
 
+	// An active skill may restrict the tool surface (SKILL.md frontmatter
+	// allowed_tools). Enforcement is execution-time, not schema filtering, so
+	// the tool list — and with it the prompt cache prefix — stays stable
+	// across turns. use_skill itself is exempt: the model must always be able
+	// to activate a different skill, which replaces or lifts the restriction.
+	if call.Name != skills.UseSkillToolName && !e.skillAllows(call.Name) {
+		return e.makeToolResultMessage(call, models.NewToolExecutionResultError(
+			fmt.Sprintf("tool %q is restricted by the active skill; allowed tools: %s (plus %s)",
+				call.Name, strings.Join(e.skillFilterNames(), ", "), skills.UseSkillToolName)), true)
+	}
+
 	// Pre-execution argument validation. On failure we do NOT emit any tool
 	// events: the failed attempt stays invisible in the live TUI, and the error
 	// tool_result is fed back so the LLM can self-correct next turn.
@@ -215,6 +236,12 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 	}
 
 	result, isError := e.registry.Execute(ctx, call.ID, call.Name, args)
+
+	// A successful use_skill call publishes the activated skill's restriction
+	// via result details; adopt it for subsequent calls.
+	if call.Name == skills.UseSkillToolName && !isError {
+		e.updateSkillFilter(result.Details)
+	}
 
 	// Run after hook.
 	if e.cfg.AfterToolCall != nil {
@@ -284,6 +311,50 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 	})
 
 	return msg
+}
+
+// skillAllows reports whether the active skill's tool restriction permits the
+// named tool. A nil filter means unrestricted.
+func (e *executor) skillAllows(name string) bool {
+	e.skillFilterMu.Lock()
+	defer e.skillFilterMu.Unlock()
+	if e.skillFilter == nil {
+		return true
+	}
+	return e.skillFilter[name]
+}
+
+// skillFilterNames returns the sorted allowed-tool list for error messages.
+func (e *executor) skillFilterNames() []string {
+	e.skillFilterMu.Lock()
+	defer e.skillFilterMu.Unlock()
+	names := make([]string, 0, len(e.skillFilter))
+	for n := range e.skillFilter {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// updateSkillFilter adopts the restriction published by a successful use_skill
+// call. An empty (or nil) list lifts the restriction; a missing key leaves the
+// current filter untouched.
+func (e *executor) updateSkillFilter(details map[string]any) {
+	raw, ok := details[skills.AllowedToolsDetailsKey]
+	if !ok {
+		return
+	}
+	names, _ := raw.([]string)
+	e.skillFilterMu.Lock()
+	defer e.skillFilterMu.Unlock()
+	if len(names) == 0 {
+		e.skillFilter = nil
+		return
+	}
+	e.skillFilter = make(map[string]bool, len(names))
+	for _, n := range names {
+		e.skillFilter[n] = true
+	}
 }
 
 func (e *executor) makeToolResultMessage(call models.ToolCallContent, result models.ToolExecutionResult, isError bool) models.AgentMessage {

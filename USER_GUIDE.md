@@ -475,7 +475,7 @@ TUI（Terminal User Interface）是 Lcoder 的默认交互方式，基于 `charm
 
 ## 8. 技能（Skills）
 
-技能是注入到 system prompt 中的 Markdown 包，用于在特定场景下给 agent 补充指令、模板或背景知识。
+技能是按需加载的 Markdown 指令包，用于在特定场景下给 agent 补充指令、模板或背景知识。启动时只有每个技能的 `name + description` 进入 system prompt（catalog）；完整正文在激活时才加载。
 
 ### 8.1 技能文件位置
 
@@ -499,28 +499,35 @@ Lcoder 会从以下路径加载技能：
 - commit-message: Generate conventional commit messages
 ```
 
-### 8.3 手动触发技能
+### 8.3 技能的激活方式
 
-在单次对话中，可以用 `/skill:name` 语法触发技能：
+**模型自主激活（默认）**：system prompt 中的 catalog 列出了所有技能的名称与用途。模型判断用户请求与某个技能匹配时，会调用 `use_skill` 工具，技能正文作为该工具的返回结果进入对话，随轮次自然流动。
+
+**手动触发**：在单次对话中，也可以用 `/skill:name` 语法强制激活：
 
 ```bash
 ./lcoder -p "/skill:security-review 请 review pkg/auth/jwt.go"
 ```
 
-在 TUI 中，也可以在输入框中输入 `/skill:security-review` 触发。
+在 TUI 中，也可以在输入框中输入 `/skill:security-review` 触发。手动触发会把技能正文折叠进该条用户消息，与模型自主激活看到的内容一致。
 
-### 8.4 自动检测技能
+### 8.4 用 allowed_tools 约束工具面
 
-当 `context.mode` 设置为 `auto`（默认值）时，Lcoder 会根据用户输入自动匹配最相关的技能并注入。
+技能可以在 frontmatter 中声明 `allowed_tools`，限制激活期间可调用的工具：
 
-```yaml
-context:
-  mode: auto   # auto | manual | off
+```markdown
+---
+name: security-review
+description: Review code for security vulnerabilities
+allowed_tools:
+  - read
+  - grep
+  - ls
+  - find
+---
 ```
 
-- `auto`：自动检测并注入。
-- `manual`：仅通过 `/skill:name` 手动触发。
-- `off`：完全关闭技能注入。
+激活后，对名单外工具的调用会在执行期被拒绝（`use_skill` 本身始终可用，模型可以随时切换到另一个技能；激活未声明 `allowed_tools` 的技能即解除限制）。限制只存在于当前进程内，不写入检查点。
 
 ### 8.5 示例技能
 
@@ -1141,7 +1148,6 @@ providers:
 
 ```yaml
 context:
-  mode: auto
   # max_tokens: 128000
   # target_tokens: 120000
   # reserve_output: 8192
@@ -1154,7 +1160,6 @@ context:
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `mode` | string | 技能触发模式：`auto`（自动匹配）、`manual`（仅 `/skill:name`）、`off`（关闭）。注意：该字段虽位于 `context` 下，但控制的是技能注入行为。 |
 | `max_tokens` | int | 强制覆盖上下文窗口大小。 |
 | `target_tokens` | int | 目标 token 使用量。 |
 | `reserve_output` | int | 为模型输出预留的 token 数。 |

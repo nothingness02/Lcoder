@@ -77,7 +77,6 @@ type TUIConfig struct {
 
 // ContextConfig controls structured context manager behavior.
 type ContextConfig struct {
-	Mode             string   `yaml:"mode"`               // "auto", "manual", "off"
 	MaxTokens        int      `yaml:"max_tokens"`         // hard context budget
 	TargetTokens     int      `yaml:"target_tokens"`      // soft target budget
 	ReserveOutput    int      `yaml:"reserve_output"`     // output reservation
@@ -158,7 +157,6 @@ func DefaultConfig() Config {
 		Model:    "gpt-4o-mini",
 		TUI:      TUIConfig{Theme: "dark"},
 		Context: ContextConfig{
-			Mode:             "auto",
 			MaxTokens:        0, // 0 = unset; resolved from catalog/engine at runtime
 			TargetTokens:     0, // 0 = unset; derived from MaxTotal when missing
 			ReserveOutput:    0, // 0 = unset; falls back to defaultReserveOutput
@@ -393,7 +391,6 @@ func Load() (Config, error) {
 		"model":     cfg.Model,
 		"tui.theme": cfg.TUI.Theme,
 		"context": map[string]any{
-			"mode":               cfg.Context.Mode,
 			"max_tokens":         cfg.Context.MaxTokens,
 			"target_tokens":      cfg.Context.TargetTokens,
 			"reserve_output":     cfg.Context.ReserveOutput,

@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -25,20 +26,21 @@ func TestParseManualTriggerNoSkill(t *testing.T) {
 }
 
 func TestExpandManualTrigger(t *testing.T) {
-	msgs := ExpandManualTrigger(Skill{
+	msg := ExpandManualTrigger(Skill{
 		SkillMeta: SkillMeta{
 			Name:        "security-review",
 			Description: "Review code for vulnerabilities",
 		},
 		Body: "Read the file and identify risks.",
-	}, "/skill:security-review check auth.go")
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}, "check auth.go")
+	if msg.Role != "user" {
+		t.Fatalf("expected user message, got %s", msg.Role)
 	}
-	if msgs[0].Role != "system" {
-		t.Fatalf("expected system message, got %s", msgs[0].Role)
+	text := msg.Text()
+	if !strings.Contains(text, "Read the file and identify risks.") {
+		t.Fatalf("expected skill body in message, got %q", text)
 	}
-	if msgs[1].Role != "user" {
-		t.Fatalf("expected user message, got %s", msgs[1].Role)
+	if !strings.Contains(text, "check auth.go") {
+		t.Fatalf("expected user request in message, got %q", text)
 	}
 }

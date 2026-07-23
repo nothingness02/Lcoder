@@ -506,18 +506,13 @@ func (m *Model) handleConfirmKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 // submit dispatches a user submission: skill trigger, slash command, or prompt.
 func (m *Model) submit(text string) tea.Cmd {
 	// Manual skill trigger ("/skill:name args") takes precedence over the
-	// generic slash dispatch since it is also slash-prefixed.
+	// generic slash dispatch since it is also slash-prefixed. Plain prompts
+	// rely on the model to activate skills itself via the use_skill tool.
 	if name, rest, ok := skills.ParseManualTrigger(text); ok {
 		return m.handleSkillTrigger(name, rest)
 	}
 	if strings.HasPrefix(text, "/") {
 		return m.dispatchSlash(text)
-	}
-	// Auto-detect a matching skill for plain prompts.
-	if m.autoDetectEnabled() {
-		if score, ok := skills.AutoDetect(text, m.skills); ok {
-			return m.handleSkillTrigger(score.Skill.Name, text)
-		}
 	}
 	return m.startPrompt(text)
 }

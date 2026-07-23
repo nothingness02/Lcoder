@@ -77,12 +77,6 @@ func (c SandboxConfig) Validate() error {
 
 // Validate checks context manager settings.
 func (c ContextConfig) Validate() error {
-	switch c.Mode {
-	case "", "auto", "manual", "off":
-		// ok
-	default:
-		return fmt.Errorf("mode %q is not valid; must be auto, manual, or off", c.Mode)
-	}
 	switch c.CacheHintPolicy {
 	case "", "default", "aggressive", "none":
 		// ok

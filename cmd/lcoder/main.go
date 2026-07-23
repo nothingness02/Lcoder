@@ -180,6 +180,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	if err := registry.RegisterBuiltinFactories(cwd); err != nil {
 		return nil, fmt.Errorf("register built-in tools: %w", err)
 	}
+	registry.Register(skills.UseSkillToolName, builtinTools.NewUseSkill(cwd, loadedSkillCatalog))
 	if memStore != nil {
 		registry.Register("memory", builtinTools.NewMemory(cwd, memStore))
 	}
@@ -617,42 +618,22 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 	unsub := setup.bus.Subscribe(persistHandler)
 	defer unsub()
 
-	var initialMessages []models.AgentMessage
+	// A manual "/skill:name args" trigger folds the skill body into the user
+	// message; the model can also activate skills on its own via use_skill.
+	msg := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: prompt})
 	if name, rest, ok := skills.ParseManualTrigger(prompt); ok {
-		if meta, found := skills.FindByName(setup.cfg.loadedSkillCatalog, name); found {
-			skill, err := skills.LoadSkill(meta.Source)
-			if err != nil {
-				return fmt.Errorf("load skill %q: %w", name, err)
-			}
-			initialMessages = skills.ExpandManualTrigger(skill, rest)
-		} else {
+		meta, found := skills.FindByName(setup.cfg.loadedSkillCatalog, name)
+		if !found {
 			return fmt.Errorf("skill %q not found", name)
 		}
-	} else if setup.cfg.Context.Mode == "auto" {
-		// Auto-detect skill from prompt when no manual trigger is used.
-		if score, ok := skills.AutoDetect(prompt, setup.cfg.loadedSkillCatalog); ok {
-			fmt.Printf("[lcoder] auto-activated skill: %s\n", score.Skill.Name)
-			skill, err := skills.LoadSkill(score.Skill.Source)
-			if err != nil {
-				return fmt.Errorf("load skill %q: %w", score.Skill.Name, err)
-			}
-			initialMessages = skills.ExpandManualTrigger(skill, prompt)
+		skill, err := skills.LoadSkill(meta.Source)
+		if err != nil {
+			return fmt.Errorf("load skill %q: %w", name, err)
 		}
+		msg = skills.ExpandManualTrigger(skill, rest)
 	}
-
-	var msg models.AgentMessage
-	if len(initialMessages) > 0 {
-		for _, m := range initialMessages {
-			if err := setup.sess.Append(m); err != nil {
-				return fmt.Errorf("append message: %w", err)
-			}
-		}
-		msg = initialMessages[len(initialMessages)-1]
-	} else {
-		msg = models.NewAgentMessage(models.RoleUser, models.TextContent{Text: prompt})
-		if err := setup.sess.Append(msg); err != nil {
-			return fmt.Errorf("append message: %w", err)
-		}
+	if err := setup.sess.Append(msg); err != nil {
+		return fmt.Errorf("append message: %w", err)
 	}
 
 	if err := setup.ag.Prompt(ctx, msg); err != nil {

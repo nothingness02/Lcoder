@@ -46,7 +46,6 @@ tui:
 # declare it in models.yaml (context_window / budget) — that takes precedence.
 # Set max_tokens here only to force a global override for every model.
 context:
-  mode: auto               # auto | manual | off
   # max_tokens: 128000     # leave empty = auto from model; set to force-override
   # target_tokens: 120000  # leave empty = derived as max_tokens * 0.9
   # reserve_output: 8192   # leave empty = default 8192

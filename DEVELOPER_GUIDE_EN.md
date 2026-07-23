@@ -83,13 +83,11 @@ Subscribers handle session persistence, observability recording, and TUI updates
 
 - `system`: system prompt.
 - `mode`: additional system prompt from the active agent mode.
-- `skills`: content injected by skills.
+- `skills`: the skill catalog (each skill's `name + description`); the model activates a skill's full body on demand via the `use_skill` tool.
 - `project_docs`: project context loaded from `<repo>/AGENTS.md`, `<repo>/CLAUDE.md`, and `<repo>/LCODER.md`, searched upward to the git root.
 - `recent`: recent messages.
 
 `BuildTurnRequest` selects blocks within `TokenBudget`, computes cache breakpoints, injects ephemeral reminders, and resolves `max_tokens`. `MaybeCompactLeveled` folds older recent messages into a summary when pressure rises.
-
-> Note: although the config field `context.mode` is under `context`, it controls skill-injection behavior (`auto`/`manual`/`off`), not the `mode` block above.
 
 ---
 

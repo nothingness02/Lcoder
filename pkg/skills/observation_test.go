@@ -109,21 +109,18 @@ Improve the provided code without changing its external behavior.
 	sb.WriteString("```\n\n")
 
 	sb.WriteString("## 5. 注入对话的上下文\n\n")
-	sb.WriteString("`ExpandManualTrigger` 生成两条消息，追加到当前会话：\n\n")
+	sb.WriteString("`ExpandManualTrigger` 把技能正文折叠进一条 user 消息，追加到当前会话：\n\n")
 	expanded := ExpandManualTrigger(skill, "check auth.go")
-	for i, msg := range expanded {
-		role := msg.Role
-		fmt.Fprintf(&sb, "### Message %d (%s)\n\n", i+1, role)
-		sb.WriteString("```text\n")
-		sb.WriteString(msg.Text())
-		sb.WriteString("\n```\n\n")
-	}
+	fmt.Fprintf(&sb, "### Message (%s)\n\n", expanded.Role)
+	sb.WriteString("```text\n")
+	sb.WriteString(expanded.Text())
+	sb.WriteString("\n```\n\n")
 
 	sb.WriteString("## 6. 关键观察\n\n")
 	sb.WriteString("- **未激活时**：系统提示只包含 `name + description + keywords`，不会把 security-review 或 refactor 的完整正文带进去。\n")
-	sb.WriteString("- **激活后**：完整正文以 system/user 消息对的形式进入**动态对话**，不占静态 system prompt。\n")
-	sb.WriteString("- **切换 skill**：只需替换注入的消息，不会使静态 system prompt 缓存失效。\n")
-	sb.WriteString("- **多 skill 共存**：同一个会话可以先后激活多个 skill，每个都以独立消息对注入。\n")
+	sb.WriteString("- **模型自主激活**：模型读到 catalog 后调用 `use_skill` 工具，完整正文作为 tool result 随轮次进入动态对话，不占静态 system prompt。\n")
+	sb.WriteString("- **手动激活**：`/skill:name` 把同样的正文折叠进一条 user 消息，不再写入永久 system 消息。\n")
+	sb.WriteString("- **多 skill 共存**：同一个会话可以先后激活多个 skill；带 `allowed_tools` 的 skill 会在执行期限制后续工具调用，激活新 skill 即替换该限制。\n")
 
 	fmt.Println(sb.String())
 }

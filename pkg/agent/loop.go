@@ -17,13 +17,15 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
 // DefaultCoreTools is the always-loaded core set under deferred tool loading.
-// Everything else is reachable via tool_search.
-var DefaultCoreTools = []string{"read", "bash", "edit", "ls", "grep"}
+// Everything else is reachable via tool_search. use_skill stays core so the
+// model can always activate skills without a tool_search round-trip.
+var DefaultCoreTools = []string{"read", "bash", "edit", "ls", "grep", skills.UseSkillToolName}
 
 // ReminderProducer returns zero or more ephemeral system-reminder strings for the
 // upcoming turn, given the current conversation. Producers run at each turn start;

@@ -83,13 +83,11 @@ cmd/lcoder/main.go
 
 - `system`：系统提示。
 - `mode`：当前 agent 模式附加的 system prompt。
-- `skills`：技能注入的内容。
+- `skills`：技能 catalog（每个技能的 `name + description`），模型通过 `use_skill` 工具按需激活完整正文。
 - `project_docs`：从 `<repo>/AGENTS.md`、`<repo>/CLAUDE.md`、`<repo>/LCODER.md` 加载的项目上下文（从当前目录向上搜索到 git 根）。
 - `recent`：最近的消息。
 
 `BuildTurnRequest` 在 `TokenBudget` 内选择 block、计算 cache 断点、注入临时提醒、解析 `max_tokens`。`MaybeCompactLeveled` 在压力升高时将较旧的 recent 消息折叠为 summary。
-
-> 注意：配置中的 `context.mode` 虽位于 `context` 下，但控制的是技能注入行为（`auto`/`manual`/`off`），与上述 `mode` block 不同。
 
 ---
 

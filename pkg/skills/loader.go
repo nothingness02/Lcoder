@@ -62,10 +62,11 @@ func LoadSkill(source string) (Skill, error) {
 }
 
 type frontMatter struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Keywords    []string `yaml:"keywords"`
-	Tags        []string `yaml:"tags"`
+	Name         string   `yaml:"name"`
+	Description  string   `yaml:"description"`
+	Keywords     []string `yaml:"keywords"`
+	Tags         []string `yaml:"tags"`
+	AllowedTools []string `yaml:"allowed_tools"`
 }
 
 func parseMeta(source string) (SkillMeta, error) {
@@ -79,11 +80,12 @@ func parseMeta(source string) (SkillMeta, error) {
 	}
 	_ = body
 	meta := SkillMeta{
-		Name:        fm.Name,
-		Description: fm.Description,
-		Keywords:    fm.Keywords,
-		Tags:        fm.Tags,
-		Source:      source,
+		Name:         fm.Name,
+		Description:  fm.Description,
+		Keywords:     fm.Keywords,
+		Tags:         fm.Tags,
+		AllowedTools: fm.AllowedTools,
+		Source:       source,
 	}
 	if len(meta.Keywords) == 0 {
 		meta.Keywords = deriveKeywords(meta.Name, meta.Description)
@@ -97,11 +99,12 @@ func parse(data []byte, source string) (Skill, error) {
 		return Skill{}, err
 	}
 	meta := SkillMeta{
-		Name:        fm.Name,
-		Description: fm.Description,
-		Keywords:    fm.Keywords,
-		Tags:        fm.Tags,
-		Source:      source,
+		Name:         fm.Name,
+		Description:  fm.Description,
+		Keywords:     fm.Keywords,
+		Tags:         fm.Tags,
+		AllowedTools: fm.AllowedTools,
+		Source:       source,
 	}
 	if len(meta.Keywords) == 0 {
 		meta.Keywords = deriveKeywords(meta.Name, meta.Description)
@@ -126,6 +129,27 @@ func splitFrontMatter(data []byte) (frontMatter, string, error) {
 		}
 	}
 	return fm, content, nil
+}
+
+func tokenize(text string) []string {
+	replacer := strings.NewReplacer(
+		",", " ",
+		".", " ",
+		":", " ",
+		";", " ",
+		"(", " ",
+		")", " ",
+		"[", " ",
+		"]", " ",
+		"{", " ",
+		"}", " ",
+	)
+	text = replacer.Replace(text)
+	var tokens []string
+	for _, p := range strings.Fields(text) {
+		tokens = append(tokens, strings.ToLower(p))
+	}
+	return tokens
 }
 
 func deriveKeywords(name, description string) []string {
