@@ -23,9 +23,11 @@ type Process struct {
 func StartProcess(m Manifest, handler Handler) (*Process, error) {
 	cmd := exec.Command(m.Command[0], m.Command[1:]...)
 	cmd.Dir = m.Dir
+	env := os.Environ()
 	for k, v := range m.Env {
-		cmd.Env = append(os.Environ(), k+"="+v)
+		env = append(env, k+"="+v)
 	}
+	cmd.Env = env
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("extension %s stdin: %w", m.Name, err)
