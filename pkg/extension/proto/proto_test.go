@@ -30,9 +30,14 @@ func TestRequestRoundTrip(t *testing.T) {
 
 func TestNotificationHasNoID(t *testing.T) {
 	n := Request{JSONRPC: "2.0", Method: EventMethodPrefix + "turn_start"}
-	data, _ := json.Marshal(n)
+	data, err := json.Marshal(n)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var raw map[string]any
-	_ = json.Unmarshal(data, &raw)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := raw["id"]; ok {
 		t.Fatal("notification must not carry id")
 	}
