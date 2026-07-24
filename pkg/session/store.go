@@ -276,6 +276,65 @@ func (s *Session) AppendCompactionEntry(summary, firstKeptEntryID string, tokens
 	return s.appendLine(s.Messages[len(s.Messages)-1])
 }
 
+// Metadata keys for custom entries written by extensions.
+const (
+	MetaTypeCustom = "custom"
+	MetaCustomType = "custom_type"
+	MetaCustomData = "data"
+)
+
+// CustomEntry is an extension-owned record read back from the session file.
+type CustomEntry struct {
+	CustomType string
+	Data       json.RawMessage
+}
+
+// IsCustomEntry reports whether m is an extension custom entry.
+func IsCustomEntry(m models.AgentMessage) bool {
+	if m.Metadata == nil {
+		return false
+	}
+	v, ok := m.Metadata[MetaType].(string)
+	return ok && v == MetaTypeCustom
+}
+
+// AppendCustomEntry appends an extension-owned entry to the current branch.
+// The entry carries parent_id/branch_id like any message, so it follows fork
+// and branch semantics, but role=custom keeps it out of context views.
+func (s *Session) AppendCustomEntry(customType string, data json.RawMessage) error {
+	msg := models.NewAgentMessage(models.RoleCustom)
+	msg.Metadata[MetaType] = MetaTypeCustom
+	msg.Metadata[MetaCustomType] = customType
+	msg.Metadata[MetaCustomData] = data
+	if err := s.stage(msg); err != nil {
+		return err
+	}
+	return s.appendLine(s.Messages[len(s.Messages)-1])
+}
+
+// CustomEntries returns the custom entries on the active branch whose
+// custom_type starts with prefix (extensions use "<ext-name>/").
+func (s *Session) CustomEntries(prefix string) []CustomEntry {
+	var out []CustomEntry
+	for _, m := range s.activeChain() {
+		if !IsCustomEntry(m) {
+			continue
+		}
+		customType, _ := m.Metadata[MetaCustomType].(string)
+		if !strings.HasPrefix(customType, prefix) {
+			continue
+		}
+		// After a file reload the metadata value decodes as generic any, so
+		// re-marshal instead of asserting to json.RawMessage.
+		raw, err := json.Marshal(m.Metadata[MetaCustomData])
+		if err != nil {
+			continue
+		}
+		out = append(out, CustomEntry{CustomType: customType, Data: raw})
+	}
+	return out
+}
+
 // appendLine persists exactly one message by appending it to the session file,
 // preserving every existing byte. Creates the file if it does not exist yet.
 func (s *Session) appendLine(msg models.AgentMessage) error {
@@ -371,11 +430,27 @@ func (s *Session) Replace(msgs []models.AgentMessage) error {
 }
 
 // ActiveMessages returns the messages on the current branch, reconstructed by
-// walking the parent_id tree from the active branch head. A branch forked at
-// the root has an empty head and yields no messages until one is appended.
-// Legacy files (written before branch metadata existed) are returned as a
-// single linear conversation.
+// walking the parent_id tree from the active branch head, with extension
+// custom entries (role=custom) filtered out — they persist on disk but never
+// enter model context. A branch forked at the root yields no messages until
+// one is appended. Legacy files are returned as a single linear conversation.
 func (s *Session) ActiveMessages() []models.AgentMessage {
+	chain := s.activeChain()
+	out := chain[:0] // in-place filter; chain is already a fresh slice
+	for _, m := range chain {
+		if m.Role == models.RoleCustom {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// activeChain is the unfiltered branch walk (includes custom entries).
+// A branch forked at the root has an empty head and yields no messages until
+// one is appended. Legacy files (written before branch metadata existed) are
+// returned as a single linear conversation.
+func (s *Session) activeChain() []models.AgentMessage {
 	head, ok := s.branchHeads[s.activeBranch]
 	if !ok {
 		return append([]models.AgentMessage(nil), s.Messages...)

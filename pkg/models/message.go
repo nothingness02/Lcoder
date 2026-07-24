@@ -17,6 +17,9 @@ const (
 	RoleToolResult   MessageRole = "tool_result"
 	RoleSystem       MessageRole = "system"
 	RoleNotification MessageRole = "notification"
+	// RoleCustom marks extension-owned custom entries. They persist in the
+	// session file but never enter model context.
+	RoleCustom MessageRole = "custom"
 )
 
 // AgentMessage is the internal message representation used throughout the agent.
