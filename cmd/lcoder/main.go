@@ -610,8 +610,14 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 				// kept messages, so a crash before run end cannot lose them.
 				_ = setup.sess.AppendMissing(setup.ag.AllMessages())
 			}
-		case events.MessageEndEvent, events.ToolExecutionEndEvent, events.AgentEndEvent:
-			_ = setup.sess.Save()
+		case events.TurnEndEvent, events.AgentEndEvent:
+			// Mirror the completed turn's assistant/tool messages into the
+			// session now. TurnEnd is dispatched synchronously from the agent
+			// loop, which writes the automatic checkpoint right afterwards —
+			// persisting here keeps the session on disk at least as new as any
+			// checkpoint, so a crash cannot resurrect a checkpoint whose
+			// messages were never saved.
+			_ = setup.sess.AppendMissing(setup.ag.AllMessages())
 		}
 		return nil
 	}

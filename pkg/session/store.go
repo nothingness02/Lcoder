@@ -303,16 +303,20 @@ func (s *Session) appendLine(msg models.AgentMessage) error {
 // Fork creates a new branch starting at msgID and switches the session to it.
 // It returns the new branch id. The session's Messages are not duplicated; the
 // branch is represented by the parent_id tree and the active branch pointer.
+// An empty msgID forks at the root (before the first message), mirroring pi's
+// resetLeaf: the next appended message starts the branch with no parent.
 func (s *Session) Fork(msgID string) (string, error) {
-	found := false
-	for _, m := range s.Messages {
-		if m.ID == msgID {
-			found = true
-			break
+	if msgID != "" {
+		found := false
+		for _, m := range s.Messages {
+			if m.ID == msgID {
+				found = true
+				break
+			}
 		}
-	}
-	if !found {
-		return "", fmt.Errorf("session: cannot fork: message %q not found", msgID)
+		if !found {
+			return "", fmt.Errorf("session: cannot fork: message %q not found", msgID)
+		}
 	}
 
 	branchID := "branch-" + uuid.New().String()[:8]
@@ -367,12 +371,18 @@ func (s *Session) Replace(msgs []models.AgentMessage) error {
 }
 
 // ActiveMessages returns the messages on the current branch, reconstructed by
-// walking the parent_id tree from the active branch head. For linear history
-// (no parent ids), all messages are returned in their original order.
+// walking the parent_id tree from the active branch head. A branch forked at
+// the root has an empty head and yields no messages until one is appended.
+// Legacy files (written before branch metadata existed) are returned as a
+// single linear conversation.
 func (s *Session) ActiveMessages() []models.AgentMessage {
 	head, ok := s.branchHeads[s.activeBranch]
-	if !ok || head == "" {
+	if !ok {
 		return append([]models.AgentMessage(nil), s.Messages...)
+	}
+	if head == "" {
+		// Explicit root fork: the branch starts before the first message.
+		return nil
 	}
 
 	byID := make(map[string]models.AgentMessage, len(s.Messages))
@@ -380,13 +390,15 @@ func (s *Session) ActiveMessages() []models.AgentMessage {
 		byID[m.ID] = m
 	}
 
-	// Compatibility: if the main branch head has no parent and there are earlier
-	// messages, the session was written before branching and should be treated as
-	// a single linear conversation.
-	if s.activeBranch == mainBranch {
-		if headMsg, ok := byID[head]; ok && (headMsg.ParentID == nil || *headMsg.ParentID == "") && len(s.Messages) > 1 {
-			return append([]models.AgentMessage(nil), s.Messages...)
-		}
+	headMsg, ok := byID[head]
+	if !ok {
+		return append([]models.AgentMessage(nil), s.Messages...)
+	}
+	// Compatibility: every message appended by current code carries branch_id
+	// metadata, so a head without it means the file is a legacy linear
+	// conversation rather than a tree.
+	if _, ok := headMsg.Metadata["branch_id"]; !ok {
+		return append([]models.AgentMessage(nil), s.Messages...)
 	}
 
 	var branch []models.AgentMessage
@@ -506,18 +518,36 @@ func (s *Session) SessionID() string {
 	return s.ID
 }
 
-// initBranchState rebuilds the active branch and branch head map from the
-// loaded messages. It is called after Create, Load, and Replace.
+// initBranchState rebuilds the branch registry and branch head map from the
+// loaded messages. It is called after Create, Load, and Replace. Mirroring
+// pi's leaf semantics, the active branch resumes where the file's last line
+// left off, so returning to a session lands on the branch that was being
+// worked on instead of resetting to main.
 func (s *Session) initBranchState() {
 	s.activeBranch = mainBranch
 	s.branchHeads = make(map[string]string)
+	s.Branches = nil
+	seen := make(map[string]bool)
 	for _, m := range s.Messages {
-		branchID := mainBranch
-		if m.Metadata != nil {
-			if bid, ok := m.Metadata["branch_id"].(string); ok && bid != "" {
-				branchID = bid
-			}
-		}
+		branchID := branchOf(m)
 		s.branchHeads[branchID] = m.ID
+		if branchID != mainBranch && !seen[branchID] {
+			seen[branchID] = true
+			s.Branches = append(s.Branches, branchID)
+		}
 	}
+	if n := len(s.Messages); n > 0 {
+		s.activeBranch = branchOf(s.Messages[n-1])
+	}
+}
+
+// branchOf returns the branch a message was appended to, defaulting to main
+// for messages written before branch metadata existed.
+func branchOf(m models.AgentMessage) string {
+	if m.Metadata != nil {
+		if bid, ok := m.Metadata["branch_id"].(string); ok && bid != "" {
+			return bid
+		}
+	}
+	return mainBranch
 }

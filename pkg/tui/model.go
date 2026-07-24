@@ -239,8 +239,14 @@ func (m *Model) persistFromEvent(ctx context.Context, ev events.Event) error {
 			// kept messages, so a crash before run end cannot lose them.
 			_ = sess.AppendMissing(m.agent.AllMessages())
 		}
-	case events.MessageEndEvent, events.ToolExecutionEndEvent, events.AgentEndEvent:
-		_ = sess.Save()
+	case events.TurnEndEvent, events.AgentEndEvent:
+		// Mirror the completed turn's assistant/tool messages into the session
+		// now. This handler runs synchronously inside the agent's TurnEnd
+		// emission, which precedes the automatic checkpoint written at the
+		// turn boundary — so the session on disk is always at least as new as
+		// any checkpoint, and a crash cannot resurrect a checkpoint whose
+		// messages were never saved.
+		_ = sess.AppendMissing(m.agent.AllMessages())
 	}
 	return nil
 }

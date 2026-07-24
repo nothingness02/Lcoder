@@ -799,28 +799,49 @@ func (m *Model) statusText() string {
 	return styleDim().Render(strings.Join(parts, "  ·  "))
 }
 
-// retryLast prunes the final assistant turn and re-runs the last user prompt.
+// retryLast rolls back to just before the final user prompt and re-runs it.
+// The rollback is pi-style: the session forks at the message preceding the
+// last user prompt, so the retry forms a new branch while the abandoned turn
+// stays reachable on the old one. The agent context is pruned to the same
+// point; startPrompt re-submits the prompt, so the user message is not
+// duplicated in either the context or the session.
 func (m *Model) retryLast() tea.Cmd {
 	msgs := m.agent.AllMessages()
-	var lastUser string
+	lastUserIdx := -1
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role == models.RoleUser {
-			lastUser = msgs[i].Text()
+			lastUserIdx = i
 			break
 		}
 	}
-	if lastUser == "" {
+	if lastUserIdx < 0 {
 		m.addSystem(styleWarn().Render("nothing to retry"))
 		return nil
 	}
-	var pruned []models.AgentMessage
-	for _, msg := range msgs {
-		pruned = append(pruned, msg)
-		if msg.Role == models.RoleUser && msg.Text() == lastUser {
-			break
+	lastUser := msgs[lastUserIdx].Text()
+
+	if sess, ok := m.session.(*session.Session); ok {
+		active := sess.ActiveMessages()
+		cut := -1
+		for i := len(active) - 1; i >= 0; i-- {
+			if active[i].Role == models.RoleUser {
+				cut = i
+				break
+			}
+		}
+		if cut >= 0 {
+			forkAt := ""
+			if cut > 0 {
+				forkAt = active[cut-1].ID
+			}
+			if _, err := sess.Fork(forkAt); err != nil {
+				m.addSystem(styleWarn().Render("retry: " + err.Error()))
+				return nil
+			}
 		}
 	}
-	m.agent.SetMessages(pruned)
+
+	m.agent.SetMessages(msgs[:lastUserIdx])
 	return m.startPrompt(lastUser)
 }
 

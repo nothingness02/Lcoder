@@ -110,6 +110,61 @@ func TestFileStoreRetentionKeepsLatestN(t *testing.T) {
 	}
 }
 
+func TestFileStoreLoadFallsBackPastCorruptLatest(t *testing.T) {
+	dir := t.TempDir()
+	fs := NewFileStore(dir)
+
+	id := "sess-1"
+	for turn := 0; turn < 2; turn++ {
+		cp := &Checkpoint{
+			Agent:   &AgentSnapshot{Mode: "test-mode"},
+			Runtime: &RuntimeSnapshot{Turn: turn},
+		}
+		if err := fs.Save(id, cp); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Simulate a crash-truncated newest checkpoint.
+	paths, err := fs.ListVersions(id)
+	if err != nil {
+		t.Fatalf("ListVersions failed: %v", err)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 checkpoints, got %d", len(paths))
+	}
+	if err := os.WriteFile(paths[len(paths)-1], []byte(`{"version": 1, "agent":`), 0o600); err != nil {
+		t.Fatalf("corrupt latest: %v", err)
+	}
+
+	loaded, err := fs.Load(id)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded.Runtime.Turn != 0 {
+		t.Errorf("fallback turn = %d, want 0 (older intact version)", loaded.Runtime.Turn)
+	}
+}
+
+func TestFileStoreLoadAllCorruptReturnsNotFound(t *testing.T) {
+	dir := t.TempDir()
+	fs := NewFileStore(dir)
+
+	id := "sess-1"
+	sessionDir := filepath.Join(dir, id)
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, "0-1.checkpoint.json"), []byte("garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fs.Load(id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Load with only corrupt files error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestFileStoreLoadLatestAcrossMultipleSessions(t *testing.T) {
 	dir := t.TempDir()
 	fs := NewFileStore(dir)

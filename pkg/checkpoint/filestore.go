@@ -48,32 +48,60 @@ func (fs *FileStore) Save(id string, cp *Checkpoint) error {
 	if err != nil {
 		return err
 	}
-	if err := fsutil.WritePrivateFile(path, data); err != nil {
+	if err := writeFileAtomic(path, data); err != nil {
 		return err
 	}
 
 	return fs.prune(sessionDir)
 }
 
-// Load reads the latest checkpoint stored for session id.
+// writeFileAtomic writes data to path via a temp file + rename so a crash
+// mid-write cannot leave a truncated checkpoint behind.
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := fsutil.EnsurePrivateDir(dir); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".checkpoint-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+// Load reads the latest usable checkpoint stored for session id. Versions are
+// tried newest-first; a file that cannot be read or parsed (e.g. truncated by
+// an older non-atomic writer) is skipped in favour of an older version.
 func (fs *FileStore) Load(id string) (*Checkpoint, error) {
 	sessionDir := filepath.Join(fs.Dir, sanitize(id))
-	path, err := fs.latestPath(sessionDir)
+	paths, err := checkpointPaths(sessionDir)
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrNotFound
+	for i := len(paths) - 1; i >= 0; i-- {
+		data, err := os.ReadFile(paths[i])
+		if err != nil {
+			continue
 		}
-		return nil, err
+		cp := &Checkpoint{}
+		if err := cp.UnmarshalJSON(data); err != nil {
+			continue
+		}
+		return cp, nil
 	}
-	cp := &Checkpoint{}
-	if err := cp.UnmarshalJSON(data); err != nil {
-		return nil, err
-	}
-	return cp, nil
+	return nil, ErrNotFound
 }
 
 // LoadLatest is an alias for Load, useful when callers want to be explicit.
@@ -137,17 +165,6 @@ func (fs *FileStore) prune(sessionDir string) error {
 		_ = os.Remove(p)
 	}
 	return nil
-}
-
-func (fs *FileStore) latestPath(sessionDir string) (string, error) {
-	paths, err := checkpointPaths(sessionDir)
-	if err != nil {
-		return "", err
-	}
-	if len(paths) == 0 {
-		return "", ErrNotFound
-	}
-	return paths[len(paths)-1], nil
 }
 
 func checkpointPaths(dir string) ([]string, error) {
