@@ -43,7 +43,6 @@ type extension struct {
 	conn     *Conn
 	caps     proto.InitializeResult
 	dead     bool
-	warned   bool
 }
 
 // Host owns all loaded extensions and fans out hooks/events to them.
@@ -130,13 +129,7 @@ func (h *Host) AddPeer2(handler Handler, caps proto.InitializeResult) error {
 
 // Close shuts down all extensions (best-effort shutdown request, then close).
 func (h *Host) Close() {
-	h.mu.Lock()
-	exts := h.exts
-	h.mu.Unlock()
-	for _, ext := range exts {
-		if ext.dead {
-			continue
-		}
+	for _, ext := range h.live() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		_ = ext.conn.Call(ctx, proto.MethodShutdown, nil, nil)
 		cancel()

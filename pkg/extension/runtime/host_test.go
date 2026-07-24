@@ -198,6 +198,9 @@ func TestHostDeadPeerSkipped(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	if host.DeadCount() != 1 {
+		t.Fatal("host never noticed peer death")
+	}
 	before := calls
 	res := host.RunToolCallHooks(context.Background(), "bash", nil)
 	if res.Block {
@@ -205,5 +208,55 @@ func TestHostDeadPeerSkipped(t *testing.T) {
 	}
 	if calls != before {
 		t.Fatal("hook called on dead extension")
+	}
+}
+
+func TestHostToolCallParamsChainAcrossExtensions(t *testing.T) {
+	add := HandlerFunc{RequestFunc: func(_ context.Context, _ string, params json.RawMessage) (any, error) {
+		var p proto.ToolCallParams
+		_ = json.Unmarshal(params, &p)
+		p.Params["extra"] = "added"
+		return proto.ToolCallResult{Action: "allow", Params: p.Params}, nil
+	}}
+	seen := make(chan map[string]any, 1)
+	check := HandlerFunc{RequestFunc: func(_ context.Context, _ string, params json.RawMessage) (any, error) {
+		var p proto.ToolCallParams
+		_ = json.Unmarshal(params, &p)
+		seen <- p.Params
+		return proto.ToolCallResult{Action: "allow"}, nil
+	}}
+	h, _ := newHostWithPeer(t, add, proto.InitializeResult{Name: "a", Hooks: []string{proto.HookToolCall}})
+	if err := h.AddPeer2(check, proto.InitializeResult{Name: "b", Hooks: []string{proto.HookToolCall}}); err != nil {
+		t.Fatal(err)
+	}
+	res := h.RunToolCallHooks(context.Background(), "bash", map[string]any{"command": "ls"})
+	if res.Block || res.Params["extra"] != "added" {
+		t.Fatalf("res %+v", res)
+	}
+	got := <-seen
+	if got["extra"] != "added" {
+		t.Fatalf("second extension did not see chained params: %+v", got)
+	}
+}
+
+func TestHostBeforeCompactErrorFailsClosed(t *testing.T) {
+	broken := HandlerFunc{RequestFunc: func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
+		return nil, &proto.RPCError{Code: -32000, Message: "boom"}
+	}}
+	consulted := false
+	never := HandlerFunc{RequestFunc: func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
+		consulted = true
+		return proto.BeforeCompactResult{Summary: "short"}, nil
+	}}
+	h, _ := newHostWithPeer(t, broken, proto.InitializeResult{Name: "a", Hooks: []string{proto.HookBeforeCompact}})
+	if err := h.AddPeer2(never, proto.InitializeResult{Name: "b", Hooks: []string{proto.HookBeforeCompact}}); err != nil {
+		t.Fatal(err)
+	}
+	s, ok := h.RunBeforeCompactHook(context.Background(), "long conversation", 1000)
+	if ok || s != "" {
+		t.Fatalf("s=%q ok=%v", s, ok)
+	}
+	if consulted {
+		t.Fatal("second extension must not be consulted after an error")
 	}
 }
