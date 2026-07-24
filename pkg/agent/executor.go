@@ -185,17 +185,6 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		}
 	}
 
-	// Same-turn deduplication for read-only idempotent tools.
-	if isCacheableTool(call.Name) {
-		key := dedupKey(call.Name, args)
-		e.dedupMu.Lock()
-		cached, ok := e.dedup[key]
-		e.dedupMu.Unlock()
-		if ok {
-			return cloneAgentMessage(cached, call.ID)
-		}
-	}
-
 	// Permission check: engine decision + optional interactive confirmation.
 	info := ToolCallInfo{
 		AssistantMessage: assistantMsg,
@@ -211,13 +200,6 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		}
 		return e.makeToolResultMessage(call, models.NewToolExecutionResultError(reason), true)
 	}
-
-	e.emitter.emit(ctx, events.ToolExecutionStartEvent{
-		Base:       events.Base{Type: events.ToolExecutionStart, Turn: turn},
-		ToolCallID: call.ID,
-		ToolName:   call.Name,
-		Args:       call.Arguments,
-	})
 
 	// Declarative before-tool hooks (e.g. extensions) run after permission approval.
 	if e.cfg.BeforeToolCall != nil {
@@ -235,8 +217,35 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		}
 		if beforeResult != nil && beforeResult.ModifiedArgs != nil {
 			args = beforeResult.ModifiedArgs
+			// Hook-rewritten args must pass the same schema validation as the
+			// original arguments.
+			if exec, ok := e.registry.Get(call.Name); ok {
+				if err := tools.ValidateArgs(exec.Definition(), args); err != nil {
+					return e.makeToolResultMessage(call, models.NewToolExecutionResultError(err.Error()), true)
+				}
+			}
 		}
 	}
+
+	// Same-turn deduplication for read-only idempotent tools, keyed on the
+	// final (post-hook) args. A dedup hit returns before ToolExecutionStart, so
+	// duplicate calls never emit a Start without a matching End.
+	if isCacheableTool(call.Name) {
+		key := dedupKey(call.Name, args)
+		e.dedupMu.Lock()
+		cached, ok := e.dedup[key]
+		e.dedupMu.Unlock()
+		if ok {
+			return cloneAgentMessage(cached, call.ID)
+		}
+	}
+
+	e.emitter.emit(ctx, events.ToolExecutionStartEvent{
+		Base:       events.Base{Type: events.ToolExecutionStart, Turn: turn},
+		ToolCallID: call.ID,
+		ToolName:   call.Name,
+		Args:       call.Arguments,
+	})
 
 	result, isError := e.registry.Execute(ctx, call.ID, call.Name, args)
 
@@ -275,7 +284,7 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 
 	// Reconcile task list when the model updates its plan.
 	if call.Name == task.ToolName && e.taskMgr != nil && !isError {
-		if raw, ok := call.Arguments["todos"]; ok {
+		if raw, ok := args["todos"]; ok {
 			if parsed, parseErr := task.Parse(raw); parseErr == nil {
 				reconciled, warnings, _ := e.taskMgr.ReplaceAll(parsed)
 				result = appendWarnings(result, warnings)
