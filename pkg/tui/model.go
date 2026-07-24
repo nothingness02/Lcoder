@@ -134,6 +134,10 @@ type Model struct {
 	// suggestion (ghost text) state.
 	completedTurns int
 	suggestion     string
+
+	// inputHook intercepts plain user input before skill parsing/submission.
+	// Returns (newText, proceed, reason). Nil means no interception.
+	inputHook func(text string) (string, bool, string)
 }
 
 // NewModel keeps the exact signature the call sites and tests rely on.
@@ -200,6 +204,11 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 // SetCapabilities records the active model's catalog capabilities for /status.
 func (m *Model) SetCapabilities(caps []string) {
 	m.capabilities = caps
+}
+
+// SetInputHook installs the extension input hook.
+func (m *Model) SetInputHook(hook func(text string) (string, bool, string)) {
+	m.inputHook = hook
 }
 
 // Init implements tea.Model.

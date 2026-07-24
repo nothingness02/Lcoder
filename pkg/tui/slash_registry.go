@@ -150,3 +150,30 @@ func init() {
 func RegisterCommand(e commandEntry) {
 	commandRegistry = append(commandRegistry, e)
 }
+
+// RegisterExtensionCommand registers a slash command backed by an external
+// extension. Names conflicting with built-ins, aliases, or previously
+// registered extension commands are rejected. usage is accepted for parity
+// with extension manifests but not displayed (commandEntry has no usage field).
+func RegisterExtensionCommand(name, description, usage string, invoke func(args string) string) error {
+	for _, e := range commandRegistry {
+		if e.Name == name {
+			return fmt.Errorf("slash command %q already registered", name)
+		}
+		for _, alias := range e.Aliases {
+			if alias == name {
+				return fmt.Errorf("slash command %q conflicts with alias of %q", name, e.Name)
+			}
+		}
+	}
+	commandRegistry = append(commandRegistry, commandEntry{
+		Name:        name,
+		Description: description,
+		Category:    "Extension",
+		Handler: func(m *Model, args string) tea.Cmd {
+			m.addSystem(invoke(args))
+			return nil
+		},
+	})
+	return nil
+}

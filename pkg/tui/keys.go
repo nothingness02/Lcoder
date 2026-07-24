@@ -505,6 +505,16 @@ func (m *Model) handleConfirmKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 
 // submit dispatches a user submission: skill trigger, slash command, or prompt.
 func (m *Model) submit(text string) tea.Cmd {
+	// The extension input hook intercepts plain user input only; slash
+	// commands (including manual skill triggers) bypass it.
+	if m.inputHook != nil && !strings.HasPrefix(text, "/") {
+		newText, proceed, reason := m.inputHook(text)
+		if !proceed {
+			m.addSystem("input blocked: " + reason)
+			return nil
+		}
+		text = newText
+	}
 	// Manual skill trigger ("/skill:name args") takes precedence over the
 	// generic slash dispatch since it is also slash-prefixed. Plain prompts
 	// rely on the model to activate skills itself via the use_skill tool.
