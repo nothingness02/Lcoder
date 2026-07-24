@@ -45,15 +45,28 @@ func (h HandlerFunc) HandleNotification(method string, params json.RawMessage) {
 
 // Conn is a bidirectional newline-delimited JSON-RPC 2.0 connection.
 type Conn struct {
+	r       io.Reader
 	w       io.Writer
 	handler Handler
+
+	// writeMu serializes outbound frames; held across marshal+write so
+	// concurrent senders cannot interleave bytes on the wire. A writer
+	// blocked on a peer that stopped reading holds writeMu indefinitely
+	// (unavoidable without write deadlines), but never holds mu, so state
+	// operations like Close and failAll stay responsive.
+	writeMu sync.Mutex
 
 	mu      sync.Mutex
 	nextID  int64
 	pending map[int64]chan proto.Response
 	closed  bool
 	closeCh chan struct{}
-	onClose func() // called once when the read loop ends (peer EOF or error)
+	onClose func() // called once when the connection dies (read loop end or Close)
+
+	// ctx is cancelled when the connection dies; inbound handlers receive it
+	// so a handler blocking on ctx is released instead of leaking.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewConn starts the read loop immediately. handler may be nil.
@@ -61,16 +74,23 @@ func NewConn(r io.Reader, w io.Writer, handler Handler) *Conn {
 	if handler == nil {
 		handler = HandlerFunc{}
 	}
-	c := &Conn{w: w, handler: handler, pending: make(map[int64]chan proto.Response), closeCh: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &Conn{r: r, w: w, handler: handler, pending: make(map[int64]chan proto.Response), closeCh: make(chan struct{}), ctx: ctx, cancel: cancel}
 	go c.readLoop(r)
 	return c
 }
 
 // SetOnClose registers a callback fired once when the connection dies.
+// If the connection is already dead, fn fires immediately in a new goroutine.
 func (c *Conn) SetOnClose(fn func()) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	if c.closed {
+		c.mu.Unlock()
+		go fn()
+		return
+	}
 	c.onClose = fn
+	c.mu.Unlock()
 }
 
 // Done closes when the connection's read loop has ended.
@@ -134,19 +154,20 @@ func (c *Conn) Notify(method string, params any) error {
 }
 
 func (c *Conn) send(req proto.Request) error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return errors.New("extension conn closed")
-	}
-	w := c.w
-	c.mu.Unlock()
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	_, err = w.Write(data)
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return errors.New("extension conn closed")
+	}
+	c.mu.Unlock()
+	_, err = c.w.Write(data)
 	return err
 }
 
@@ -190,7 +211,7 @@ func (c *Conn) readLoop(r io.Reader) {
 }
 
 func (c *Conn) answerRequest(id int64, method string, params json.RawMessage) {
-	result, err := c.handler.HandleRequest(context.Background(), method, params)
+	result, err := c.handler.HandleRequest(c.ctx, method, params)
 	resp := proto.Response{JSONRPC: "2.0", ID: id}
 	if err != nil {
 		var rpcErr *proto.RPCError
@@ -212,9 +233,12 @@ func (c *Conn) answerRequest(id int64, method string, params json.RawMessage) {
 		return
 	}
 	data = append(data, '\n')
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.closed {
+	closed := c.closed
+	c.mu.Unlock()
+	if !closed {
 		_, _ = c.w.Write(data)
 	}
 }
@@ -230,6 +254,7 @@ func (c *Conn) failAll() {
 	c.pending = make(map[int64]chan proto.Response)
 	onClose := c.onClose
 	c.mu.Unlock()
+	c.cancel()
 	for id, ch := range pending {
 		ch <- proto.Response{JSONRPC: "2.0", ID: id, Error: &proto.RPCError{Code: -32000, Message: "extension connection lost"}}
 	}
@@ -239,12 +264,21 @@ func (c *Conn) failAll() {
 	}
 }
 
-// Close shuts the connection; pending calls fail with "connection lost".
-// If the writer is an io.Closer it is closed so the peer observes EOF.
+// Close shuts the connection; pending calls fail with "connection lost" and
+// inbound handler contexts are cancelled. The writer and reader are closed if
+// they are io.Closers, so the peer observes EOF and the local read loop
+// unblocks. Note: a writer blocked on a peer that stopped reading still holds
+// writeMu after Close (unavoidable without write deadlines).
 func (c *Conn) Close() error {
 	c.failAll()
+	var err error
 	if cl, ok := c.w.(io.Closer); ok {
-		return cl.Close()
+		err = cl.Close()
 	}
-	return nil
+	if cl, ok := c.r.(io.Closer); ok {
+		if rErr := cl.Close(); err == nil {
+			err = rErr
+		}
+	}
+	return err
 }

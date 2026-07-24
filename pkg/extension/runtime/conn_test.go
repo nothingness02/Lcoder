@@ -3,7 +3,9 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,11 +31,18 @@ func TestConnCallRoundTrip(t *testing.T) {
 	}
 	_, client := pipePair(t, echo, nil)
 
-	var out proto.ToolCallResult
+	var out map[string]any
 	err := client.Call(context.Background(), proto.MethodHookToolCall,
 		proto.ToolCallParams{Tool: "bash", Params: map[string]any{"command": "ls"}}, &out)
 	if err != nil {
 		t.Fatalf("Call: %v", err)
+	}
+	if out["tool"] != "bash" {
+		t.Fatalf("tool = %v, want bash", out["tool"])
+	}
+	params, ok := out["params"].(map[string]any)
+	if !ok || params["command"] != "ls" {
+		t.Fatalf("params = %v, want command=ls", out["params"])
 	}
 }
 
@@ -43,12 +52,15 @@ func TestConnCallErrorPropagates(t *testing.T) {
 			return nil, &proto.RPCError{Code: -32601, Message: "nope"}
 		},
 	}
-	server, client := pipePair(t, h, nil)
+	_, client := pipePair(t, h, nil)
 	err := client.Call(context.Background(), "x/y", nil, nil)
-	if err == nil || err.Error() != "nope" {
-		t.Fatalf("err = %v", err)
+	var rpcErr *proto.RPCError
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("err = %v, want *proto.RPCError", err)
 	}
-	_ = server
+	if rpcErr.Code != -32601 {
+		t.Fatalf("code = %d, want -32601", rpcErr.Code)
+	}
 }
 
 func TestConnNotification(t *testing.T) {
@@ -90,5 +102,31 @@ func TestConnCallContextCancel(t *testing.T) {
 	defer cancel()
 	if err := client.Call(ctx, "x/y", nil, nil); err == nil {
 		t.Fatal("expected ctx error")
+	}
+}
+
+func TestConnInFlightCallFailsOnLocalClose(t *testing.T) {
+	block := HandlerFunc{RequestFunc: func(ctx context.Context, _ string, _ json.RawMessage) (any, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	_, client := pipePair(t, block, nil)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- client.Call(context.Background(), "x/y", nil, nil) }()
+
+	// Give the call a moment to go in-flight, then close locally.
+	time.Sleep(50 * time.Millisecond)
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), "connection lost") {
+			t.Fatalf("err = %v, want connection lost", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight call did not fail after Close")
 	}
 }
