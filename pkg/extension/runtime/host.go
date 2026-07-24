@@ -221,23 +221,31 @@ func (h *Host) call(ctx context.Context, ext *extension, method string, params, 
 
 // RunToolCallHooks chains hook/tool_call over all declaring extensions.
 // Any block wins; param modifications chain. Errors fail open with a warning.
+// On the allow path Params is nil when no extension modified the args, so the
+// caller can distinguish "unchanged" from "rewritten to the same value".
 func (h *Host) RunToolCallHooks(ctx context.Context, tool string, params map[string]any) ToolCallHookResult {
-	res := ToolCallHookResult{Params: params}
+	work := params
+	changed := false
 	for _, ext := range h.live() {
 		if !hasString(ext.caps.Hooks, proto.HookToolCall) {
 			continue
 		}
 		var out proto.ToolCallResult
-		if err := h.call(ctx, ext, proto.MethodHookToolCall, proto.ToolCallParams{Tool: tool, Params: res.Params}, &out); err != nil {
+		if err := h.call(ctx, ext, proto.MethodHookToolCall, proto.ToolCallParams{Tool: tool, Params: work}, &out); err != nil {
 			h.warn(fmt.Sprintf("extension %s hook/tool_call: %v", ext.caps.Name, err))
 			continue
 		}
 		if out.Action == "block" {
-			return ToolCallHookResult{Block: true, Reason: out.Reason, Params: res.Params}
+			return ToolCallHookResult{Block: true, Reason: out.Reason, Params: work}
 		}
 		if out.Params != nil {
-			res.Params = out.Params
+			work = out.Params
+			changed = true
 		}
+	}
+	res := ToolCallHookResult{}
+	if changed {
+		res.Params = work
 	}
 	return res
 }

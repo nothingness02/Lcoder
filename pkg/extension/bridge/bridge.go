@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/compaction"
@@ -44,10 +45,13 @@ func (b *Bridge) BeforeToolCall() agent.BeforeToolCallHook {
 }
 
 // AfterToolCall adapts the tool_result hook chain to agent.AfterToolCallHook.
+// A rewrite collapses structured content to a single text part (the extension
+// protocol is text-only); the unchanged path preserves the original content.
 func (b *Bridge) AfterToolCall() agent.AfterToolCallHook {
 	return func(ctx context.Context, info agent.ToolCallResultInfo) (*agent.AfterToolCallResult, error) {
-		newText := b.host.RunToolResultHooks(ctx, info.ToolCall.Name, info.Args, resultText(info.Result), info.IsError)
-		if newText == resultText(info.Result) {
+		orig := resultText(info.Result)
+		newText := b.host.RunToolResultHooks(ctx, info.ToolCall.Name, info.Args, orig, info.IsError)
+		if newText == orig {
 			return nil, nil
 		}
 		return &agent.AfterToolCallResult{
@@ -57,14 +61,23 @@ func (b *Bridge) AfterToolCall() agent.AfterToolCallHook {
 }
 
 func resultText(r models.ToolExecutionResult) string {
-	var out string
+	var out strings.Builder
 	for _, part := range r.Content {
 		if t, ok := part.(models.TextContent); ok {
-			out += t.Text
+			out.WriteString(t.Text)
 		}
 	}
-	return out
+	return out.String()
 }
+
+// summarizerMaxInputChars caps the serialized conversation sent to the
+// session_before_compact hook, mirroring summaryMaxInputChars in
+// pkg/compaction/summarizer.go (the built-in summarizer's whole-input cap).
+const summarizerMaxInputChars = 48000
+
+// summarizerTruncatedSuffix marks that the serialized input was cut to fit
+// summarizerMaxInputChars, mirroring the built-in summarizer.
+const summarizerTruncatedSuffix = "\n...[input truncated]"
 
 // Summarizer returns a contextmgr.SummarizeFunc that delegates to the
 // session_before_compact hook when an extension declares it, falling back to
@@ -72,6 +85,10 @@ func resultText(r models.ToolExecutionResult) string {
 func (b *Bridge) Summarizer(fallback contextmgr.SummarizeFunc) contextmgr.SummarizeFunc {
 	return func(ctx context.Context, messages []models.AgentMessage) (string, error) {
 		conversation := compaction.SerializeConversation(messages, 2000)
+		if len(conversation) > summarizerMaxInputChars {
+			conversation = conversation[:summarizerMaxInputChars-len(summarizerTruncatedSuffix)] + summarizerTruncatedSuffix
+		}
+		// TODO: tokensBefore is 0 — SummarizeFunc cannot supply it
 		if summary, ok := b.host.RunBeforeCompactHook(ctx, conversation, 0); ok && summary != "" {
 			return summary, nil
 		}
@@ -90,10 +107,11 @@ func (b *Bridge) InputHook(ctx context.Context, text string) (newText string, pr
 }
 
 // SubscribeEvents forwards bus events to subscribed extensions. Returns the
-// unsubscribe func. Events the bus emits synchronously are forwarded
-// synchronously — payloads are serialized with events.MarshalJSON.
+// unsubscribe func. Delivery is asynchronous (SubscribeAsync) so a wedged
+// extension cannot stall bus.Emit for other subscribers mid-agent-loop;
+// payloads are serialized with events.MarshalJSON.
 func (b *Bridge) SubscribeEvents(bus *events.Bus) func() {
-	return bus.Subscribe(func(ctx context.Context, ev events.Event) error {
+	return bus.SubscribeAsync(func(ctx context.Context, ev events.Event) error {
 		eventType := string(ev.EventType())
 		if !b.host.Subscribed(eventType) {
 			return nil
@@ -104,13 +122,25 @@ func (b *Bridge) SubscribeEvents(bus *events.Bus) func() {
 		}
 		b.host.BroadcastEvent(eventType, json.RawMessage(data))
 		return nil
-	})
+	}, events.AsyncOptions{})
 }
 
 // SessionHandler builds the host-side handler for extension->host requests:
 // session/append_entry, session/get_entries, host/log. custom_type must be
-// namespaced "<ext-name>/"; entries are only readable by their owner.
+// namespaced "<ext-name>/", but the namespace is a convention only —
+// validateCustomType merely requires a "/", and any extension can read or
+// write under any prefix. Per-extension enforcement would require threading
+// peer identity into the handler and is deferred.
+//
+// Threading model: conn.readLoop runs each inbound request on its own
+// goroutine, so the returned handler is invoked concurrently across (and
+// within) extensions; session.Session itself has no synchronization. The
+// captured mutex serializes extension-side access. It does NOT serialize
+// against the agent loop's own session appends — extension appends still race
+// those, so Task 9 wiring must only install this handler where that is
+// acceptable (no session-wide locking is added here).
 func SessionHandler(sess *session.Session, logFn func(level, msg string)) runtime.Handler {
+	var mu sync.Mutex
 	return runtime.HandlerFunc{
 		RequestFunc: func(_ context.Context, method string, params json.RawMessage) (any, error) {
 			switch method {
@@ -122,6 +152,8 @@ func SessionHandler(sess *session.Session, logFn func(level, msg string)) runtim
 				if err := validateCustomType(p.CustomType); err != nil {
 					return nil, err
 				}
+				mu.Lock()
+				defer mu.Unlock()
 				if err := sess.AppendCustomEntry(p.CustomType, p.Data); err != nil {
 					return nil, err
 				}
@@ -130,10 +162,14 @@ func SessionHandler(sess *session.Session, logFn func(level, msg string)) runtim
 				var p struct {
 					Prefix string `json:"prefix"`
 				}
-				_ = json.Unmarshal(params, &p)
+				if err := json.Unmarshal(params, &p); err != nil {
+					return nil, err
+				}
 				if err := validateCustomType(p.Prefix); err != nil {
 					return nil, err
 				}
+				mu.Lock()
+				defer mu.Unlock()
 				entries := sess.CustomEntries(p.Prefix)
 				out := proto.GetEntriesResult{Entries: make([]proto.Entry, 0, len(entries))}
 				for _, e := range entries {

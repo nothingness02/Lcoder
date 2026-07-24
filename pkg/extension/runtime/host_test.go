@@ -77,6 +77,23 @@ func TestHostToolCallParamsChain(t *testing.T) {
 	}
 }
 
+func TestHostToolCallAllowWithoutParamsReturnsNil(t *testing.T) {
+	allow := HandlerFunc{RequestFunc: func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
+		return proto.ToolCallResult{Action: "allow"}, nil
+	}}
+	h, _ := newHostWithPeer(t, allow, proto.InitializeResult{Name: "a", Hooks: []string{proto.HookToolCall}})
+	res := h.RunToolCallHooks(context.Background(), "bash", map[string]any{"command": "ls"})
+	if res.Block || res.Params != nil {
+		t.Fatalf("res %+v", res)
+	}
+	// No hooks at all: same contract.
+	h2, _ := newHostWithPeer(t, nil, proto.InitializeResult{Name: "b"})
+	res = h2.RunToolCallHooks(context.Background(), "bash", map[string]any{"command": "ls"})
+	if res.Block || res.Params != nil {
+		t.Fatalf("res %+v", res)
+	}
+}
+
 func TestHostToolCallErrorFailsOpen(t *testing.T) {
 	broken := HandlerFunc{RequestFunc: func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
 		return nil, &proto.RPCError{Code: -32000, Message: "boom"}

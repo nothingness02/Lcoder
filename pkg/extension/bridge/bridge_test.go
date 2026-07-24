@@ -152,6 +152,83 @@ func TestInputHookBlockAndTransform(t *testing.T) {
 	}
 }
 
+func TestBeforeToolCallHookAllowWithoutParams(t *testing.T) {
+	allow := runtime.HandlerFunc{RequestFunc: func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
+		return proto.ToolCallResult{Action: "allow"}, nil
+	}}
+	b, _ := newBridgeWithPeer(t, allow, proto.InitializeResult{Name: "a", Hooks: []string{proto.HookToolCall}})
+	res, err := b.BeforeToolCall()(context.Background(), agent.ToolCallInfo{
+		ToolCall: models.ToolCallContent{Name: "bash"},
+		Args:     map[string]any{"command": "ls"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res != nil {
+		t.Fatalf("unchanged args must yield nil result, got %+v", res)
+	}
+}
+
+func TestAfterToolCallHookUnchangedResult(t *testing.T) {
+	// Hook declared but returns no Result pointer: text flows through unchanged.
+	noop := runtime.HandlerFunc{RequestFunc: func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
+		return proto.ToolResultResult{}, nil
+	}}
+	b, _ := newBridgeWithPeer(t, noop, proto.InitializeResult{Name: "a", Hooks: []string{proto.HookToolResult}})
+	res, err := b.AfterToolCall()(context.Background(), agent.ToolCallResultInfo{
+		ToolCall: models.ToolCallContent{Name: "bash"},
+		Result:   models.NewToolExecutionResultText("orig"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res != nil {
+		t.Fatalf("unchanged result must yield nil, got %+v", res)
+	}
+	// No extension declares tool_result: same contract.
+	b2, _ := newBridgeWithPeer(t, nil, proto.InitializeResult{Name: "b"})
+	res, err = b2.AfterToolCall()(context.Background(), agent.ToolCallResultInfo{
+		ToolCall: models.ToolCallContent{Name: "bash"},
+		Result:   models.NewToolExecutionResultText("orig"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res != nil {
+		t.Fatalf("no hook must yield nil, got %+v", res)
+	}
+}
+
+func TestSummarizerFallsBackOnEmptySummary(t *testing.T) {
+	empty := runtime.HandlerFunc{RequestFunc: func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
+		return proto.BeforeCompactResult{Summary: ""}, nil
+	}}
+	b, _ := newBridgeWithPeer(t, empty, proto.InitializeResult{Name: "a", Hooks: []string{proto.HookBeforeCompact}})
+	fallbackCalled := false
+	s, err := b.Summarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) {
+		fallbackCalled = true
+		return "fallback", nil
+	})(context.Background(), []models.AgentMessage{models.UserMessage("hi")})
+	if err != nil || s != "fallback" || !fallbackCalled {
+		t.Fatalf("s=%q err=%v fallbackCalled=%v", s, err, fallbackCalled)
+	}
+}
+
+func TestEventSubscriptionSkipsUnsubscribed(t *testing.T) {
+	got := make(chan string, 1)
+	listener := runtime.HandlerFunc{NotifyFunc: func(method string, _ json.RawMessage) { got <- method }}
+	b, _ := newBridgeWithPeer(t, listener, proto.InitializeResult{Name: "a", Events: []string{"turn_end"}})
+	bus := events.New()
+	unsub := b.SubscribeEvents(bus)
+	defer unsub()
+	_ = bus.Emit(context.Background(), events.TurnStartEvent{Base: events.Base{Type: events.TurnStart, Turn: 1}})
+	select {
+	case m := <-got:
+		t.Fatalf("unsubscribed event forwarded: %s", m)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestSessionHandlerAppendAndGetEntries(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	sess, err := store.Create("/project")
