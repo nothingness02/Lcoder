@@ -206,6 +206,8 @@ func (info ToolCallInfo) BashCommand() string {
 type BeforeToolCallResult struct {
 	Block  bool
 	Reason string
+	// ModifiedArgs, when non-nil, replaces the parsed args used for execution.
+	ModifiedArgs map[string]any
 }
 
 // AfterToolCallHook runs after a tool finishes and may modify its result.

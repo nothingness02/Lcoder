@@ -233,6 +233,9 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		if beforeResult != nil && beforeResult.Block {
 			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(beforeResult.Reason), true)
 		}
+		if beforeResult != nil && beforeResult.ModifiedArgs != nil {
+			args = beforeResult.ModifiedArgs
+		}
 	}
 
 	result, isError := e.registry.Execute(ctx, call.ID, call.Name, args)
