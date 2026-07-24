@@ -32,7 +32,7 @@ func TestStartProcessAppliesAllEnvKeys(t *testing.T) {
 	}
 	p, err := StartProcess(Manifest{
 		Name:    "envtest",
-		Command: []string{exe, "-test.run", "TestHelperProcess"},
+		Command: []string{exe, "-test.run", "^TestHelperProcess$"},
 		Env:     map[string]string{"GO_WANT_HELPER": "1", "EXT_A": "1", "EXT_B": "2"},
 	}, nil)
 	if err != nil {
@@ -49,4 +49,13 @@ func TestStartProcessAppliesAllEnvKeys(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("helper env missing keys; stderr=%q", p.Stderr())
+}
+
+func TestTailBufferKeepsMostRecent(t *testing.T) {
+	var b tailBuffer
+	_, _ = b.Write([]byte(strings.Repeat("a", stderrTailLimit)))
+	_, _ = b.Write([]byte("TAIL"))
+	if got := b.String(); !strings.HasSuffix(got, "TAIL") || len(got) != stderrTailLimit {
+		t.Fatalf("len=%d suffix=%q", len(got), got[len(got)-4:])
+	}
 }

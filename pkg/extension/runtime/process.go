@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -10,12 +9,15 @@ import (
 	"time"
 )
 
+// stderrTailLimit is the maximum number of stderr bytes retained for
+// diagnostics; only the most recent bytes are kept.
+const stderrTailLimit = 64 * 1024
+
 // Process is a running extension child process with its JSON-RPC connection.
 type Process struct {
 	Conn   *Conn
 	cmd    *exec.Cmd
-	mu     sync.Mutex
-	stderr bytes.Buffer // bounded capture for diagnostics
+	stderr tailBuffer // bounded capture for diagnostics
 }
 
 // StartProcess spawns the extension described by m and returns it with the
@@ -44,17 +46,17 @@ func StartProcess(m Manifest, handler Handler) (*Process, error) {
 		return nil, fmt.Errorf("start extension %s: %w", m.Name, err)
 	}
 	p := &Process{cmd: cmd}
+	// Drain stderr for the life of the process so a verbose child never
+	// blocks on a full pipe; only the tail is retained.
 	go func() {
-		_, _ = io.Copy(&lockedBuffer{mu: &p.mu, buf: &p.stderr}, io.LimitReader(stderr, 64*1024))
+		_, _ = io.Copy(&p.stderr, stderr)
 	}()
 	p.Conn = NewConn(stdout, stdin, handler)
 	return p, nil
 }
 
-// Stderr returns the captured stderr tail for diagnostics.
+// Stderr returns the most recent stderr bytes (up to 64KB) for diagnostics.
 func (p *Process) Stderr() string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	return p.stderr.String()
 }
 
@@ -75,13 +77,24 @@ func (p *Process) Close() error {
 	return nil
 }
 
-type lockedBuffer struct {
-	mu  *sync.Mutex
-	buf *bytes.Buffer
+// tailBuffer is an io.Writer that keeps only the most recent N bytes.
+type tailBuffer struct {
+	mu  sync.Mutex
+	buf []byte
 }
 
-func (b *lockedBuffer) Write(p []byte) (int, error) {
+func (b *tailBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.Write(p)
+	b.buf = append(b.buf, p...)
+	if len(b.buf) > stderrTailLimit {
+		b.buf = append([]byte(nil), b.buf[len(b.buf)-stderrTailLimit:]...)
+	}
+	return len(p), nil
+}
+
+func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.buf)
 }
