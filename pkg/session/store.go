@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,6 +47,11 @@ func NewStore(dir string) *Store {
 // in-memory branching: each message records its parent message id, and Fork
 // creates a new branch from an existing message. Old sessions without parent
 // ids are treated as linear history.
+//
+// A Session is safe for concurrent use: public methods lock mu, so extension
+// handlers running on connection goroutines cannot race the agent loop's own
+// appends. Unexported helpers (stage, activeChain, saveLocked, ...) assume the
+// caller already holds mu and must stay lock-free to avoid self-deadlock.
 type Session struct {
 	ID        string
 	Path      string
@@ -55,6 +61,7 @@ type Session struct {
 	ParentID  *string `json:"parent_id,omitempty"`
 	Branches  []string
 
+	mu           sync.Mutex
 	activeBranch string
 	branchHeads  map[string]string
 }
@@ -124,8 +131,9 @@ func (s *Store) LoadByID(cwd, id string) (*Session, error) {
 	return s.Load(s.sessionPath(cwd, id))
 }
 
-// List returns metadata for sessions in a project.
-func (s *Store) List(cwd string) ([]Session, error) {
+// List returns metadata for sessions in a project. Sessions are returned as
+// pointers because Session carries a mutex and must not be copied.
+func (s *Store) List(cwd string) ([]*Session, error) {
 	dir := filepath.Join(s.Dir, hashCWD(cwd))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -135,7 +143,7 @@ func (s *Store) List(cwd string) ([]Session, error) {
 		return nil, err
 	}
 
-	var sessions []Session
+	var sessions []*Session
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
 			continue
@@ -145,7 +153,7 @@ func (s *Store) List(cwd string) ([]Session, error) {
 		if err != nil {
 			continue
 		}
-		sessions = append(sessions, *sess)
+		sessions = append(sessions, sess)
 	}
 
 	sort.Slice(sessions, func(i, j int) bool {
@@ -163,7 +171,7 @@ func (s *Store) MostRecent(cwd string) (*Session, error) {
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("no sessions found")
 	}
-	return &sessions[0], nil
+	return sessions[0], nil
 }
 
 // AppendMissing appends every message from msgs whose ID is not already present
@@ -178,12 +186,14 @@ func (s *Store) MostRecent(cwd string) (*Session, error) {
 // EffectiveMessages. Branches without an entry (legacy sessions, degraded
 // folds) keep the old behavior and persist such summaries as normal messages.
 func (s *Session) AppendMissing(msgs []models.AgentMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	have := make(map[string]bool, len(s.Messages))
 	for _, m := range s.Messages {
 		have[m.ID] = true
 	}
 	hasEntry := false
-	for _, m := range s.ActiveMessages() {
+	for _, m := range s.activeMessagesLocked() {
 		if IsCompactionEntry(m) {
 			hasEntry = true
 			break
@@ -198,7 +208,7 @@ func (s *Session) AppendMissing(msgs []models.AgentMessage) error {
 				continue
 			}
 		}
-		if err := s.Append(m); err != nil {
+		if err := s.appendLocked(m); err != nil {
 			return err
 		}
 		have[m.ID] = true
@@ -210,10 +220,17 @@ func (s *Session) AppendMissing(msgs []models.AgentMessage) error {
 // The new message's ParentID is set to the current branch head when empty,
 // establishing the parent_id tree used by Fork and ActiveMessages.
 func (s *Session) Append(msg models.AgentMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.appendLocked(msg)
+}
+
+// appendLocked is Append for callers already holding s.mu.
+func (s *Session) appendLocked(msg models.AgentMessage) error {
 	if err := s.stage(msg); err != nil {
 		return err
 	}
-	return s.Save()
+	return s.saveLocked()
 }
 
 // stage applies the common metadata/parent wiring and appends the message to
@@ -264,6 +281,8 @@ func IsCompactionEntry(m models.AgentMessage) bool {
 // uses it to rebuild the compacted view. Parent is the current branch head,
 // so the branch chain stays continuous through the entry.
 func (s *Session) AppendCompactionEntry(summary, firstKeptEntryID string, tokensBefore int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	msg := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: summary})
 	msg.Metadata[MetaType] = MetaTypeCompaction
 	msg.Metadata[MetaFirstKeptEntryID] = firstKeptEntryID
@@ -306,6 +325,8 @@ func IsCustomEntry(m models.AgentMessage) bool {
 // rejected without poisoning the in-memory session, and the in-memory bytes
 // match what a later reload would produce.
 func (s *Session) AppendCustomEntry(customType string, data json.RawMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var buf bytes.Buffer
 	if err := json.Compact(&buf, data); err != nil {
 		return fmt.Errorf("session: custom entry %q: invalid JSON data: %w", customType, err)
@@ -330,6 +351,8 @@ func (s *Session) AppendCustomEntry(customType string, data json.RawMessage) err
 // metadata decodes as generic any, so integral values must stay within the
 // float64-safe range (< 2^53) or they lose precision.
 func (s *Session) CustomEntries(prefix string) []CustomEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var out []CustomEntry
 	for _, m := range s.activeChain() {
 		if !IsCustomEntry(m) {
@@ -380,6 +403,8 @@ func (s *Session) appendLine(msg models.AgentMessage) error {
 // An empty msgID forks at the root (before the first message), mirroring pi's
 // resetLeaf: the next appended message starts the branch with no parent.
 func (s *Session) Fork(msgID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if msgID != "" {
 		found := false
 		for _, m := range s.Messages {
@@ -403,6 +428,13 @@ func (s *Session) Fork(msgID string) (string, error) {
 // Save writes all messages to the session file using an atomic temp-file +
 // rename so a crash mid-write cannot leave a truncated/corrupt JSONL.
 func (s *Session) Save() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked()
+}
+
+// saveLocked is Save for callers already holding s.mu.
+func (s *Session) saveLocked() error {
 	if err := fsutil.EnsurePrivateDir(filepath.Dir(s.Path)); err != nil {
 		return err
 	}
@@ -439,9 +471,11 @@ func (s *Session) Save() error {
 // Deprecated: compaction persistence now uses AppendCompactionEntry, which is
 // append-only and never discards raw messages. Replace is kept for tests.
 func (s *Session) Replace(msgs []models.AgentMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Messages = append([]models.AgentMessage(nil), msgs...)
 	s.initBranchState()
-	return s.Save()
+	return s.saveLocked()
 }
 
 // ActiveMessages returns the messages on the current branch, reconstructed by
@@ -450,6 +484,13 @@ func (s *Session) Replace(msgs []models.AgentMessage) error {
 // enter model context. A branch forked at the root yields no messages until
 // one is appended. Legacy files are returned as a single linear conversation.
 func (s *Session) ActiveMessages() []models.AgentMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activeMessagesLocked()
+}
+
+// activeMessagesLocked is ActiveMessages for callers already holding s.mu.
+func (s *Session) activeMessagesLocked() []models.AgentMessage {
 	chain := s.activeChain()
 	out := chain[:0] // in-place filter; chain is already a fresh slice
 	for _, m := range chain {
@@ -518,7 +559,9 @@ func (s *Session) activeChain() []models.AgentMessage {
 // to ActiveMessages. Raw messages always remain on disk; this is only the
 // view fed to the runtime context.
 func (s *Session) EffectiveMessages() []models.AgentMessage {
-	active := s.ActiveMessages()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	active := s.activeMessagesLocked()
 	entryIdx := -1
 	for i := len(active) - 1; i >= 0; i-- {
 		if IsCompactionEntry(active[i]) {
@@ -565,6 +608,8 @@ func (s *Session) EffectiveMessages() []models.AgentMessage {
 // SwitchBranch changes the active branch. It returns an error if the branch
 // does not exist or has no recorded head.
 func (s *Session) SwitchBranch(branchID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if branchID == mainBranch {
 		s.activeBranch = mainBranch
 		return nil
@@ -588,6 +633,8 @@ func (s *Session) SwitchBranch(branchID string) error {
 
 // ActiveBranch returns the id of the currently selected branch.
 func (s *Session) ActiveBranch() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.activeBranch
 }
 

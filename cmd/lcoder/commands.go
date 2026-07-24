@@ -11,13 +11,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lcoder/lcoder/pkg/agent"
-	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/extension"
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
-	"github.com/lcoder/lcoder/pkg/tui"
 )
 
 func modelsCmd() *cobra.Command {
@@ -206,35 +204,13 @@ func tuiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tui",
 		Short: "Start interactive TUI",
+		// No positional args: they would be read as a one-shot prompt by
+		// runRoot. promptText is also forced empty so this command always
+		// lands in runTUI.
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			cfg, err := loadConfig()
-			if err != nil {
-				return fmt.Errorf("config: %w", err)
-			}
-			setup, err := prepareAgent(cfg, cwd)
-			if err != nil {
-				return err
-			}
-			defer setup.cleanup()
-			httpTools := make([]tui.HTTPToolItem, 0, len(cfg.HTTPTools))
-			for _, t := range cfg.HTTPTools {
-				httpTools = append(httpTools, tui.HTTPToolItem{
-					Name:        t.Name,
-					Endpoint:    t.Endpoint,
-					Description: t.Description,
-				})
-			}
-			modelRef := cfg.Provider + "/" + cfg.Model
-			var caps []string
-			if meta, ok := cfg.ModelMeta(); ok {
-				caps = meta.Capabilities
-			}
-			needsSetup := !config.ProviderHasKey(cfg, cfg.Provider)
-			return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, cwd, modelRef, cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, cfg, needsSetup, setup.cfg.loadedSkillCatalog...)
+			promptText = ""
+			return runRoot(cmd, args)
 		},
 	}
 }

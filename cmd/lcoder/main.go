@@ -58,15 +58,18 @@ func main() {
 		RunE:  runRoot,
 	}
 
-	root.Flags().StringVar(&cfgFile, "config", "", "Path to config file")
-	root.Flags().StringVar(&modelID, "model", "", "Model ID")
-	root.Flags().StringVar(&provider, "provider", "", "Model provider")
-	root.Flags().StringVar(&sessionID, "session", "", "Session ID to resume")
-	root.Flags().BoolVarP(&cont, "continue", "c", false, "Continue most recent session")
-	root.Flags().StringVar(&modeName, "mode", "", "Agent mode: plan, code, explore, review, test")
+	// Persistent flags apply to the root command and subcommands that run the
+	// agent (e.g. "lcoder tui"); --prompt and --json stay root-local because
+	// they select the one-shot/JSON run modes.
+	root.PersistentFlags().StringVar(&cfgFile, "config", "", "Path to config file")
+	root.PersistentFlags().StringVar(&modelID, "model", "", "Model ID")
+	root.PersistentFlags().StringVar(&provider, "provider", "", "Model provider")
+	root.PersistentFlags().StringVar(&sessionID, "session", "", "Session ID to resume")
+	root.PersistentFlags().BoolVarP(&cont, "continue", "c", false, "Continue most recent session")
+	root.PersistentFlags().StringVar(&modeName, "mode", "", "Agent mode: plan, code, explore, review, test")
 	root.Flags().StringVarP(&promptText, "prompt", "p", "", "Single prompt to run and exit")
 	root.Flags().BoolVar(&jsonMode, "json", false, "Output events as JSONL instead of TUI/text")
-	root.Flags().BoolVar(&trustProjectExtensions, "trust-project-extensions", false, "Load project-level extensions without prompting")
+	root.PersistentFlags().BoolVar(&trustProjectExtensions, "trust-project-extensions", false, "Load project-level extensions without prompting")
 	root.PersistentFlags().BoolVar(&unsafeMode, "unsafe", false, "Bypass permission engine (ultra-destructive commands still require approval)")
 
 	root.AddCommand(modelsCmd())
@@ -577,7 +580,9 @@ func runJSONMode(ctx context.Context, setup *agentSetup, prompt string) error {
 	setup.ag.SetUserConfirm(cliConfirm{})
 	var msg models.AgentMessage
 	if prompt != "" {
-		if setup.extBridge != nil {
+		// Slash-prefixed input (extension/builtin commands, manual skill
+		// triggers) bypasses the input hook, matching the TUI.
+		if setup.extBridge != nil && !strings.HasPrefix(prompt, "/") {
 			newText, proceed, reason := setup.extBridge.InputHook(ctx, prompt)
 			if !proceed {
 				return fmt.Errorf("input blocked: %s", reason)
@@ -644,9 +649,9 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 	unsub := setup.bus.Subscribe(persistHandler)
 	defer unsub()
 
-	// A manual "/skill:name args" trigger folds the skill body into the user
-	// message; the model can also activate skills on its own via use_skill.
-	if setup.extBridge != nil {
+	// Slash-prefixed input (extension/builtin commands, manual skill triggers)
+	// bypasses the input hook, matching the TUI.
+	if setup.extBridge != nil && !strings.HasPrefix(prompt, "/") {
 		newText, proceed, reason := setup.extBridge.InputHook(ctx, prompt)
 		if !proceed {
 			return fmt.Errorf("input blocked: %s", reason)
@@ -654,6 +659,8 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 		prompt = newText
 	}
 	msg := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: prompt})
+	// A manual "/skill:name args" trigger folds the skill body into the user
+	// message; the model can also activate skills on its own via use_skill.
 	if name, rest, ok := skills.ParseManualTrigger(prompt); ok {
 		meta, found := skills.FindByName(setup.cfg.loadedSkillCatalog, name)
 		if !found {
@@ -712,9 +719,8 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 	}
 	if setup.extHost != nil {
 		for _, c := range setup.extHost.Commands() {
-			decl := c
-			if err := tui.RegisterExtensionCommand(decl.Decl.Name, decl.Decl.Description, decl.Decl.Usage, func(args string) string {
-				out, err := setup.extHost.InvokeCommand(context.Background(), decl.Decl.Name, args)
+			if err := tui.RegisterExtensionCommand(c.Decl.Name, c.Decl.Description, c.Decl.Usage, func(args string) string {
+				out, err := setup.extHost.InvokeCommand(context.Background(), c.Decl.Name, args)
 				if err != nil {
 					return "error: " + err.Error()
 				}

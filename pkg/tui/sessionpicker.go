@@ -11,7 +11,7 @@ import (
 
 // SessionItem is a list item for the session picker.
 type SessionItem struct {
-	session session.Session
+	session *session.Session
 }
 
 func (s SessionItem) FilterValue() string { return s.session.ID }
@@ -23,7 +23,7 @@ func (s SessionItem) Description() string {
 
 // SessionStore abstracts session operations needed by the TUI.
 type SessionStore interface {
-	List(cwd string) ([]session.Session, error)
+	List(cwd string) ([]*session.Session, error)
 	LoadByID(cwd, id string) (*session.Session, error)
 	Create(cwd string) (*session.Session, error)
 }

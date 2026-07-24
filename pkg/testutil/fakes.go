@@ -84,7 +84,7 @@ func (f *FakeSession) SessionID() string { return f.ID }
 
 // FakeSessionStore is a minimal implementation of the TUI SessionStore interface.
 type FakeSessionStore struct {
-	Sessions []session.Session
+	Sessions []*session.Session
 	Session  *session.Session
 	Err      error
 	// Dir, when set, causes Create to delegate to a real session store in that
@@ -93,7 +93,7 @@ type FakeSessionStore struct {
 	Created []*session.Session
 }
 
-func (f *FakeSessionStore) List(cwd string) ([]session.Session, error) {
+func (f *FakeSessionStore) List(cwd string) ([]*session.Session, error) {
 	return f.Sessions, f.Err
 }
 func (f *FakeSessionStore) LoadByID(cwd, id string) (*session.Session, error) {

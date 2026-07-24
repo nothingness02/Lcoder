@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/compaction"
@@ -134,13 +133,10 @@ func (b *Bridge) SubscribeEvents(bus *events.Bus) func() {
 //
 // Threading model: conn.readLoop runs each inbound request on its own
 // goroutine, so the returned handler is invoked concurrently across (and
-// within) extensions; session.Session itself has no synchronization. The
-// captured mutex serializes extension-side access. It does NOT serialize
-// against the agent loop's own session appends — extension appends still race
-// those, so Task 9 wiring must only install this handler where that is
-// acceptable (no session-wide locking is added here).
+// within) extensions, and the agent loop appends to the session on its own
+// goroutine. session.Session serializes all of this internally via its mutex,
+// so the handler needs no synchronization of its own.
 func SessionHandler(sess *session.Session, logFn func(level, msg string)) runtime.Handler {
-	var mu sync.Mutex
 	return runtime.HandlerFunc{
 		RequestFunc: func(_ context.Context, method string, params json.RawMessage) (any, error) {
 			switch method {
@@ -152,8 +148,6 @@ func SessionHandler(sess *session.Session, logFn func(level, msg string)) runtim
 				if err := validateCustomType(p.CustomType); err != nil {
 					return nil, err
 				}
-				mu.Lock()
-				defer mu.Unlock()
 				if err := sess.AppendCustomEntry(p.CustomType, p.Data); err != nil {
 					return nil, err
 				}
@@ -168,8 +162,6 @@ func SessionHandler(sess *session.Session, logFn func(level, msg string)) runtim
 				if err := validateCustomType(p.Prefix); err != nil {
 					return nil, err
 				}
-				mu.Lock()
-				defer mu.Unlock()
 				entries := sess.CustomEntries(p.Prefix)
 				out := proto.GetEntriesResult{Entries: make([]proto.Entry, 0, len(entries))}
 				for _, e := range entries {
