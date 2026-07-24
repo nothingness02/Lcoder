@@ -24,7 +24,7 @@
 
 Lcoder 的入口在 `cmd/lcoder/main.go`。启动流程可以概括为两条主线：
 
-1. **装配线**（`prepareAgent`）：把配置、LLM 客户端、沙箱、工具注册表、MCP 注册表、会话存储、可观测性、模式管理器、上下文管理器装配成一个 `agent.Agent`。
+1. **装配线**（`prepareAgent`）：把配置、LLM 客户端、工具注册表、MCP 注册表、会话存储、可观测性、模式管理器、上下文管理器装配成一个 `agent.Agent`。
 2. **运行分发**（`runRoot`）：根据用户输入选择单次对话（one-shot）、JSON 事件流或 TUI 模式，并在 SIGINT/SIGTERM 时写入 crash checkpoint。
 
 ### 1.1 核心组件关系
@@ -34,7 +34,6 @@ cmd/lcoder/main.go
  └─ prepareAgent
      ├─ config.Load()              加载 ~/.lcoder/config.yaml
      ├─ llm.NewClient(engine)      创建 LLM 客户端
-     ├─ sandbox.New(...)           创建沙箱
      ├─ tools.NewRegistry(...)     创建工具注册表
      ├─ registry.RegisterBuiltinFactories 注册内置工具
      ├─ registry.Register + LoadExtensions 注册 HTTP/Go 扩展工具
@@ -288,20 +287,6 @@ func newMyTool(cwd string) tools.Executable {
     return &myTool{cwd: cwd}
 }
 ```
-
-### 4.5 需要沙箱的工具
-
-如果工具需要执行外部命令，可以实现 `tools.SandboxAware`：
-
-```go
-type SandboxAware interface {
-    UseSandbox(sb sandbox.Sandbox)
-}
-```
-
-注册表检测到该接口后会注入当前沙箱实例。
-
----
 
 ## 5. 如何编写 before-tool-call Hook
 

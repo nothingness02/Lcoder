@@ -28,22 +28,6 @@ func TestValidate_MissingModel(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidSandboxBackend(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.Sandbox.Backend = "remote"
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "remote") {
-		t.Fatalf("expected sandbox backend error, got %v", err)
-	}
-}
-
-func TestValidate_InvalidNetworkDefault(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.Sandbox.Network.Default = "blocked"
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "network.default") {
-		t.Fatalf("expected network default error, got %v", err)
-	}
-}
-
 func TestValidate_InvalidCacheHintPolicy(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Context.CacheHintPolicy = "always"

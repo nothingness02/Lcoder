@@ -60,21 +60,38 @@ func TestHTTPExecutableError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !isErrorResult(result) {
+	if !result.IsError {
 		t.Fatal("expected error result")
 	}
 	if result.Content[0].(models.TextContent).Text != "service missing" {
 		t.Fatalf("unexpected error text: %v", result.Content)
 	}
+	// The registry must propagate the flag to the model-facing tool_result.
+	reg := NewRegistry(".")
+	reg.Register("deploy", NewHTTPExecutable(HTTPConfig{Name: "deploy", Endpoint: ts.URL}))
+	if _, isError := reg.Execute(context.Background(), "call_2", "deploy", map[string]any{}); !isError {
+		t.Fatal("registry should propagate result.IsError")
+	}
 }
 
-func isErrorResult(result models.ToolExecutionResult) bool {
-	if len(result.Content) == 0 {
-		return false
+func TestHTTPExecutableTruncatesOversizedResponse(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", maxHTTPResponseBytes*2)))
+	}))
+	defer ts.Close()
+
+	exec := NewHTTPExecutable(HTTPConfig{Name: "big", Endpoint: ts.URL})
+	result, err := exec.Execute(context.Background(), "call_1", nil)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
 	}
-	if tr, ok := result.Content[0].(models.ToolResultContent); ok {
-		return tr.IsError
+	if !strings.Contains(result.Text(), "[truncated: response body exceeded") {
+		t.Fatal("expected truncation notice")
 	}
-	// HTTP tool returns plain text content for errors.
-	return strings.HasPrefix(result.Content[0].(models.TextContent).Text, "service missing")
+	if result.Details["truncated"] != true {
+		t.Fatalf("truncated detail = %v, want true", result.Details["truncated"])
+	}
+	if result.IsError {
+		t.Fatal("truncated 2xx response should not be flagged as an error")
+	}
 }

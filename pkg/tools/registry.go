@@ -2,12 +2,11 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/sandbox"
 )
 
 // Registry holds all available tools.
@@ -15,7 +14,6 @@ type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]Executable
 	cwd   string
-	sb    sandbox.Sandbox
 }
 
 // NewRegistry creates an empty registry bound to a working directory.
@@ -26,24 +24,11 @@ func NewRegistry(cwd string) *Registry {
 	}
 }
 
-// SetSandbox sets the sandbox injected into SandboxAware tools at registration.
-// Call before registering tools so subsequent Register calls inject it.
-func (r *Registry) SetSandbox(sb sandbox.Sandbox) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.sb = sb
-}
-
 // Register adds a tool to the registry.
 func (r *Registry) Register(name string, exec Executable) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tools[name] = exec
-	if r.sb != nil {
-		if sa, ok := exec.(SandboxAware); ok {
-			sa.UseSandbox(r.sb)
-		}
-	}
 }
 
 // RegisterBuiltin adds a built-in tool factory.
@@ -60,7 +45,8 @@ func (r *Registry) Get(name string) (Executable, bool) {
 	return exec, ok
 }
 
-// Definitions returns tool definitions for the LLM.
+// Definitions returns tool definitions for the LLM, sorted by name so the
+// tool list — and with it the prompt cache prefix — stays stable across turns.
 func (r *Registry) Definitions() []models.ToolDefinition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -68,6 +54,7 @@ func (r *Registry) Definitions() []models.ToolDefinition {
 	for _, exec := range r.tools {
 		defs = append(defs, exec.Definition())
 	}
+	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
 	return defs
 }
 
@@ -79,22 +66,30 @@ func (r *Registry) Has(name string) bool {
 	return ok
 }
 
-// Execute runs a tool by name. It returns the tool result and a flag indicating
-// whether the result represents a system error. Business-level failures (e.g.
-// a non-zero shell exit) should be returned as a normal ToolExecutionResult
-// with nil error; they will not be marked as system errors.
-func (r *Registry) Execute(ctx context.Context, callID string, name string, args map[string]any) (models.ToolExecutionResult, bool) {
+// Execute runs a tool by name. The second return value reports whether the
+// result is an error the model should see: unknown tool names, tool-returned
+// Go errors, panics, and results the tool itself flagged via IsError all
+// count. Business outcomes the model can act on (e.g. a non-zero shell exit)
+// should be returned as (result, nil) with IsError set on the result.
+func (r *Registry) Execute(ctx context.Context, callID string, name string, args map[string]any) (result models.ToolExecutionResult, isError bool) {
 	exec, ok := r.Get(name)
 	if !ok {
 		return models.NewToolExecutionResultError(fmt.Sprintf("Unknown tool: %s", name)), true
 	}
-	result, err := exec.Execute(ctx, callID, args)
-	if err != nil {
-		if errors.Is(err, ErrToolExecution) {
-			// Tool explicitly marks this as a business outcome, not a system error.
-			return models.NewToolExecutionResultError(err.Error()), false
+	// A panicking tool must not crash the agent loop; degrade it to an error
+	// tool_result so the model can try a different approach.
+	defer func() {
+		if rec := recover(); rec != nil {
+			result = models.NewToolExecutionResultError(fmt.Sprintf("tool %q panicked: %v", name, rec))
+			isError = true
 		}
+	}()
+	res, err := exec.Execute(ctx, callID, args)
+	if err != nil {
 		return models.NewToolExecutionResultError(err.Error()), true
 	}
-	return result, false
+	if res.IsError {
+		return res, true
+	}
+	return res, false
 }

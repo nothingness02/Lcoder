@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lcoder/lcoder/pkg/sandbox"
 )
 
 func TestWrite_BackupAndOverwrite(t *testing.T) {
@@ -17,7 +16,6 @@ func TestWrite_BackupAndOverwrite(t *testing.T) {
 	}
 
 	write := NewWrite(dir).(*Write)
-	write.UseSandbox(sandbox.NewFakeSandbox())
 
 	res, err := write.Execute(context.Background(), "call_1", map[string]any{
 		"path":    "config.yaml",
@@ -53,7 +51,6 @@ func TestWrite_FailureKeepsOriginal(t *testing.T) {
 	}
 
 	write := NewWrite(dir).(*Write)
-	write.UseSandbox(sandbox.NewFakeSandbox())
 
 	_, err := write.Execute(context.Background(), "call_1", map[string]any{
 		"path":    "readonly/config.yaml",

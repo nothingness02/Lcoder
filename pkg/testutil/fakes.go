@@ -8,7 +8,6 @@ import (
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/sandbox"
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/task"
 )
@@ -119,10 +118,3 @@ func (f *FakeSessionStore) Create(cwd string) (*session.Session, error) {
 	f.Created = append(f.Created, s)
 	return s, nil
 }
-
-// FakeSandbox re-exports the sandbox package fake for consumers that want a
-// single testutil import.
-type FakeSandbox = sandbox.FakeSandbox
-
-// NewFakeSandbox re-exports sandbox.NewFakeSandbox.
-var NewFakeSandbox = sandbox.NewFakeSandbox

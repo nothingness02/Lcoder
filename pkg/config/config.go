@@ -40,36 +40,6 @@ type PermissionConfig struct {
 	UnsafeMode bool                         `yaml:"unsafe_mode"`
 }
 
-// SandboxConfig configures the sandbox backend wiring tools at startup.
-type SandboxConfig struct {
-	Backend      string                  `yaml:"backend"` // "" -> passthrough
-	Runtime      string                  `yaml:"runtime"` // container runtime: docker, podman
-	Image        string                  `yaml:"image"`   // container image
-	EnvAllowlist []string                `yaml:"env_allowlist"`
-	Network      SandboxNetworkConfig    `yaml:"network"`
-	Filesystem   SandboxFilesystemConfig `yaml:"filesystem"`
-	Limits       SandboxLimitsConfig     `yaml:"limits"`
-}
-
-// SandboxNetworkConfig is the yaml form of the network allowlist.
-type SandboxNetworkConfig struct {
-	Default string   `yaml:"default"` // "deny" | "allow"
-	Allow   []string `yaml:"allow"`
-}
-
-// SandboxFilesystemConfig lists allowed roots (relative to project root).
-type SandboxFilesystemConfig struct {
-	Readable []string `yaml:"readable"`
-	Writable []string `yaml:"writable"`
-}
-
-// SandboxLimitsConfig is the yaml form of resource limits.
-type SandboxLimitsConfig struct {
-	MaxMemoryMB    int `yaml:"max_memory_mb"`
-	MaxCPUSeconds  int `yaml:"max_cpu_seconds"`
-	MaxOutputBytes int `yaml:"max_output_bytes"`
-}
-
 // TUIConfig holds TUI-specific settings.
 type TUIConfig struct {
 	Theme string `yaml:"theme"`
@@ -139,7 +109,6 @@ type Config struct {
 	Extensions     []ExtensionConfig       `yaml:"extensions"`
 	Packages       []PackageConfig         `yaml:"packages"`
 	Providers      map[string]ProviderConn `yaml:"providers"`
-	Sandbox        SandboxConfig           `yaml:"sandbox"`
 	Memory         MemoryConfig            `yaml:"memory"`
 	CodeIndex      CodeIndexConfig         `yaml:"code_index"`
 	Subagent       SubagentConfig          `yaml:"subagent"`

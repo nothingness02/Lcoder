@@ -264,7 +264,7 @@ go test ./pkg/codeindex/...
 
 ```
 cmd/lcoder/main.go
- └─ prepareAgent: 配置 → LLM 客户端 → 沙箱 → 工具注册表 → MCP 注册表
+ └─ prepareAgent: 配置 → LLM 客户端 → 工具注册表 → MCP 注册表
                  → 会话存储 → 可观测性 → 模式管理器 → 上下文管理器 → Agent
  └─ runRoot: 单次 / JSON / TUI 模式分发，SIGINT/SIGTERM 时写 ReasonCrash checkpoint
 

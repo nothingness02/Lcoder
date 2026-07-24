@@ -1,72 +1,44 @@
 package builtin
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/lcoder/lcoder/pkg/sandbox"
 )
 
-// denyFS is a FilesystemPolicy that rejects every path.
-type denyFS struct{}
-
-func (denyFS) Check(path string, op sandbox.FSOp) error {
-	return fmt.Errorf("denied: %s", path)
-}
-func (denyFS) SubprocessMounts() []sandbox.Mount { return nil }
-
-func denyingSandbox() *sandbox.FakeSandbox {
-	f := sandbox.NewFakeSandbox()
-	f.FSPolicy = denyFS{}
-	return f
-}
-
-func TestResolveAndCheckAllowed(t *testing.T) {
-	got, err := resolveAndCheck("/proj", sandbox.NewFakeSandbox(), "x.txt", sandbox.FSRead)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestResolveInCwdRelative(t *testing.T) {
+	got := resolveInCwd("/proj", "x.txt")
 	want := filepath.Clean("/proj/x.txt")
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
-func TestResolveAndCheckDenied(t *testing.T) {
-	_, err := resolveAndCheck("/proj", denyingSandbox(), "x.txt", sandbox.FSWrite)
-	if err == nil {
-		t.Fatal("expected denial error")
-	}
-}
-
-func TestResolveAndCheckNilSandbox(t *testing.T) {
+func TestResolveInCwdAbsolute(t *testing.T) {
 	abs := filepath.Join(string(filepath.Separator), "abs", "x.txt")
 	if vol := filepath.VolumeName("C:\\"); vol != "" {
 		abs = "C:" + abs // ensure absolute on Windows
 	}
-	got, err := resolveAndCheck("/proj", nil, abs, sandbox.FSRead)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	got := resolveInCwd("/proj", abs)
 	if got != filepath.Clean(abs) {
 		t.Fatalf("got %q", got)
 	}
 }
 
-func TestReadDeniedBySandbox(t *testing.T) {
-	r := NewRead("/project").(*Read)
-	r.UseSandbox(denyingSandbox())
-	if _, err := r.Execute(context.Background(), "c", map[string]any{"path": "secret.txt"}); err == nil {
-		t.Fatal("expected denial error from read")
+func TestWalkErrorLogNotice(t *testing.T) {
+	var w walkErrorLog
+	if got := w.notice(); got != "" {
+		t.Fatalf("empty log should produce no notice, got %q", got)
 	}
-}
-
-func TestWriteDeniedBySandbox(t *testing.T) {
-	w := NewWrite("/project").(*Write)
-	w.UseSandbox(denyingSandbox())
-	if _, err := w.Execute(context.Background(), "c", map[string]any{"path": "out.txt", "content": "x"}); err == nil {
-		t.Fatal("expected denial error from write")
+	for i := 0; i < 5; i++ {
+		w.record(fmt.Sprintf("p%d", i), fmt.Errorf("err %d", i))
+	}
+	got := w.notice()
+	if !strings.Contains(got, "5 path(s) unreadable") {
+		t.Fatalf("notice should carry the exact count, got %q", got)
+	}
+	if strings.Contains(got, "p3") || strings.Contains(got, "p4") {
+		t.Fatalf("examples should be capped at 3, got %q", got)
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lcoder/lcoder/pkg/sandbox"
 )
 
 func TestEdit_DryRunFailureLeavesFileUnchanged(t *testing.T) {
@@ -18,7 +17,6 @@ func TestEdit_DryRunFailureLeavesFileUnchanged(t *testing.T) {
 	}
 
 	edit := NewEdit(dir).(*Edit)
-	edit.UseSandbox(sandbox.NewFakeSandbox())
 
 	_, err := edit.Execute(context.Background(), "call_1", map[string]any{
 		"path": "main.go",
@@ -48,7 +46,6 @@ func TestEdit_CommitSuccess(t *testing.T) {
 	}
 
 	edit := NewEdit(dir).(*Edit)
-	edit.UseSandbox(sandbox.NewFakeSandbox())
 
 	res, err := edit.Execute(context.Background(), "call_1", map[string]any{
 		"path": "main.go",

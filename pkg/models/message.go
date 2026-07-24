@@ -271,6 +271,10 @@ type ToolExecutionResult struct {
 	Content   []ContentPart  `json:"content"`
 	Details   map[string]any `json:"details,omitempty"`
 	Terminate bool           `json:"terminate"`
+	// IsError marks the result as a failure the model should react to (e.g. a
+	// non-zero shell exit). The registry propagates it to the tool_result's
+	// is_error flag even when the tool returns a nil Go error.
+	IsError bool `json:"is_error,omitempty"`
 }
 
 // Text returns the concatenated text of all text content parts.
@@ -295,6 +299,7 @@ func NewToolExecutionResultText(text string) ToolExecutionResult {
 func NewToolExecutionResultError(text string) ToolExecutionResult {
 	return ToolExecutionResult{
 		Content: []ContentPart{TextContent{Text: text}},
+		IsError: true,
 	}
 }
 

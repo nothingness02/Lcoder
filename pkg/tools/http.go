@@ -10,7 +10,6 @@ import (
 	"os"
 
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/sandbox"
 )
 
 // HTTPConfig describes an external HTTP tool.
@@ -34,13 +33,6 @@ func NewHTTPExecutable(cfg HTTPConfig) *HTTPExecutable {
 	return &HTTPExecutable{cfg: cfg, client: &http.Client{}}
 }
 
-// UseSandbox routes the tool's HTTP client through the sandbox network policy.
-func (h *HTTPExecutable) UseSandbox(sb sandbox.Sandbox) {
-	h.client = &http.Client{
-		Transport: &http.Transport{DialContext: sb.Network().DialContext},
-	}
-}
-
 // Definition returns the tool schema exposed to the LLM.
 func (h *HTTPExecutable) Definition() models.ToolDefinition {
 	mode := h.cfg.ExecutionMode
@@ -54,6 +46,11 @@ func (h *HTTPExecutable) Definition() models.ToolDefinition {
 		ExecutionMode: mode,
 	}
 }
+
+// maxHTTPResponseBytes caps how much of an endpoint's response body is read
+// into the conversation; oversized bodies are truncated with a notice instead
+// of being parsed (a truncated JSON payload is not decodable anyway).
+const maxHTTPResponseBytes = 32 * 1024
 
 // Execute sends a tool call to the configured HTTP endpoint.
 func (h *HTTPExecutable) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
@@ -87,9 +84,19 @@ func (h *HTTPExecutable) Execute(ctx context.Context, callID string, args map[st
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxHTTPResponseBytes+1))
 	if err != nil {
 		return models.ToolExecutionResult{}, err
+	}
+	if len(respBody) > maxHTTPResponseBytes {
+		result := models.ToolExecutionResult{
+			Content: []models.ContentPart{models.TextContent{
+				Text: fmt.Sprintf("%s\n\n[truncated: response body exceeded %d bytes]", respBody[:maxHTTPResponseBytes], maxHTTPResponseBytes),
+			}},
+			Details: map[string]any{"status_code": resp.StatusCode, "truncated": true},
+			IsError: resp.StatusCode >= 400,
+		}
+		return result, nil
 	}
 
 	if resp.StatusCode >= 400 {

@@ -8,18 +8,13 @@ import (
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/sandbox"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
 // Find searches for files by name pattern.
 type Find struct {
 	cwd string
-	sb  sandbox.Sandbox
 }
-
-// UseSandbox injects the sandbox used to enforce filesystem checks.
-func (f *Find) UseSandbox(sb sandbox.Sandbox) { f.sb = sb }
 
 // NewFind creates a find tool.
 func NewFind(cwd string) tools.Executable {
@@ -49,29 +44,30 @@ func (f *Find) Definition() models.ToolDefinition {
 }
 
 func (f *Find) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	pattern := args["pattern"].(string)
+	pattern, err := tools.RequiredString(args, "pattern")
+	if err != nil {
+		return models.ToolExecutionResult{}, err
+	}
 
 	path := f.cwd
 	if v, ok := args["path"].(string); ok && v != "" {
 		path = v
 	}
-	path, err := resolveAndCheck(f.cwd, f.sb, path, sandbox.FSRead)
-	if err != nil {
-		return models.ToolExecutionResult{}, err
+	path = resolveInCwd(f.cwd, path)
+
+	if _, err := filepath.Match(pattern, ""); err != nil {
+		return models.ToolExecutionResult{}, fmt.Errorf("invalid glob pattern %q: %v", pattern, err)
 	}
 
 	var matches []string
+	var walkErrs walkErrorLog
 	err = filepath.WalkDir(path, func(p string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			walkErrs.record(p, walkErr)
 			return nil
 		}
 		if d.IsDir() {
 			return nil
-		}
-		if f.sb != nil {
-			if cerr := f.sb.Filesystem().Check(p, sandbox.FSRead); cerr != nil {
-				return nil // skip out-of-bounds child
-			}
 		}
 		matched, _ := filepath.Match(pattern, filepath.Base(p))
 		if matched {
@@ -91,6 +87,7 @@ func (f *Find) Execute(ctx context.Context, callID string, args map[string]any) 
 	if len(matches) >= maxFindMatches {
 		text += fmt.Sprintf("\n\n[truncated: %d matches shown; refine pattern or path]", maxFindMatches)
 	}
+	text += walkErrs.notice()
 
 	return models.ToolExecutionResult{
 		Content: []models.ContentPart{models.TextContent{Text: text}},

@@ -1,28 +1,21 @@
 package builtin
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/sandbox"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
 // Bash executes shell commands.
 type Bash struct {
 	cwd string
-	sb  sandbox.Sandbox
 }
-
-// UseSandbox injects the sandbox used to run commands.
-func (b *Bash) UseSandbox(sb sandbox.Sandbox) { b.sb = sb }
 
 // NewBash creates a bash tool.
 func NewBash(cwd string) tools.Executable {
@@ -78,90 +71,20 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 		shell = "sh"
 	}
 
-	if b.sb != nil {
-		result, execErr := b.sb.Exec(ctx, sandbox.ExecSpec{
-			Command: command,
-			Cwd:     cwd,
-			Env:     os.Environ(),
-			Timeout: time.Duration(timeout) * time.Second,
-		})
-		output := result.Combined()
-		if result.TimedOut {
-			output += "\n[command timed out]"
-		}
-		res := models.ToolExecutionResult{
-			Content: []models.ContentPart{models.TextContent{Text: strings.TrimSpace(output)}},
-			Details: map[string]any{
-				"command":   command,
-				"cwd":       cwd,
-				"stdout":    result.Stdout,
-				"stderr":    result.Stderr,
-				"exit_code": result.ExitCode,
-				"timed_out": result.TimedOut,
-			},
-		}
-		if execErr != nil && result.ExitCode == 0 && !result.TimedOut {
-			return res, fmt.Errorf("command failed: %w", execErr)
-		}
-		if result.ExitCode != 0 || result.TimedOut {
-			// Business-level failure: surface result to the LLM without a system error.
-			return res, nil
-		}
-		copied, copyErr := copyOutputs(outputs, cwd, cwd)
-		if copyErr != nil {
-			return res, fmt.Errorf("command succeeded but copying outputs failed: %w", copyErr)
-		}
-		if len(copied) > 0 {
-			res.Details["outputs_copied"] = copied
-		}
+	start := time.Now()
+	stdout, stderr, exitCode, timedOut, execErr := runShellCommand(
+		ctx, shell, command, cwd, os.Environ(), time.Duration(timeout)*time.Second)
+	elapsed := time.Since(start)
+
+	res := buildBashResult(command, cwd, stdout, stderr, exitCode, timedOut, elapsed)
+	if execErr != nil {
+		return res, fmt.Errorf("command failed: %w", execErr)
+	}
+	if exitCode != 0 || timedOut {
+		// Business-level failure: surface result to the LLM without a Go error.
 		return res, nil
 	}
-
-	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(cmdCtx, shell, "-c", command)
-	cmd.Dir = cwd
-	cmd.Env = os.Environ()
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
-
-	err := cmd.Run()
-	stdout := stdoutBuf.String()
-	stderr := stderrBuf.String()
-	output := mergeOutput(stdout, stderr)
-
-	timedOut := cmdCtx.Err() == context.DeadlineExceeded
-	if timedOut {
-		output += "\n[command timed out]"
-	}
-
-	exitCode := 0
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
-	}
-
-	res := models.ToolExecutionResult{
-		Content: []models.ContentPart{models.TextContent{Text: strings.TrimSpace(output)}},
-		Details: map[string]any{
-			"command":   command,
-			"cwd":       cwd,
-			"stdout":    stdout,
-			"stderr":    stderr,
-			"exit_code": exitCode,
-			"timed_out": timedOut,
-		},
-	}
-	if err != nil {
-		// If the process started but exited non-zero, return it as a business result.
-		if cmd.ProcessState != nil {
-			return res, nil
-		}
-		return res, fmt.Errorf("command failed: %w", err)
-	}
-	copied, copyErr := copyOutputs(outputs, cwd, cwd)
+	copied, copyErr := b.copyOutputs(outputs, cwd)
 	if copyErr != nil {
 		return res, fmt.Errorf("command succeeded but copying outputs failed: %w", copyErr)
 	}
@@ -171,17 +94,82 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 	return res, nil
 }
 
-func copyOutputs(outputs []string, srcDir, dstDir string) ([]string, error) {
+// buildBashResult assembles the model-facing result of a finished command.
+// stdout/stderr are each capped at maxBashOutputChars (head 75% / tail 25%)
+// so a runaway command cannot flood the context; stderr is labeled so the
+// model can tell it apart from stdout; non-zero exits and timeouts are
+// flagged IsError with the exit code visible in the text. Commands that ran
+// for a second or more get a duration prefix so the model does not mistake a
+// quiet long-running command for one that was skipped.
+func buildBashResult(command, cwd, stdout, stderr string, exitCode int, timedOut bool, elapsed time.Duration) models.ToolExecutionResult {
+	stdout, truncatedOut := truncateHeadTail(stdout, maxBashOutputChars)
+	stderr, truncatedErr := truncateHeadTail(stderr, maxBashOutputChars)
+
+	var b strings.Builder
+	if elapsed >= time.Second {
+		fmt.Fprintf(&b, "[command ran for %s]\n", elapsed.Round(time.Millisecond))
+	}
+	b.WriteString(stdout)
+	if stderr != "" {
+		if stdout != "" {
+			b.WriteString("\n")
+		}
+		b.WriteString("[stderr]\n")
+		b.WriteString(stderr)
+	}
+	if timedOut {
+		b.WriteString("\n[command timed out]")
+	}
+	if exitCode != 0 {
+		fmt.Fprintf(&b, "\n[exit code: %d]", exitCode)
+	}
+
+	details := map[string]any{
+		"command":   command,
+		"cwd":       cwd,
+		"stdout":    stdout,
+		"stderr":    stderr,
+		"exit_code": exitCode,
+		"timed_out": timedOut,
+	}
+	if truncatedOut || truncatedErr {
+		details["truncated"] = true
+	}
+
+	return models.ToolExecutionResult{
+		Content: []models.ContentPart{models.TextContent{Text: strings.TrimSpace(b.String())}},
+		Details: details,
+		IsError: exitCode != 0 || timedOut,
+	}
+}
+
+// truncateHeadTail caps s at max runes, keeping the first 75% and the last
+// 25% with an explicit marker stating how much was elided. It operates on
+// runes to avoid splitting multi-byte characters.
+func truncateHeadTail(s string, max int) (string, bool) {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s, false
+	}
+	head := max * 3 / 4
+	tail := max - head
+	elided := len(runes) - head - tail
+	return string(runes[:head]) +
+		fmt.Sprintf("\n[... truncated %d chars ...]\n", elided) +
+		string(runes[len(runes)-tail:]), true
+}
+
+// copyOutputs copies declared output files back into the workspace after a
+// successful command.
+func (b *Bash) copyOutputs(outputs []string, cwd string) ([]string, error) {
 	var copied []string
 	for _, out := range outputs {
 		src := out
 		if !filepath.IsAbs(src) {
-			src = filepath.Join(srcDir, src)
+			src = filepath.Join(cwd, src)
 		}
-		dst := out
-		if !filepath.IsAbs(dst) {
-			dst = filepath.Join(dstDir, dst)
-		}
+		src = filepath.Clean(src)
+		dst := resolveInCwd(cwd, out)
 		data, err := os.ReadFile(src)
 		if err != nil {
 			return copied, fmt.Errorf("read output %s: %w", out, err)
@@ -195,17 +183,6 @@ func copyOutputs(outputs []string, srcDir, dstDir string) ([]string, error) {
 		copied = append(copied, dst)
 	}
 	return copied, nil
-}
-
-func mergeOutput(stdout, stderr string) string {
-	switch {
-	case stderr == "":
-		return stdout
-	case stdout == "":
-		return stderr
-	default:
-		return stdout + "\n" + stderr
-	}
 }
 
 var _ tools.Executable = (*Bash)(nil)

@@ -7,18 +7,14 @@ import (
 	"path/filepath"
 
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/sandbox"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
 // Write writes content to a file.
 type Write struct {
 	cwd string
-	sb  sandbox.Sandbox
 }
 
-// UseSandbox injects the sandbox used to enforce filesystem checks.
-func (w *Write) UseSandbox(sb sandbox.Sandbox) { w.sb = sb }
 
 // NewWrite creates a write tool.
 func NewWrite(cwd string) tools.Executable {
@@ -48,12 +44,15 @@ func (w *Write) Definition() models.ToolDefinition {
 }
 
 func (w *Write) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	path := args["path"].(string)
-	content := args["content"].(string)
-	path, err := resolveAndCheck(w.cwd, w.sb, path, sandbox.FSWrite)
+	path, err := tools.RequiredString(args, "path")
 	if err != nil {
 		return models.ToolExecutionResult{}, err
 	}
+	content, ok := args["content"].(string)
+	if !ok {
+		return models.ToolExecutionResult{}, fmt.Errorf("missing or non-string argument \"content\"")
+	}
+	path = resolveInCwd(w.cwd, path)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return models.ToolExecutionResult{}, err

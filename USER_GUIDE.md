@@ -1194,39 +1194,11 @@ memory:
 
 见第 10 章。
 
-### 15.8 沙箱
-
-```yaml
-sandbox:
-  backend: soft-limit
-  env_allowlist: [PATH, HOME, LANG, SHELL]
-  network:
-    default: deny
-    allow: ["api.github.com:443"]
-  filesystem:
-    readable: ["."]
-    writable: ["."]
-  limits:
-    max_memory_mb: 512
-    max_cpu_seconds: 60
-    max_output_bytes: 1048576
-```
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `backend` | string | 沙箱后端：`passthrough`、`soft-limit`、`container`（保留）、`remote`（保留）。 |
-| `env_allowlist` | list | 允许传递给子进程的环境变量。 |
-| `network.default` | string | 默认网络策略：`deny` 或 `allow`。 |
-| `network.allow` | list | 允许访问的网络目标。 |
-| `filesystem.readable` | list | 允许读取的文件系统根目录。 |
-| `filesystem.writable` | list | 允许写入的文件系统根目录。 |
-| `limits` | map | 资源限制。 |
-
-### 15.9 HTTP 工具与 MCP 服务器
+### 15.8 HTTP 工具与 MCP 服务器
 
 见第 11 章。
 
-### 15.10 Hooks
+### 15.9 Hooks
 
 ```yaml
 hooks:
@@ -1246,7 +1218,7 @@ hooks:
 | `sensitive_file_check` | map | 检查敏感文件访问。 |
 | `bash_denylist` | map | bash 命令黑名单。 |
 
-### 15.11 包与扩展
+### 15.10 包与扩展
 
 ```yaml
 packages:

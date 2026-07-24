@@ -7,18 +7,14 @@ import (
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/sandbox"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
 // Edit performs exact-text replacements in a file.
 type Edit struct {
 	cwd string
-	sb  sandbox.Sandbox
 }
 
-// UseSandbox injects the sandbox used to enforce filesystem checks.
-func (e *Edit) UseSandbox(sb sandbox.Sandbox) { e.sb = sb }
 
 // NewEdit creates an edit tool.
 func NewEdit(cwd string) tools.Executable {
@@ -106,11 +102,11 @@ func applyEdits(text string, edits []editOp) (string, error) {
 }
 
 func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	path := args["path"].(string)
-	path, err := resolveAndCheck(e.cwd, e.sb, path, sandbox.FSWrite)
+	path, err := tools.RequiredString(args, "path")
 	if err != nil {
 		return models.ToolExecutionResult{}, err
 	}
+	path = resolveInCwd(e.cwd, path)
 
 	edits, err := parseEdits(args)
 	if err != nil {

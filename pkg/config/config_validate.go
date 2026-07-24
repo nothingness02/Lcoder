@@ -16,9 +16,6 @@ func (c Config) Validate() error {
 	if c.Model == "" {
 		return fmt.Errorf("model is required")
 	}
-	if err := c.Sandbox.Validate(); err != nil {
-		return fmt.Errorf("sandbox: %w", err)
-	}
 	if err := c.Context.Validate(); err != nil {
 		return fmt.Errorf("context: %w", err)
 	}
@@ -43,34 +40,6 @@ func (c Config) Validate() error {
 	}
 	if err := c.Permissions.Validate(); err != nil {
 		return fmt.Errorf("permissions: %w", err)
-	}
-	return nil
-}
-
-// Validate checks sandbox backend and network settings.
-func (c SandboxConfig) Validate() error {
-	switch c.Backend {
-	case "", "passthrough", "soft-limit", "container":
-		// ok
-	case "remote":
-		return fmt.Errorf("backend %q is reserved and not yet supported", c.Backend)
-	default:
-		return fmt.Errorf("backend %q is not valid; must be one of passthrough, soft-limit, container", c.Backend)
-	}
-	switch c.Network.Default {
-	case "", "allow", "deny":
-		// ok
-	default:
-		return fmt.Errorf("network.default %q is not valid; must be allow or deny", c.Network.Default)
-	}
-	if c.Limits.MaxMemoryMB < 0 {
-		return fmt.Errorf("limits.max_memory_mb must be non-negative")
-	}
-	if c.Limits.MaxCPUSeconds < 0 {
-		return fmt.Errorf("limits.max_cpu_seconds must be non-negative")
-	}
-	if c.Limits.MaxOutputBytes < 0 {
-		return fmt.Errorf("limits.max_output_bytes must be non-negative")
 	}
 	return nil
 }

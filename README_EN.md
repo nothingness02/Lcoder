@@ -270,7 +270,7 @@ See `eval/swe-bench-lite/README.md` (Chinese) or `eval/swe-bench-lite/README_EN.
 
 ```
 cmd/lcoder/main.go
- └─ prepareAgent: config → LLM client → sandbox → tool registry → MCP registry
+ └─ prepareAgent: config → LLM client → tool registry → MCP registry
                  → session store → observability → mode manager → context manager → Agent
  └─ runRoot: one-shot / JSON / TUI dispatch; writes a ReasonCrash checkpoint on SIGINT/SIGTERM
 

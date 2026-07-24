@@ -7,18 +7,14 @@ import (
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/sandbox"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
 // Read reads files with optional offset/limit.
 type Read struct {
 	cwd string
-	sb  sandbox.Sandbox
 }
 
-// UseSandbox injects the sandbox used to enforce filesystem checks.
-func (r *Read) UseSandbox(sb sandbox.Sandbox) { r.sb = sb }
 
 // NewRead creates a read tool.
 func NewRead(cwd string) tools.Executable {
@@ -52,11 +48,14 @@ func (r *Read) Definition() models.ToolDefinition {
 }
 
 func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	path := args["path"].(string)
-	path, err := resolveAndCheck(r.cwd, r.sb, path, sandbox.FSRead)
+	path, err := tools.RequiredString(args, "path")
 	if err != nil {
 		return models.ToolExecutionResult{}, err
 	}
+	offset := tools.Int(args, "offset", 1)
+	userLimit := tools.Int(args, "limit", 0)
+
+	path = resolveInCwd(r.cwd, path)
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -65,10 +64,18 @@ func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) 
 	if info.IsDir() {
 		return models.ToolExecutionResult{}, fmt.Errorf("path is a directory: %s", path)
 	}
-	if info.Size() > maxReadFileSizeBytes {
+	// Large files stay readable through offset/limit windows; only reject when
+	// no window was requested, and tell the model exactly how to retry. Beyond
+	// the hard cap the file is not read into memory at all.
+	if info.Size() > maxReadFileSizeHardBytes {
 		return models.ToolExecutionResult{}, fmt.Errorf(
-			"file too large (%d bytes > %d bytes); use offset/limit or read a smaller section",
-			info.Size(), maxReadFileSizeBytes)
+			"file too large (%d bytes > %d bytes hard limit); use bash with head/tail/sed to inspect a section",
+			info.Size(), maxReadFileSizeHardBytes)
+	}
+	if info.Size() > maxReadFileSizeBytes && userLimit <= 0 {
+		return models.ToolExecutionResult{}, fmt.Errorf(
+			"file too large (%d bytes > %d bytes); pass offset/limit to read a window, e.g. {\"path\": %q, \"offset\": 1, \"limit\": %d}",
+			info.Size(), maxReadFileSizeBytes, path, defaultReadLines)
 	}
 
 	data, err := os.ReadFile(path)
@@ -79,14 +86,6 @@ func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) 
 	text := string(data)
 	lines := strings.Split(text, "\n")
 
-	offset := 1
-	if v, ok := args["offset"].(float64); ok {
-		offset = int(v)
-	}
-	userLimit := 0
-	if v, ok := args["limit"].(float64); ok && int(v) > 0 {
-		userLimit = int(v)
-	}
 	limit := userLimit
 	if limit == 0 {
 		limit = defaultReadLines
@@ -96,11 +95,12 @@ func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) 
 	if start < 0 {
 		start = 0
 	}
-	if start > len(lines) {
-		start = len(lines)
+	if start >= len(lines) {
+		return models.ToolExecutionResult{}, fmt.Errorf(
+			"offset %d is beyond end of file (%d lines total)", offset, len(lines))
 	}
 	end := start + limit
-	truncated := userLimit == 0 && end < len(lines)
+	truncated := end < len(lines)
 	if end > len(lines) {
 		end = len(lines)
 	}

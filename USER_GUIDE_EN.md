@@ -1198,39 +1198,11 @@ See Chapter 12.
 
 See Chapter 10.
 
-### 15.8 Sandbox
-
-```yaml
-sandbox:
-  backend: soft-limit
-  env_allowlist: [PATH, HOME, LANG, SHELL]
-  network:
-    default: deny
-    allow: ["api.github.com:443"]
-  filesystem:
-    readable: ["."]
-    writable: ["."]
-  limits:
-    max_memory_mb: 512
-    max_cpu_seconds: 60
-    max_output_bytes: 1048576
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `backend` | string | Sandbox backend: `passthrough`, `soft-limit`, `container` (reserved), or `remote` (reserved). |
-| `env_allowlist` | list | Environment variables allowed to pass to subprocesses. |
-| `network.default` | string | Default network policy: `deny` or `allow`. |
-| `network.allow` | list | Allowed network targets. |
-| `filesystem.readable` | list | Allowed filesystem read roots. |
-| `filesystem.writable` | list | Allowed filesystem write roots. |
-| `limits` | map | Resource limits. |
-
-### 15.9 HTTP Tools and MCP Servers
+### 15.8 HTTP Tools and MCP Servers
 
 See Chapter 11.
 
-### 15.10 Hooks
+### 15.9 Hooks
 
 ```yaml
 hooks:
@@ -1250,7 +1222,7 @@ hooks:
 | `sensitive_file_check` | map | Check sensitive file access. |
 | `bash_denylist` | map | Bash command denylist. |
 
-### 15.11 Packages and Extensions
+### 15.10 Packages and Extensions
 
 ```yaml
 packages:

@@ -24,7 +24,7 @@
 
 The entry point is `cmd/lcoder/main.go`. The startup flow has two main paths:
 
-1. **Wiring** (`prepareAgent`): assembles configuration, LLM client, sandbox, tool registry, MCP registry, session store, observability, mode manager, context manager, and finally an `agent.Agent`.
+1. **Wiring** (`prepareAgent`): assembles configuration, LLM client, tool registry, MCP registry, session store, observability, mode manager, context manager, and finally an `agent.Agent`.
 2. **Runtime dispatch** (`runRoot`): chooses one-shot, JSON event stream, or TUI mode based on user input, and writes a crash checkpoint on SIGINT/SIGTERM.
 
 ### 1.1 Core Component Relationships
@@ -34,7 +34,6 @@ cmd/lcoder/main.go
  └─ prepareAgent
      ├─ config.Load()              load ~/.lcoder/config.yaml
      ├─ llm.NewClient(engine)      create LLM client
-     ├─ sandbox.New(...)           create sandbox
      ├─ tools.NewRegistry(...)     create tool registry
      ├─ registry.RegisterBuiltinFactories  register built-in tools
      ├─ registry.Register + LoadExtensions  register HTTP / Go extension tools
@@ -288,20 +287,6 @@ func newMyTool(cwd string) tools.Executable {
     return &myTool{cwd: cwd}
 }
 ```
-
-### 4.5 Tools That Need a Sandbox
-
-If the tool executes external commands, implement `tools.SandboxAware`:
-
-```go
-type SandboxAware interface {
-    UseSandbox(sb sandbox.Sandbox)
-}
-```
-
-The registry detects this interface and injects the active sandbox instance.
-
----
 
 ## 5. How to Write a before-tool-call Hook
 

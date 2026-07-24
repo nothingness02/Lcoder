@@ -150,25 +150,6 @@ permissions:
       "halt": deny
       ":(){ :|:& };:": deny
 
-# Sandbox backend wiring (optional). Omitting this block, or setting
-# backend: passthrough, means zero isolation — identical to historical
-# behavior. Set backend: soft-limit to enforce the env allowlist, the network
-# allowlist (default-deny), filesystem roots, and resource limits. The
-# container/remote backends are reserved and error if selected.
-# sandbox:
-#   backend: passthrough        # passthrough | soft-limit | container(reserved) | remote(reserved)
-#   env_allowlist: [PATH, HOME, LANG, SHELL]
-#   network:
-#     default: deny             # deny | allow  (default-deny when omitted)
-#     allow: ["api.github.com:443"]
-#   filesystem:
-#     readable: ["."]           # roots relative to the project root (cwd)
-#     writable: ["."]
-#   limits:
-#     max_memory_mb: 512
-#     max_cpu_seconds: 60
-#     max_output_bytes: 1048576
-
 # http_tools:
 #   - name: deploy
 #     endpoint: http://localhost:9001/deploy
