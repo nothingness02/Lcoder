@@ -36,7 +36,7 @@ cmd/lcoder/main.go
      ├─ llm.NewClient(engine)      创建 LLM 客户端
      ├─ tools.NewRegistry(...)     创建工具注册表
      ├─ registry.RegisterBuiltinFactories 注册内置工具
-     ├─ registry.Register + LoadExtensions 注册 HTTP/Go 扩展工具
+     ├─ registry.Register + LoadExtensions 注册 HTTP 扩展工具
      ├─ mcp.NewRegistry(...)       连接 MCP 服务器并注册其工具
      ├─ session.NewStore(...)      创建/加载会话
      ├─ observability.NewCollectorWithAudit 创建可观测性收集器
@@ -145,7 +145,7 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/config` | koanf 配置加载与验证。 |
 | `pkg/permissions` | 权限引擎与规则匹配。 |
 | `pkg/observability` | 事件收集、指标、trace、导出器。 |
-| `pkg/extension` | Go plugin 扩展接口与加载器。 |
+| `pkg/extension` | 进程内扩展宿主接口、包/扩展管理与进程外扩展运行时（`proto`/`runtime`/`bridge`）。 |
 | `pkg/memory` | 持久化记忆与动态召回。 |
 | `pkg/codeindex` | SQLite 代码图索引。 |
 
@@ -259,7 +259,7 @@ func (w *weatherTool) Execute(ctx context.Context, callID string, args map[strin
 1. **实现 `tools.Executable` 接口**：提供 `Definition()` 和 `Execute(...)`。
 2. **定义 JSON Schema 参数**：`Parameters` 字段是 `map[string]any`，按 JSON Schema 格式描述。
 3. **注册工厂**：在 `init()` 中调用 `tools.DefaultFactories.Register(name, factory)`。
-4. **构建为 plugin**：该扩展以 Go plugin 形式被 Lcoder 加载，因此需要 `package main` 和一个空的 `main()`。
+4. **加载方式**：Go plugin（`.so`）载体已退役。进程外扩展通过扩展运行时接入，设计见 `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`。
 
 ### 4.3 安装扩展
 
@@ -267,16 +267,7 @@ func (w *weatherTool) Execute(ctx context.Context, callID string, args map[strin
 ./lcoder install ./examples/extension-tool --name weather --local
 ```
 
-> `./lcoder install` 仅将扩展源码或包复制到 `~/.lcoder/extensions/` 或 `~/.lcoder/packages/`，不会自动注册。Go plugin 必须在 `~/.lcoder/config.yaml` 的 `tool_extensions` 中声明后才能加载：
-
-```yaml
-tool_extensions:
-  - name: weather
-    type: go-plugin
-    path: ~/.lcoder/plugins/weather.so
-    config:
-      api_key: ${WEATHER_API_KEY}
-```
+> `./lcoder install` 仅将扩展源码或包复制到 `~/.lcoder/extensions/` 或 `~/.lcoder/packages/`，不会自动注册。`tool_extensions` 目前支持 `type: json`（HTTP 工具描述符）；Go 扩展请通过进程外扩展运行时接入（`docs/superpowers/specs/2026-07-24-extension-runtime-design.md`）。
 
 ### 4.4 带状态的扩展
 
@@ -644,7 +635,7 @@ subagent:
   enabled: true
 ```
 
-启用后，agent 会注册一个 `subagent` 工具，可把任务委派给其他 Lcoder agent。`examples/extension-subagent/main.go` 展示了如何实现一个自定义的子代理扩展（用于需要深度定制 runner 的场景），但日常使用无需安装该扩展。
+启用后，agent 会注册一个 `subagent` 工具，可把任务委派给其他 Lcoder agent。需要深度定制 runner 的场景可通过进程外扩展运行时实现自定义子代理扩展（`docs/superpowers/specs/2026-07-24-extension-runtime-design.md`），日常使用无需安装额外扩展。
 
 ### 10.1 核心思想
 
@@ -686,21 +677,13 @@ Parameters: map[string]any{
 },
 ```
 
-### 10.4 安装与使用
-
-```bash
-./lcoder install ./examples/extension-subagent --name subagent --local
-```
-
-> `./lcoder install` 仅复制文件，不会自动注册。Go plugin 需在 `~/.lcoder/config.yaml` 的 `tool_extensions` 中声明（`type: go-plugin`）后才能加载。
+### 10.4 使用
 
 在对话中：
 
 ```text
 请使用 subagent 工具，让 worker agent 帮我分析 pkg/llm 目录的代码结构
 ```
-
-更多子代理的 agent 定义文件示例见 `examples/extension-subagent/` 目录。
 
 ## 11. 测试与调试
 
@@ -818,6 +801,8 @@ type Extension interface {
     RegisterExporters() (map[string]observability.ExporterFactory, error)
 }
 ```
+
+> 这是进程内宿主接口。Go plugin（`.so`）加载载体已退役；进程外扩展请使用扩展运行时（`pkg/extension/proto`/`runtime`/`bridge`），设计文档见 `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`。
 
 ### 13.4 `agent.BeforeToolCallHook`
 

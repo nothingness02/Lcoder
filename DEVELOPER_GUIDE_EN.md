@@ -36,7 +36,7 @@ cmd/lcoder/main.go
      ├─ llm.NewClient(engine)      create LLM client
      ├─ tools.NewRegistry(...)     create tool registry
      ├─ registry.RegisterBuiltinFactories  register built-in tools
-     ├─ registry.Register + LoadExtensions  register HTTP / Go extension tools
+     ├─ registry.Register + LoadExtensions  register HTTP extension tools
      ├─ mcp.NewRegistry(...)       connect MCP servers and register their tools
      ├─ session.NewStore(...)      create / load session
      ├─ observability.NewCollectorWithAudit  create observability collector
@@ -145,7 +145,7 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/config` | koanf configuration loading and validation. |
 | `pkg/permissions` | Permission engine and rule matching. |
 | `pkg/observability` | Event collection, metrics, traces, exporters. |
-| `pkg/extension` | Go plugin extension interface and loader. |
+| `pkg/extension` | In-process extension host interface, package/extension management, and the process-external extension runtime (`proto`/`runtime`/`bridge`). |
 | `pkg/memory` | Persistent memory and dynamic recall. |
 | `pkg/codeindex` | SQLite code graph index. |
 
@@ -259,7 +259,7 @@ func (w *weatherTool) Execute(ctx context.Context, callID string, args map[strin
 1. **Implement `tools.Executable`**: provide `Definition()` and `Execute(...)`.
 2. **Define JSON Schema parameters**: the `Parameters` field is a `map[string]any` in JSON Schema format.
 3. **Register the factory**: in `init()`, call `tools.DefaultFactories.Register(name, factory)`.
-4. **Build as a plugin**: the extension is loaded as a Go plugin, so it needs `package main` and an empty `main()`.
+4. **Loading**: the Go plugin (`.so`) carrier is retired. Process-external extensions are integrated via the extension runtime; see `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
 
 ### 4.3 Install the Extension
 
@@ -267,16 +267,7 @@ func (w *weatherTool) Execute(ctx context.Context, callID string, args map[strin
 ./lcoder install ./examples/extension-tool --name weather --local
 ```
 
-`./lcoder install` only copies the extension files into `~/.lcoder/extensions/`; it does not register the tool automatically. For the `weather` tool to appear in the agent's tool list, declare the Go plugin in `~/.lcoder/config.yaml`:
-
-```yaml
-tool_extensions:
-  - name: weather
-    type: go-plugin
-    path: ~/.lcoder/plugins/weather.so
-    config:
-      api_key: ${WEATHER_API_KEY}
-```
+`./lcoder install` only copies the extension files into `~/.lcoder/extensions/`; it does not register the tool automatically. `tool_extensions` currently supports `type: json` (HTTP tool descriptors); Go extensions should integrate through the process-external extension runtime (`docs/superpowers/specs/2026-07-24-extension-runtime-design.md`).
 
 ### 4.4 Stateful Extensions
 
@@ -631,7 +622,7 @@ subagent:
   enabled: true
 ```
 
-Once enabled, the agent registers a `subagent` tool that can delegate work to other Lcoder agents. `examples/extension-subagent/main.go` shows how to implement a custom subagent extension for cases where you need a tailored runner; for normal use you do not need to install this extension.
+Once enabled, the agent registers a `subagent` tool that can delegate work to other Lcoder agents. Cases that need a tailored runner can implement a custom subagent extension through the process-external extension runtime (`docs/superpowers/specs/2026-07-24-extension-runtime-design.md`); for normal use you do not need to install any extension.
 
 ### 10.1 Core Idea
 
@@ -673,21 +664,13 @@ Parameters: map[string]any{
 },
 ```
 
-### 10.4 Install and Use
-
-```bash
-./lcoder install ./examples/extension-subagent --name subagent --local
-```
-
-`./lcoder install` only copies the extension files; Go plugins must be declared in `~/.lcoder/config.yaml` under `tool_extensions` with `type: go-plugin` before their tools are available.
+### 10.4 Usage
 
 In conversation:
 
 ```text
 Please use the subagent tool to have the worker agent analyze the structure of pkg/llm
 ```
-
-More subagent definition examples are in `examples/extension-subagent/`.
 
 ## 11. Testing and Debugging
 
@@ -805,6 +788,8 @@ type Extension interface {
     RegisterExporters() (map[string]observability.ExporterFactory, error)
 }
 ```
+
+> This is the in-process host interface. The Go plugin (`.so`) loading carrier is retired; process-external extensions should use the extension runtime (`pkg/extension/proto`/`runtime`/`bridge`), designed in `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
 
 ### 13.4 `agent.BeforeToolCallHook`
 

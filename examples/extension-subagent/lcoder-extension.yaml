@@ -1,4 +1,0 @@
-name: subagent
-version: 0.1.0
-description: Delegate work to other Lcoder agents via single, parallel, or chain invocations.
-entry: subagent.so

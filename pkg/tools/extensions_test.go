@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,26 +8,6 @@ import (
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/models"
 )
-
-type fakeToolExtension struct {
-	register func(registry *Registry, cwd string) error
-}
-
-func (f *fakeToolExtension) RegisterTools(registry *Registry, cwd string) error {
-	return f.register(registry, cwd)
-}
-
-type fakePluginLoader struct {
-	ext ToolExtension
-	err error
-}
-
-func (f *fakePluginLoader) LoadPlugin(path string, cfg map[string]any) (ToolExtension, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.ext, nil
-}
 
 func TestLoadExtensionsJSONDescriptor(t *testing.T) {
 	dir := t.TempDir()
@@ -46,7 +25,7 @@ func TestLoadExtensionsJSONDescriptor(t *testing.T) {
 	}
 
 	r := NewRegistry(dir)
-	if err := r.LoadExtensions([]config.ToolExtensionConfig{{Path: desc}}, nil); err != nil {
+	if err := r.LoadExtensions([]config.ToolExtensionConfig{{Path: desc}}); err != nil {
 		t.Fatalf("LoadExtensions: %v", err)
 	}
 
@@ -88,7 +67,7 @@ func TestLoadExtensionsJSONOverrides(t *testing.T) {
 		ExecutionMode: "sequential",
 		Headers:       map[string]string{"X-New": "new"},
 	}
-	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}, nil); err != nil {
+	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}); err != nil {
 		t.Fatalf("LoadExtensions: %v", err)
 	}
 
@@ -113,7 +92,7 @@ func TestLoadExtensionsJSONDefaultsToJSONType(t *testing.T) {
 	}
 
 	r := NewRegistry(dir)
-	if err := r.LoadExtensions([]config.ToolExtensionConfig{{Path: desc}}, nil); err != nil {
+	if err := r.LoadExtensions([]config.ToolExtensionConfig{{Path: desc}}); err != nil {
 		t.Fatalf("LoadExtensions: %v", err)
 	}
 	if _, ok := r.Get("plain"); !ok {
@@ -124,51 +103,15 @@ func TestLoadExtensionsJSONDefaultsToJSONType(t *testing.T) {
 func TestLoadExtensionsJSONMissingPath(t *testing.T) {
 	r := NewRegistry(".")
 	cfg := config.ToolExtensionConfig{Name: "missing", Type: "json"}
-	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}, nil); err == nil {
+	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}); err == nil {
 		t.Fatal("expected error for missing path")
-	}
-}
-
-func TestLoadExtensionsGoPluginSuccess(t *testing.T) {
-	r := NewRegistry(".")
-	loader := &fakePluginLoader{
-		ext: &fakeToolExtension{
-			register: func(registry *Registry, cwd string) error {
-				registry.Register("plugin-tool", NewHTTPExecutable(HTTPConfig{Name: "plugin-tool", Endpoint: "http://x"}))
-				return nil
-			},
-		},
-	}
-	cfg := config.ToolExtensionConfig{Name: "ext", Type: "go-plugin", Path: "ext.so"}
-	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}, loader); err != nil {
-		t.Fatalf("LoadExtensions: %v", err)
-	}
-	if _, ok := r.Get("plugin-tool"); !ok {
-		t.Fatal("expected plugin-tool to be registered")
-	}
-}
-
-func TestLoadExtensionsGoPluginLoaderError(t *testing.T) {
-	r := NewRegistry(".")
-	loader := &fakePluginLoader{err: errors.New("boom")}
-	cfg := config.ToolExtensionConfig{Name: "ext", Type: "go-plugin", Path: "ext.so"}
-	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}, loader); err == nil {
-		t.Fatal("expected error from plugin loader")
-	}
-}
-
-func TestLoadExtensionsGoPluginMissingLoader(t *testing.T) {
-	r := NewRegistry(".")
-	cfg := config.ToolExtensionConfig{Name: "ext", Type: "go-plugin", Path: "ext.so"}
-	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}, nil); err == nil {
-		t.Fatal("expected error when plugin loader is nil")
 	}
 }
 
 func TestLoadExtensionsUnknownType(t *testing.T) {
 	r := NewRegistry(".")
 	cfg := config.ToolExtensionConfig{Name: "ext", Type: "unknown"}
-	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}, nil); err == nil {
+	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}); err == nil {
 		t.Fatal("expected error for unknown extension type")
 	}
 }

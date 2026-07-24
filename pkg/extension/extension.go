@@ -20,9 +20,6 @@ type Extension interface {
 	RegisterExporters() (map[string]observability.ExporterFactory, error)
 }
 
-// NewFunc is the constructor signature expected by extension loaders.
-type NewFunc func(cfg map[string]any) (Extension, error)
-
 // Hooks groups optional agent hooks provided by an extension.
 type Hooks struct {
 	BeforeToolCall   agent.BeforeToolCallHook

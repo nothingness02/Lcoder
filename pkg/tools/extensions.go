@@ -9,23 +9,8 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-// ToolExtension is the subset of an extension required to register its tools.
-// It is implemented by loaded go-plugin extensions.
-type ToolExtension interface {
-	RegisterTools(registry *Registry, cwd string) error
-}
-
-// ToolExtensionPluginLoader loads go-plugin tool extensions. It is supplied by
-// the caller (cmd/lcoder/main.go) to avoid a package import cycle with
-// pkg/extension.
-type ToolExtensionPluginLoader interface {
-	LoadPlugin(path string, cfg map[string]any) (ToolExtension, error)
-}
-
-// LoadExtensions registers tools from the provided extension configs. JSON
-// descriptors become HTTPExecutable tools; go-plugin extensions are loaded via
-// pluginLoader and asked to register their own tools.
-func (r *Registry) LoadExtensions(cfgs []config.ToolExtensionConfig, pluginLoader ToolExtensionPluginLoader) error {
+// LoadExtensions registers tools from JSON descriptors (HTTPExecutable tools).
+func (r *Registry) LoadExtensions(cfgs []config.ToolExtensionConfig) error {
 	for _, cfg := range cfgs {
 		if cfg.Type == "" {
 			cfg.Type = "json"
@@ -34,17 +19,6 @@ func (r *Registry) LoadExtensions(cfgs []config.ToolExtensionConfig, pluginLoade
 		case "json":
 			if err := r.loadJSONExtension(cfg); err != nil {
 				return err
-			}
-		case "go-plugin":
-			if pluginLoader == nil {
-				return fmt.Errorf("tool extension %q requires a plugin loader", cfg.Name)
-			}
-			ext, err := pluginLoader.LoadPlugin(cfg.Path, cfg.Config)
-			if err != nil {
-				return fmt.Errorf("load tool extension %q: %w", cfg.Name, err)
-			}
-			if err := ext.RegisterTools(r, r.cwd); err != nil {
-				return fmt.Errorf("register tools from extension %q: %w", cfg.Name, err)
 			}
 		default:
 			return fmt.Errorf("unknown tool extension type %q for %q", cfg.Type, cfg.Name)

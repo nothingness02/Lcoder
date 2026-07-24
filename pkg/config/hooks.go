@@ -24,19 +24,18 @@ type BashDenylistHookConfig struct {
 	Patterns []string `yaml:"patterns"`
 }
 
-// ToolExtensionConfig describes an externally provided tool, either a JSON
-// descriptor that creates an HTTPExecutable or a Go plugin (.so) that registers
-// tools directly.
+// ToolExtensionConfig describes an externally provided tool: a JSON
+// descriptor that creates an HTTPExecutable.
 type ToolExtensionConfig struct {
 	Name          string            `yaml:"name"`
-	Type          string            `yaml:"type"`           // "json" or "go-plugin"
-	Path          string            `yaml:"path"`           // descriptor file or .so path
+	Type          string            `yaml:"type"`           // "json"; unknown types are rejected
+	Path          string            `yaml:"path"`           // descriptor file path
 	Endpoint      string            `yaml:"endpoint"`       // optional override for JSON endpoint
 	Description   string            `yaml:"description"`    // optional override
 	Parameters    map[string]any    `yaml:"parameters"`     // optional override
 	ExecutionMode string            `yaml:"execution_mode"` // optional override
 	Headers       map[string]string `yaml:"headers"`        // optional override
-	Config        map[string]any    `yaml:"config"`         // passed to go-plugin New
+	Config        map[string]any    `yaml:"config"`         // opaque extension config
 }
 
 // ExtensionsConfig configures the process-external extension runtime.
