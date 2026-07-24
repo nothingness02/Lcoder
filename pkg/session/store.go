@@ -2,6 +2,7 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -300,12 +301,19 @@ func IsCustomEntry(m models.AgentMessage) bool {
 
 // AppendCustomEntry appends an extension-owned entry to the current branch.
 // The entry carries parent_id/branch_id like any message, so it follows fork
-// and branch semantics, but role=custom keeps it out of context views.
+// and branch semantics, but role=custom keeps it out of context views. Data is
+// validated and compacted (normalized) before staging, so invalid JSON is
+// rejected without poisoning the in-memory session, and the in-memory bytes
+// match what a later reload would produce.
 func (s *Session) AppendCustomEntry(customType string, data json.RawMessage) error {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, data); err != nil {
+		return fmt.Errorf("session: custom entry %q: invalid JSON data: %w", customType, err)
+	}
 	msg := models.NewAgentMessage(models.RoleCustom)
 	msg.Metadata[MetaType] = MetaTypeCustom
 	msg.Metadata[MetaCustomType] = customType
-	msg.Metadata[MetaCustomData] = data
+	msg.Metadata[MetaCustomData] = json.RawMessage(buf.Bytes())
 	if err := s.stage(msg); err != nil {
 		return err
 	}
@@ -313,7 +321,14 @@ func (s *Session) AppendCustomEntry(customType string, data json.RawMessage) err
 }
 
 // CustomEntries returns the custom entries on the active branch whose
-// custom_type starts with prefix (extensions use "<ext-name>/").
+// custom_type starts with prefix. An empty prefix returns ALL custom entries,
+// and the match is a plain string prefix ("ext" also matches "ext2/..."), so
+// extensions should use the "<ext-name>/" convention.
+//
+// Data is normalized JSON: compaction at append time and a file reload both
+// drop insignificant whitespace and object key order. After a reload the
+// metadata decodes as generic any, so integral values must stay within the
+// float64-safe range (< 2^53) or they lose precision.
 func (s *Session) CustomEntries(prefix string) []CustomEntry {
 	var out []CustomEntry
 	for _, m := range s.activeChain() {
@@ -438,7 +453,7 @@ func (s *Session) ActiveMessages() []models.AgentMessage {
 	chain := s.activeChain()
 	out := chain[:0] // in-place filter; chain is already a fresh slice
 	for _, m := range chain {
-		if m.Role == models.RoleCustom {
+		if m.Role == models.RoleCustom || IsCustomEntry(m) {
 			continue
 		}
 		out = append(out, m)
