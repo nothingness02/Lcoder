@@ -16,12 +16,23 @@ import (
 	"github.com/lcoder/lcoder/pkg/skills"
 )
 
+// runInputHook is applied to the model created by Run. Install it via
+// SetInputHook during startup, before the program loop begins.
+var runInputHook func(text string) (string, bool, string)
+
+// SetInputHook installs the process-wide extension input hook applied to the
+// model created by Run. A nil hook disables interception.
+func SetInputHook(hook func(text string) (string, bool, string)) {
+	runInputHook = hook
+}
+
 // Run starts the TUI application.
 func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, capabilities []string, llmClient *llm.Client, cfg config.Config, needsProviderSetup bool, loadedSkillCatalog ...skills.SkillMeta) error {
 	checkpointDir := filepath.Join(session.DefaultDir(), "checkpoints")
 	checkpointStore := checkpoint.NewFileStore(checkpointDir)
 	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, httpTools, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, needsProviderSetup, loadedSkillCatalog...)
 	model.SetCapabilities(capabilities)
+	model.SetInputHook(runInputHook)
 	defer model.Close()
 
 	// Detect terminal background ONCE before bubbletea grabs stdin (the OSC 11

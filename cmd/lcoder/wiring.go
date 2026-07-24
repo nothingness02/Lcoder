@@ -61,6 +61,19 @@ func makeBeforeToolCall(hookCfg config.HookConfig) agent.BeforeToolCallHook {
 	return hooks.FromConfig(hookCfg)
 }
 
+// stdinTrustPrompter asks the user whether to load a project-level extension.
+// It runs before the TUI starts, so plain stdin/stderr prompting is safe.
+func stdinTrustPrompter(name, dir string) bool {
+	fmt.Fprintf(os.Stderr, "\nProject extension %q (%s) wants to load.\nProject extensions can run arbitrary code. Load it? (y/N): ", name, dir)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	s := strings.ToLower(strings.TrimSpace(line))
+	return s == "y" || s == "yes"
+}
+
 // cliConfirm reads approval from stdin for CLI runs.
 type cliConfirm struct{}
 

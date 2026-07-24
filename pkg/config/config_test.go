@@ -394,3 +394,33 @@ memory:
 		t.Fatalf("expected timeout 15, got %d", p.Config.Timeout)
 	}
 }
+
+func TestExtensionsConfigParses(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "lcoder.yaml")
+	body := "provider: openai\nmodel: gpt-4o-mini\nextensions:\n  disabled: [\"noisy\"]\n  hook_timeout_ms: 3000\n"
+	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Load reads ./lcoder.yaml from the working directory; point it at tmp.
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origWd)
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Extensions.Disabled) != 1 || cfg.Extensions.Disabled[0] != "noisy" {
+		t.Fatalf("disabled %+v", cfg.Extensions.Disabled)
+	}
+	if cfg.Extensions.HookTimeoutMs != 3000 {
+		t.Fatalf("timeout %d", cfg.Extensions.HookTimeoutMs)
+	}
+}

@@ -39,11 +39,10 @@ type ToolExtensionConfig struct {
 	Config        map[string]any    `yaml:"config"`         // passed to go-plugin New
 }
 
-// ExtensionConfig describes a Go extension to load.
-type ExtensionConfig struct {
-	Name   string         `yaml:"name"`
-	Source string         `yaml:"source"`
-	Config map[string]any `yaml:"config"`
+// ExtensionsConfig configures the process-external extension runtime.
+type ExtensionsConfig struct {
+	Disabled      []string `yaml:"disabled"`
+	HookTimeoutMs int      `yaml:"hook_timeout_ms"`
 }
 
 // PackageConfig describes an installed package containing modes/skills/tools.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/agent"
+	"github.com/lcoder/lcoder/pkg/agent/hooks"
 	"github.com/lcoder/lcoder/pkg/agentsetup"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/codeindex"
@@ -21,6 +22,8 @@ import (
 	contextloader "github.com/lcoder/lcoder/pkg/context"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/extension"
+	"github.com/lcoder/lcoder/pkg/extension/bridge"
+	"github.com/lcoder/lcoder/pkg/extension/runtime"
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/memory"
@@ -36,14 +39,16 @@ import (
 )
 
 var (
-	cfgFile    string
-	modelID    string
-	provider   string
-	sessionID  string
-	cont       bool
-	modeName   string
-	promptText string
-	unsafeMode bool
+	cfgFile                string
+	modelID                string
+	provider               string
+	sessionID              string
+	cont                   bool
+	modeName               string
+	promptText             string
+	unsafeMode             bool
+	jsonMode               bool
+	trustProjectExtensions bool
 )
 
 func main() {
@@ -60,7 +65,8 @@ func main() {
 	root.Flags().BoolVarP(&cont, "continue", "c", false, "Continue most recent session")
 	root.Flags().StringVar(&modeName, "mode", "", "Agent mode: plan, code, explore, review, test")
 	root.Flags().StringVarP(&promptText, "prompt", "p", "", "Single prompt to run and exit")
-	root.Flags().Bool("json", false, "Output events as JSONL instead of TUI/text")
+	root.Flags().BoolVar(&jsonMode, "json", false, "Output events as JSONL instead of TUI/text")
+	root.Flags().BoolVar(&trustProjectExtensions, "trust-project-extensions", false, "Load project-level extensions without prompting")
 	root.PersistentFlags().BoolVar(&unsafeMode, "unsafe", false, "Bypass permission engine (ultra-destructive commands still require approval)")
 
 	root.AddCommand(modelsCmd())
@@ -127,6 +133,8 @@ type agentSetup struct {
 	checkpointStore  checkpoint.Store
 	obsWatcher       *observability.ConfigWatcher
 	codeIndexWatcher *codeindex.Watcher
+	extHost          *runtime.Host  // nil when no extensions loaded
+	extBridge        *bridge.Bridge // nil when no extensions loaded
 	cleanup          func()
 }
 
@@ -406,6 +414,15 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		return nil, fmt.Errorf("build agent: %w", err)
 	}
 
+	// Process-external extensions: discover global + project manifests, gate
+	// project ones on trust, spawn and handshake, then bridge into the agent.
+	extHost, extBridge := startExtensions(cfg, cwd, sess, bus)
+	if extBridge != nil {
+		ag.SetBeforeToolCall(hooks.CompositeBeforeToolCall(makeBeforeToolCall(cfg.Hooks), extBridge.BeforeToolCall()))
+		ag.SetAfterToolCall(extBridge.AfterToolCall())
+		mgr.SetSummarizer(extBridge.Summarizer(mgr.Summarizer()))
+	}
+
 	// The session store owns the message history; load it first. The checkpoint
 	// only carries runtime state, so it is applied afterwards without overwriting
 	// the conversation.
@@ -427,6 +444,8 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		llmClient:       llmClient,
 		checkpointStore: chkStore,
 		obsWatcher:      obsWatcher,
+		extHost:         extHost,
+		extBridge:       extBridge,
 		cleanup: func() {
 			if codeIndexWatcher != nil {
 				_ = codeIndexWatcher.Close()
@@ -436,6 +455,9 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			}
 			if obsWatcher != nil {
 				_ = obsWatcher.Close()
+			}
+			if extHost != nil {
+				extHost.Close()
 			}
 			_ = bus.Close()
 			obsCollector.Close()
@@ -502,8 +524,6 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		promptText = strings.Join(args, " ")
 	}
 
-	jsonMode, _ := cmd.Flags().GetBool("json")
-
 	ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals...)
 	defer stop()
 
@@ -557,6 +577,13 @@ func runJSONMode(ctx context.Context, setup *agentSetup, prompt string) error {
 	setup.ag.SetUserConfirm(cliConfirm{})
 	var msg models.AgentMessage
 	if prompt != "" {
+		if setup.extBridge != nil {
+			newText, proceed, reason := setup.extBridge.InputHook(ctx, prompt)
+			if !proceed {
+				return fmt.Errorf("input blocked: %s", reason)
+			}
+			prompt = newText
+		}
 		msg = models.NewAgentMessage(models.RoleUser, models.TextContent{Text: prompt})
 		if err := setup.sess.Append(msg); err != nil {
 			return fmt.Errorf("append message: %w", err)
@@ -619,6 +646,13 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 
 	// A manual "/skill:name args" trigger folds the skill body into the user
 	// message; the model can also activate skills on its own via use_skill.
+	if setup.extBridge != nil {
+		newText, proceed, reason := setup.extBridge.InputHook(ctx, prompt)
+		if !proceed {
+			return fmt.Errorf("input blocked: %s", reason)
+		}
+		prompt = newText
+	}
 	msg := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: prompt})
 	if name, rest, ok := skills.ParseManualTrigger(prompt); ok {
 		meta, found := skills.FindByName(setup.cfg.loadedSkillCatalog, name)
@@ -667,5 +701,29 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 		caps = meta.Capabilities
 	}
 	needsSetup := !config.ProviderHasKey(setup.cfg.Config, setup.cfg.Provider)
+
+	// Extension input hook and slash commands must be installed before the
+	// bubbletea program loop begins (RegisterExtensionCommand is not safe for
+	// concurrent use with the running TUI).
+	if setup.extBridge != nil {
+		tui.SetInputHook(func(text string) (string, bool, string) {
+			return setup.extBridge.InputHook(ctx, text)
+		})
+	}
+	if setup.extHost != nil {
+		for _, c := range setup.extHost.Commands() {
+			decl := c
+			if err := tui.RegisterExtensionCommand(decl.Decl.Name, decl.Decl.Description, decl.Decl.Usage, func(args string) string {
+				out, err := setup.extHost.InvokeCommand(context.Background(), decl.Decl.Name, args)
+				if err != nil {
+					return "error: " + err.Error()
+				}
+				return out
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+			}
+		}
+	}
+
 	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup, setup.cfg.loadedSkillCatalog...)
 }

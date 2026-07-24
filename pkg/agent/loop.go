@@ -348,6 +348,20 @@ func (a *Agent) SetUserConfirm(uc UserConfirmation) {
 	a.cfg.UserConfirm = uc
 }
 
+// SetBeforeToolCall replaces the before-tool-call hook. The executor holds a
+// pointer to the agent config, so the change takes effect immediately.
+// Intended for startup wiring while the agent is idle.
+func (a *Agent) SetBeforeToolCall(hook BeforeToolCallHook) {
+	a.cfg.BeforeToolCall = hook
+}
+
+// SetAfterToolCall replaces the after-tool-call hook. The executor holds a
+// pointer to the agent config, so the change takes effect immediately.
+// Intended for startup wiring while the agent is idle.
+func (a *Agent) SetAfterToolCall(hook AfterToolCallHook) {
+	a.cfg.AfterToolCall = hook
+}
+
 // Prompt starts a new agent run with a user message.
 func (a *Agent) Prompt(ctx context.Context, msg models.AgentMessage) error {
 	return a.run(ctx, []models.AgentMessage{msg})

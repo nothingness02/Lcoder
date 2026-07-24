@@ -212,6 +212,12 @@ func (m *Manager) Summarizer() SummarizeFunc {
 	return m.summarizer
 }
 
+// SetSummarizer replaces the summarizer used for compaction. Intended for
+// startup wiring while the manager is idle.
+func (m *Manager) SetSummarizer(s SummarizeFunc) {
+	m.summarizer = s
+}
+
 // WindowPolicy returns the manager's window policy.
 func (m *Manager) WindowPolicy() WindowPolicy {
 	return m.policy

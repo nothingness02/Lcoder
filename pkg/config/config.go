@@ -106,7 +106,7 @@ type Config struct {
 	ToolExtensions []ToolExtensionConfig   `yaml:"tool_extensions"`
 	MCPServers     []MCPServerConfig       `yaml:"mcp_servers"`
 	Hooks          HookConfig              `yaml:"hooks"`
-	Extensions     []ExtensionConfig       `yaml:"extensions"`
+	Extensions     ExtensionsConfig        `yaml:"extensions"`
 	Packages       []PackageConfig         `yaml:"packages"`
 	Providers      map[string]ProviderConn `yaml:"providers"`
 	Memory         MemoryConfig            `yaml:"memory"`
