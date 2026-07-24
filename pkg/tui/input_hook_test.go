@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/config"
@@ -46,6 +47,9 @@ func TestSubmitInputHookBlock(t *testing.T) {
 	}
 	if m.blocks[0].kind != components.BlockSystem || m.blocks[0].raw == "bad" {
 		t.Fatalf("expected a system block notice, got %+v", m.blocks[0])
+	}
+	if !strings.Contains(m.blocks[0].raw, "blocked by ext") {
+		t.Fatalf("expected notice to contain the block reason, got %+v", m.blocks[0])
 	}
 	if m.state != stateInput {
 		t.Fatalf("expected to stay in stateInput, got %v", m.state)

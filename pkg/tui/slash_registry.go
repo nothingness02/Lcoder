@@ -155,7 +155,16 @@ func RegisterCommand(e commandEntry) {
 // extension. Names conflicting with built-ins, aliases, or previously
 // registered extension commands are rejected. usage is accepted for parity
 // with extension manifests but not displayed (commandEntry has no usage field).
+// Not safe for concurrent use with the running TUI; call during startup before
+// the program loop begins.
 func RegisterExtensionCommand(name, description, usage string, invoke func(args string) string) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return fmt.Errorf("slash command name must not be empty")
+	}
+	if invoke == nil {
+		return fmt.Errorf("slash command %q has nil invoke", name)
+	}
 	for _, e := range commandRegistry {
 		if e.Name == name {
 			return fmt.Errorf("slash command %q already registered", name)

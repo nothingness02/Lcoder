@@ -510,6 +510,9 @@ func (m *Model) submit(text string) tea.Cmd {
 	if m.inputHook != nil && !strings.HasPrefix(text, "/") {
 		newText, proceed, reason := m.inputHook(text)
 		if !proceed {
+			if reason == "" {
+				reason = "no reason given"
+			}
 			m.addSystem("input blocked: " + reason)
 			return nil
 		}

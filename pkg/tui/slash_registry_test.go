@@ -37,3 +37,32 @@ func TestRegisterExtensionCommandConflict(t *testing.T) {
 	}
 	t.Fatal("extension command not in registry")
 }
+
+func TestRegisterExtensionCommandValidation(t *testing.T) {
+	saved := commandRegistry
+	t.Cleanup(func() { commandRegistry = saved })
+
+	// Mixed-case names normalize to lowercase on registration.
+	if err := RegisterExtensionCommand("TESTEXTCMD2", "desc", "/testextcmd2", func(string) string { return "" }); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range commandRegistry {
+		if e.Name == "testextcmd2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected upper-case name to register lowercased")
+	}
+
+	// Empty (or whitespace-only) names are rejected.
+	if err := RegisterExtensionCommand("  ", "desc", "x", func(string) string { return "" }); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+
+	// Nil invoke is rejected.
+	if err := RegisterExtensionCommand("testextcmd3", "desc", "x", nil); err == nil {
+		t.Fatal("expected error for nil invoke")
+	}
+}
