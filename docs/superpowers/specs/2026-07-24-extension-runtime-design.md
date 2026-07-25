@@ -143,7 +143,7 @@ func (s *Session) CustomEntries(customType string) []CustomEntry  // 按 active 
 ### 信任门
 
 - 全局扩展默认可信，直接加载(与 `~/.lcoder/config.yaml` 同等信任级别)
-- 项目级扩展每次启动、逐个向用户确认后才 spawn——复用权限引擎的 `Ask` 通道(TUI 弹确认框;one-shot/JSON 模式无法交互则跳过并 warning，可用 `--trust-project-extensions` 旗标预授权)
+- 项目级扩展每次启动、逐个向用户确认后才 spawn。**实现偏差(已落地)**:确认走 stdin y/N 提示(TUI 启动前的 `prepareAgent` 阶段执行,TUI 确认框此时不可用),而非权限引擎的 `Ask` 通道;`--json` 模式无法交互则跳过并 warning,可用 `--trust-project-extensions` 旗标预授权
 - 拒绝的扩展本次会话不再询问，记 warning
 
 ### 配置(`lcoder.yaml` 新增 `extensions:` 节)
