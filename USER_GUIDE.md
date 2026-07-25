@@ -722,7 +722,7 @@ Lcoder 支持三种方式扩展 agent 可用工具：
 
 1. **内置工具**：由 Lcoder 自带，如 `read`、`write`、`edit`、`bash`、`memory`、`repo_index` 等。其中 `subagent` 仅在配置中启用后才注册。
 2. **HTTP 工具**：通过配置向任意 HTTP 端点暴露工具。
-3. **进程外扩展**：以独立进程运行、通过 stdio JSON-RPC 与宿主通信的扩展，从 `~/.lcoder/extensions/`（全局）或 `.lcoder/extensions/`（项目级）自动发现，目录内需有 `lcoder-extension.yaml` 清单。
+3. **进程外扩展**：以独立进程运行、通过 stdio JSON-RPC 与宿主通信的扩展，从 `~/.lcoder/extensions/`（全局）或 `.lcoder/extensions/`（项目级）自动发现，目录内需有 `extension.yaml` 清单。
 
 > **注意**：`./lcoder install` 只是把扩展源码或包安装到 `~/.lcoder/extensions/` 或 `~/.lcoder/packages/`，不会自动注册。进程外扩展按上述目录自动发现，无需在 `tool_extensions` 中声明；HTTP 工具直接写 `http_tools` 即可生效。
 

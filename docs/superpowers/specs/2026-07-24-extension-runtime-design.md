@@ -92,7 +92,7 @@ ext → host 反向最小集：`session/append_entry`(custom entry，见 §3)、
 
 ### Go plugin 退役
 
-删除 `pkg/extension/plugin.go`(`PluginLoader`,`.so` 加载)。项目处于开发阶段、无用户，不做兼容层。`Loader`/`Manager`(包安装、skill/agent 目录管理)保留不动。`Extension` 接口(`RegisterTools`/`RegisterHooks`/`RegisterExporters`)重新定义为进程内宿主接口——bridge 是其一个实现；配置内建 Hook(Audit/SensitiveFileCheck/BashDenylist)继续走进程内路径不受影响。
+删除 `pkg/extension/plugin.go`(`PluginLoader`,`.so` 加载)。项目处于开发阶段、无用户，不做兼容层。`Loader`/`Manager`(包安装、skill/agent 目录管理)保留不动。原 `Extension` 接口(`RegisterTools`/`RegisterHooks`/`RegisterExporters`)无消费者,已随 `pkg/extension/extension.go` 一并删除;配置内建 Hook(Audit/SensitiveFileCheck/BashDenylist)继续走进程内路径不受影响。
 
 ### 接线位置
 

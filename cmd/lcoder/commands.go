@@ -237,7 +237,7 @@ func installCmd() *cobra.Command {
 			mgr := extension.DefaultManager()
 			pkg, err := mgr.InstallPackage(name, source)
 			if err != nil {
-				// Try as a Go extension.
+				// Fall back to installing as an extension directory.
 				loader := extension.DefaultLoader()
 				dir, err2 := loader.Install(name, source)
 				if err2 != nil {

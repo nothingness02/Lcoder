@@ -19,7 +19,7 @@ func TestLoaderInstallLocal(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(src) })
 
-	if err := os.WriteFile(filepath.Join(src, "lcoder-extension.yaml"), []byte("name: test-ext\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "extension.yaml"), []byte("name: test-ext\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -28,7 +28,7 @@ func TestLoaderInstallLocal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "lcoder-extension.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "extension.yaml")); err != nil {
 		t.Fatal(err)
 	}
 

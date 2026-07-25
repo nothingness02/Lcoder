@@ -145,7 +145,7 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/config` | koanf configuration loading and validation. |
 | `pkg/permissions` | Permission engine and rule matching. |
 | `pkg/observability` | Event collection, metrics, traces, exporters. |
-| `pkg/extension` | In-process extension host interface, package/extension management, and the process-external extension runtime (`proto`/`runtime`/`bridge`). |
+| `pkg/extension` | Package/extension management and the process-external extension runtime (`proto`/`runtime`/`bridge`). |
 | `pkg/memory` | Persistent memory and dynamic recall. |
 | `pkg/codeindex` | SQLite code graph index. |
 
@@ -160,16 +160,9 @@ type Executable interface {
 }
 ```
 
-**Extension interface** (`pkg/extension/extension.go`):
+**Extension runtime** (`pkg/extension/runtime`):
 
-```go
-type Extension interface {
-    Name() string
-    RegisterTools(registry *tools.Registry, cwd string) error
-    RegisterHooks() (Hooks, error)
-    RegisterExporters() (map[string]observability.ExporterFactory, error)
-}
-```
+Process-external extensions run as standalone processes and talk to the host over stdio JSON-RPC; on the host side, `pkg/extension/bridge` adapts the runtime to agent hooks, events, and sessions.
 
 **Hook types** (`pkg/agent/loop.go`):
 
@@ -632,15 +625,9 @@ The subagent extension registers a `subagent` tool whose parameters support thre
 - **Parallel**: multiple agents run tasks in parallel.
 - **Chain**: multiple agents run sequentially; later steps can reference `{previous}` results.
 
-### 10.2 Extension Entry Point
+### 10.2 Custom Extension Entry Point
 
-```go
-func New(cfg map[string]any) (extension.Extension, error) {
-    return &subagentExtension{
-        newRunner: subagent.NewRunner,
-    }, nil
-}
-```
+The built-in subagent covers common scenarios. When you need a custom runner, implement it through the process-external extension runtime: the extension is a standalone process with an `extension.yaml` manifest that talks to the host over stdio JSON-RPC (`pkg/extension/runtime`); see `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
 
 ### 10.3 Tool Definition
 
@@ -778,18 +765,15 @@ type Executable interface {
 type Factory func(cwd string) Executable
 ```
 
-### 13.3 `extension.Extension`
+### 13.3 Process-External Extension Runtime
 
-```go
-type Extension interface {
-    Name() string
-    RegisterTools(registry *tools.Registry, cwd string) error
-    RegisterHooks() (Hooks, error)
-    RegisterExporters() (map[string]observability.ExporterFactory, error)
-}
-```
+A process-external extension is a standalone process that talks to the host over stdio JSON-RPC:
 
-> This is the in-process host interface. The Go plugin (`.so`) loading carrier is retired; process-external extensions should use the extension runtime (`pkg/extension/proto`/`runtime`/`bridge`), designed in `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
+- `pkg/extension/proto`: JSON-RPC wire types.
+- `pkg/extension/runtime`: manifest discovery, process lifecycle, host-side handshake/hooks/events/commands.
+- `pkg/extension/bridge`: adapts the runtime to agent hooks, the summarizer, events, and sessions.
+
+Design document: `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
 
 ### 13.4 `agent.BeforeToolCallHook`
 

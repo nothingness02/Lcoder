@@ -145,7 +145,7 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/config` | koanf 配置加载与验证。 |
 | `pkg/permissions` | 权限引擎与规则匹配。 |
 | `pkg/observability` | 事件收集、指标、trace、导出器。 |
-| `pkg/extension` | 进程内扩展宿主接口、包/扩展管理与进程外扩展运行时（`proto`/`runtime`/`bridge`）。 |
+| `pkg/extension` | 包/扩展管理与进程外扩展运行时（`proto`/`runtime`/`bridge`）。 |
 | `pkg/memory` | 持久化记忆与动态召回。 |
 | `pkg/codeindex` | SQLite 代码图索引。 |
 
@@ -160,16 +160,9 @@ type Executable interface {
 }
 ```
 
-**扩展接口**（`pkg/extension/extension.go`）：
+**扩展运行时**（`pkg/extension/runtime`）：
 
-```go
-type Extension interface {
-    Name() string
-    RegisterTools(registry *tools.Registry, cwd string) error
-    RegisterHooks() (Hooks, error)
-    RegisterExporters() (map[string]observability.ExporterFactory, error)
-}
-```
+进程外扩展以独立进程运行，通过 stdio JSON-RPC 与宿主通信；宿主侧由 `pkg/extension/bridge` 将运行时适配到 agent 钩子、事件与 session。
 
 **Hook 类型**（`pkg/agent/loop.go`）：
 
@@ -645,15 +638,9 @@ subagent:
 - **Parallel**：多个 agent 并行执行多个任务。
 - **Chain**：多个 agent 串行执行，后一步可以引用前一步的结果。
 
-### 10.2 扩展入口
+### 10.2 自定义扩展入口
 
-```go
-func New(cfg map[string]any) (extension.Extension, error) {
-    return &subagentExtension{
-        newRunner: subagent.NewRunner,
-    }, nil
-}
-```
+内置子代理已覆盖常见场景。需要自定义 runner 时，可通过进程外扩展运行时实现：扩展是一个带 `extension.yaml` 清单的独立进程，通过 stdio JSON-RPC 与宿主通信（`pkg/extension/runtime`），设计见 `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`。
 
 ### 10.3 工具定义
 
@@ -791,18 +778,15 @@ type Executable interface {
 type Factory func(cwd string) Executable
 ```
 
-### 13.3 `extension.Extension`
+### 13.3 进程外扩展运行时
 
-```go
-type Extension interface {
-    Name() string
-    RegisterTools(registry *tools.Registry, cwd string) error
-    RegisterHooks() (Hooks, error)
-    RegisterExporters() (map[string]observability.ExporterFactory, error)
-}
-```
+进程外扩展是独立进程，通过 stdio JSON-RPC 与宿主通信：
 
-> 这是进程内宿主接口。Go plugin（`.so`）加载载体已退役；进程外扩展请使用扩展运行时（`pkg/extension/proto`/`runtime`/`bridge`），设计文档见 `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`。
+- `pkg/extension/proto`：JSON-RPC 线路类型。
+- `pkg/extension/runtime`：清单发现、进程生命周期、宿主侧握手/钩子/事件/命令。
+- `pkg/extension/bridge`：将运行时适配到 agent 钩子、summarizer、事件与 session。
+
+设计文档见 `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`。
 
 ### 13.4 `agent.BeforeToolCallHook`
 

@@ -330,7 +330,7 @@ The following flags belong to the main `lcoder` command and **cannot** be used o
 ./lcoder install ./acme-modes --name acme-modes --local
 ```
 
-> `./lcoder install` only copies files to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register extensions. Process-external extensions are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `lcoder-extension.yaml` manifest; see `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
+> `./lcoder install` only copies files to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register extensions. Process-external extensions are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `extension.yaml` manifest; see `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
 
 ### 5.5 `sessions` and Session Recovery
 
@@ -712,7 +712,7 @@ Lcoder supports three ways to extend the tools available to the agent:
 
 1. **Built-in tools**: Provided by Lcoder, such as `read`, `write`, `edit`, `bash`, `memory`, `repo_index`, etc. `subagent` is registered only when explicitly enabled in the configuration.
 2. **HTTP tools**: Expose arbitrary HTTP endpoints as tools through configuration.
-3. **Process-external extensions**: Standalone processes that talk to the host over stdio JSON-RPC; they are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `lcoder-extension.yaml` manifest.
+3. **Process-external extensions**: Standalone processes that talk to the host over stdio JSON-RPC; they are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `extension.yaml` manifest.
 
 > **Note**: `./lcoder install` only copies an extension or package to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register extensions. Process-external extensions are discovered from the directories above and need no declaration in `tool_extensions`; HTTP tools take effect simply by adding them under `http_tools`.
 
