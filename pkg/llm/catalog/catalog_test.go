@@ -251,3 +251,67 @@ func hasCap(caps []string, want string) bool {
 	}
 	return false
 }
+
+// merge 对同 key 的零值新字段保留既有值,非零值则覆盖。
+func TestMergePreservesNewFields(t *testing.T) {
+	c := New(Options{Refresh: false})
+	key := "testp/testmodel"
+	c.merge([]Entry{{
+		ID: "testmodel", Provider: "testp",
+		ContextWindow: 1000, MaxInput: 800, MaxOutput: 200,
+		Efforts: []string{"low", "high"}, OffEffort: "none", ThinkingToggle: true,
+	}})
+
+	// 零值新字段不覆盖既有值。
+	c.merge([]Entry{{ID: "testmodel", Provider: "testp", ContextWindow: 2000}})
+	got := c.entries[key]
+	if got.MaxInput != 800 {
+		t.Errorf("MaxInput=%d, want preserved 800", got.MaxInput)
+	}
+	if len(got.Efforts) != 2 || got.Efforts[0] != "low" {
+		t.Errorf("Efforts=%v, want preserved [low high]", got.Efforts)
+	}
+	if got.OffEffort != "none" {
+		t.Errorf("OffEffort=%q, want preserved none", got.OffEffort)
+	}
+	if !got.ThinkingToggle {
+		t.Error("ThinkingToggle should stay true")
+	}
+	if got.ContextWindow != 2000 {
+		t.Errorf("ContextWindow=%d, want overridden 2000", got.ContextWindow)
+	}
+
+	// 非零新字段覆盖既有值。
+	c.merge([]Entry{{
+		ID: "testmodel", Provider: "testp",
+		MaxInput: 900, Efforts: []string{"minimal"}, OffEffort: "off",
+	}})
+	got = c.entries[key]
+	if got.MaxInput != 900 {
+		t.Errorf("MaxInput=%d, want 900", got.MaxInput)
+	}
+	if len(got.Efforts) != 1 || got.Efforts[0] != "minimal" {
+		t.Errorf("Efforts=%v, want [minimal]", got.Efforts)
+	}
+	if got.OffEffort != "off" {
+		t.Errorf("OffEffort=%q, want off", got.OffEffort)
+	}
+}
+
+// ProviderMeta 按别名解析:元数据登记在别名目标(google)下,用规范名(gemini)查询。
+func TestProviderMetaAliasAware(t *testing.T) {
+	c := New(Options{Refresh: false})
+	c.mergeDataset(Dataset{Providers: []ProviderMeta{
+		{ID: "google", Npm: "@ai-sdk/google", API: "https://generativelanguage.googleapis.com"},
+	}})
+	m, ok := c.ProviderMeta("gemini")
+	if !ok {
+		t.Fatal("ProviderMeta(gemini) should resolve via alias to google")
+	}
+	if m.Npm != "@ai-sdk/google" {
+		t.Errorf("meta = %+v", m)
+	}
+	if _, ok := c.ProviderMeta("no-such-provider"); ok {
+		t.Error("unknown provider should return ok=false")
+	}
+}

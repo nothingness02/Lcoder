@@ -332,7 +332,6 @@ func FetchEntries(url string) (Dataset, error) {
 		return Dataset{}, fmt.Errorf("models.dev returned %d", resp.StatusCode)
 	}
 	var raw map[string]struct {
-		ID     string   `json:"id"`
 		Npm    string   `json:"npm"`
 		API    string   `json:"api"`
 		Env    []string `json:"env"`
@@ -426,7 +425,7 @@ func parseReasoningOptions(opts []reasoningOption) (efforts []string, offEffort 
 					continue
 				}
 				if strings.EqualFold(s, "none") {
-					offEffort = s
+					offEffort = strings.ToLower(s)
 					continue
 				}
 				levels = append(levels, s)
