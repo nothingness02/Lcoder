@@ -31,16 +31,15 @@ type Entry struct {
     ContextWindow int      // limit.context(总窗口,completion 预算用)
     MaxInput      int      // limit.input(prompt 预算用;0 = 无独立上限,用 ContextWindow)
     MaxOutput     int      // limit.output
-    Capabilities  []string // "tools"/"reasoning"(沿用字符串形式,下游零改动)
-    Modalities    []string // 输入模态:"image"/"video"/"audio"
-    Status        string   // 原始值,仅用于过滤与展示
+    Capabilities  []string // "tools"/"reasoning"/"vision"/"audio"/"video"(沿用现有字符串约定,models.yaml 已用 "vision")
     Efforts       []string // reasoning_options 解析出的 thinking 档位
     OffEffort     string   // "关 thinking"的线上编码(如 "none");空 = 关不掉
+    ThinkingToggle bool    // reasoning_options 含 {type:"toggle"}(布尔形态)
     Cost          struct{ Prompt, Completion, CacheRead, CacheWrite float64 } // 不变
 }
 ```
 
-`fetchModelsDev` 解析新增 `limit.input`、`modalities.input`、`status`、`reasoning_options`。reasoning_options 解析规则（照搬 kimi-code `catalogThinkingOptions`):`{type:"effort", values:[...]}` 取档位；values 中的 `"none"` 或 JSON null → `OffEffort`;`{type:"toggle"}` 记布尔形态（影响 AlwaysThinking 判定，见 §4)。
+`fetchModelsDev` 解析新增 `limit.input`、`modalities.input`、`status`、`reasoning_options`。`modalities.input` 映射进 capability 字符串：含 `image` → `vision`、`audio` → `audio`、`video` → `video`。reasoning_options 解析规则（照搬 kimi-code `catalogThinkingOptions`):`{type:"effort", values:[...]}` 取档位；values 中的 `"none"` 或 JSON null → `OffEffort`;`{type:"toggle"}` → `ThinkingToggle=true`。`status` 只在解析时用于过滤，不存储。
 
 **入库过滤**（对齐 kimi-code `isUsableChatModel`)，发生在解析层，`merge` 与快照格式不变：
 
@@ -54,7 +53,9 @@ type Entry struct {
 
 - 新增 `MaxInput(provider, model) int`，与 `Window`/`MaxOutput` 同款精确+前缀匹配；0 = 未知
 - contextmgr 压缩触发线改用 `MaxInput`(0 回退 `Window`)——唯一的消费方改动
-- `List()` 的 `models.ModelInfo` 加 `Modalities`/`Status` 字段，供 TUI 面板展示（面板渲染改动最小化，仅展示）
+- capabilities 已随 `List()` 的 `ModelInfo.Capabilities` 暴露，TUI 无需改动
+
+同时 catalog 需保留 **provider 级元数据**(models.dev 的 `npm`/`api`/`env` 字段，按 provider key 存储）——§3 的 wire 推断依赖它。snapshot/cache 文件格式相应从 `[]Entry` 变为 `{providers, models}` 结构，旧 cache 解析失败按 miss 处理（重新拉取）。
 
 ## §2 静态能力兜底表(capability.go)
 
@@ -62,8 +63,7 @@ type Entry struct {
 
 ```go
 type FallbackCapability struct {
-    Capabilities  []string // tools / reasoning
-    Modalities    []string // image / video / audio(与 §1 Entry.Modalities 同语义)
+    Capabilities  []string // tools / reasoning / vision / audio / video
     ContextWindow int      // 0 = 未知
     MaxOutput     int      // 0 = 未知
 }
@@ -77,7 +77,7 @@ func LookupFallback(route, model string) (FallbackCapability, bool)
 - `openai`(含 openai-responses):`^o\d` → tools+reasoning;`gpt-4o`/`gpt-4-turbo`/`gpt-4.1`/`gpt-4.5` → tools + image 模态
 - gemini 经 openai-compat：按 model id 前缀 `gemini-` 匹配（2.5 系 → tools+reasoning + image/video/audio 模态）
 
-**查询链改造**:`Window`/`MaxInput`/`MaxOutput`/capabilities/modalities 查询在 catalog 目录未命中时回落 `LookupFallback`;fallback 也未命中才返回 0/空（再往下游才是现有 128k 默认 window)。降级链：目录精确 → 目录前缀 → 静态前缀表 → 默认值。每级独立可测。`MaxInput` 在静态表无对应字段，固定返回 0，由 contextmgr 回退 `Window`。
+**查询链改造**:`Window`/`MaxInput`/`MaxOutput`/capabilities 查询在 catalog 目录未命中时回落 `LookupFallback`;fallback 也未命中才返回 0/空（再往下游才是现有 128k 默认 window)。降级链：目录精确 → 目录前缀 → 静态前缀表 → 默认值。每级独立可测。`MaxInput` 在静态表无对应字段，固定返回 0，由 contextmgr 回退 `Window`。
 
 ## §3 wire 推断与端点校验(resolve.go)
 
