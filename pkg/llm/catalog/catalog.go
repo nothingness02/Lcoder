@@ -46,18 +46,36 @@ func providerCandidates(provider string) []string {
 
 // Entry is one catalog model record (snapshot/models.dev shape).
 type Entry struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Provider      string   `json:"provider"`
-	ContextWindow int      `json:"context_window"`
-	MaxOutput     int      `json:"max_output"`
-	Capabilities  []string `json:"capabilities"`
-	Cost          struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Provider       string   `json:"provider"`
+	ContextWindow  int      `json:"context_window"`
+	MaxInput       int      `json:"max_input,omitempty"`
+	MaxOutput      int      `json:"max_output"`
+	Capabilities   []string `json:"capabilities"`
+	Efforts        []string `json:"efforts,omitempty"`
+	OffEffort      string   `json:"off_effort,omitempty"`
+	ThinkingToggle bool     `json:"thinking_toggle,omitempty"`
+	Cost           struct {
 		Prompt     float64 `json:"prompt"`
 		Completion float64 `json:"completion"`
 		CacheRead  float64 `json:"cache_read"`
 		CacheWrite float64 `json:"cache_write"`
 	} `json:"cost"`
+}
+
+// ProviderMeta is provider-level models.dev metadata, kept for wire inference.
+type ProviderMeta struct {
+	ID  string   `json:"id"`
+	Npm string   `json:"npm,omitempty"`
+	API string   `json:"api,omitempty"`
+	Env []string `json:"env,omitempty"`
+}
+
+// Dataset is the snapshot/cache file format.
+type Dataset struct {
+	Providers []ProviderMeta `json:"providers"`
+	Models    []Entry        `json:"models"`
 }
 
 // Options configures catalog construction.
@@ -72,6 +90,7 @@ type Options struct {
 type Catalog struct {
 	mu        sync.RWMutex
 	entries   map[string]Entry
+	providers map[string]ProviderMeta
 	order     []string
 	overrides []Entry
 	sourceURL string
@@ -84,15 +103,43 @@ func New(opts Options) *Catalog {
 	if src == "" {
 		src = modelsDevURL
 	}
-	c := &Catalog{entries: map[string]Entry{}, overrides: opts.Overrides, sourceURL: src}
-	var snap []Entry
-	_ = json.Unmarshal(snapshotJSON, &snap)
-	c.merge(snap)
+	c := &Catalog{entries: map[string]Entry{}, providers: map[string]ProviderMeta{}, overrides: opts.Overrides, sourceURL: src}
+	var ds Dataset
+	if err := json.Unmarshal(snapshotJSON, &ds); err == nil && len(ds.Models) > 0 {
+		c.mergeDataset(ds)
+	} else {
+		// Legacy []Entry snapshot format (pre-regeneration transitional path).
+		var snap []Entry
+		_ = json.Unmarshal(snapshotJSON, &snap)
+		c.merge(snap)
+	}
 	c.merge(opts.Overrides)
 	if opts.Refresh {
 		go c.refresh(opts.CachePath)
 	}
 	return c
+}
+
+// mergeDataset merges provider metadata, then model entries.
+func (c *Catalog) mergeDataset(ds Dataset) {
+	c.mu.Lock()
+	for _, p := range ds.Providers {
+		c.providers[p.ID] = p
+	}
+	c.mu.Unlock()
+	c.merge(ds.Models)
+}
+
+// ProviderMeta returns the models.dev metadata for a provider id (alias-aware).
+func (c *Catalog) ProviderMeta(name string) (ProviderMeta, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, p := range providerCandidates(name) {
+		if m, ok := c.providers[p]; ok {
+			return m, true
+		}
+	}
+	return ProviderMeta{}, false
 }
 
 func (c *Catalog) merge(entries []Entry) {
@@ -114,6 +161,18 @@ func (c *Catalog) merge(entries []Entry) {
 			}
 			if e.MaxOutput > 0 {
 				existing.MaxOutput = e.MaxOutput
+			}
+			if e.MaxInput > 0 {
+				existing.MaxInput = e.MaxInput
+			}
+			if len(e.Efforts) > 0 {
+				existing.Efforts = e.Efforts
+			}
+			if e.OffEffort != "" {
+				existing.OffEffort = e.OffEffort
+			}
+			if e.ThinkingToggle {
+				existing.ThinkingToggle = true
 			}
 			if len(e.Capabilities) > 0 {
 				existing.Capabilities = e.Capabilities
@@ -234,79 +293,186 @@ func (c *Catalog) refresh(cachePath string) {
 	if cachePath != "" {
 		if info, err := os.Stat(cachePath); err == nil && time.Since(info.ModTime()) < cacheTTL {
 			if data, err := os.ReadFile(cachePath); err == nil {
-				var ents []Entry
-				if json.Unmarshal(data, &ents) == nil && len(ents) > 0 {
-					c.applyRefresh(ents)
+				var ds Dataset
+				if json.Unmarshal(data, &ds) == nil && len(ds.Models) > 0 {
+					c.applyRefresh(ds)
 					return
 				}
 			}
 		}
 	}
-	ents, err := fetchModelsDev(c.sourceURL)
-	if err != nil || len(ents) == 0 {
+	ds, err := FetchEntries(c.sourceURL)
+	if err != nil || len(ds.Models) == 0 {
 		return
 	}
 	if cachePath != "" {
-		if data, err := json.Marshal(ents); err == nil {
+		if data, err := json.Marshal(ds); err == nil {
 			_ = fsutil.WritePrivateFile(cachePath, data)
 		}
 	}
-	c.applyRefresh(ents)
+	c.applyRefresh(ds)
 }
 
 // applyRefresh merges models.dev entries, then re-asserts user overrides on top.
-func (c *Catalog) applyRefresh(ents []Entry) {
-	c.merge(ents)
+func (c *Catalog) applyRefresh(ds Dataset) {
+	c.mergeDataset(ds)
 	c.merge(c.overrides)
 }
 
-// fetchModelsDev fetches and flattens the models.dev api.json into []Entry.
-func fetchModelsDev(url string) ([]Entry, error) {
+// FetchEntries fetches a models.dev-style api.json and returns the parsed
+// dataset: provider metadata plus filtered, normalized model entries.
+func FetchEntries(url string) (Dataset, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return nil, err
+		return Dataset{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("models.dev returned %d", resp.StatusCode)
+		return Dataset{}, fmt.Errorf("models.dev returned %d", resp.StatusCode)
 	}
 	var raw map[string]struct {
+		ID     string   `json:"id"`
+		Npm    string   `json:"npm"`
+		API    string   `json:"api"`
+		Env    []string `json:"env"`
 		Models map[string]struct {
-			Name  string `json:"name"`
-			Limit struct {
+			Name   string `json:"name"`
+			Family string `json:"family"`
+			Status string `json:"status"`
+			Limit  struct {
 				Context int `json:"context"`
+				Input   int `json:"input"`
 				Output  int `json:"output"`
 			} `json:"limit"`
+			Modalities struct {
+				Input  []string `json:"input"`
+				Output []string `json:"output"`
+			} `json:"modalities"`
 			Cost struct {
 				Input      float64 `json:"input"`
 				Output     float64 `json:"output"`
 				CacheRead  float64 `json:"cache_read"`
 				CacheWrite float64 `json:"cache_write"`
 			} `json:"cost"`
-			ToolCall  bool `json:"tool_call"`
-			Reasoning bool `json:"reasoning"`
+			ToolCall         bool              `json:"tool_call"`
+			Reasoning        bool              `json:"reasoning"`
+			ReasoningOptions []reasoningOption `json:"reasoning_options"`
 		} `json:"models"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
+		return Dataset{}, err
 	}
-	var out []Entry
+	var ds Dataset
 	for provID, p := range raw {
+		ds.Providers = append(ds.Providers, ProviderMeta{ID: provID, Npm: p.Npm, API: p.API, Env: p.Env})
 		for modelID, m := range p.Models {
-			e := Entry{ID: modelID, Name: m.Name, Provider: provID, ContextWindow: m.Limit.Context, MaxOutput: m.Limit.Output}
+			if !isUsableChatModel(modelID, m.Name, m.Family, m.Status, m.Modalities.Output) {
+				continue
+			}
+			e := Entry{
+				ID: modelID, Name: m.Name, Provider: provID,
+				ContextWindow: m.Limit.Context, MaxInput: m.Limit.Input, MaxOutput: m.Limit.Output,
+			}
 			if m.ToolCall {
 				e.Capabilities = append(e.Capabilities, "tools")
 			}
 			if m.Reasoning {
 				e.Capabilities = append(e.Capabilities, "reasoning")
 			}
+			for _, mod := range m.Modalities.Input {
+				switch mod {
+				case "image":
+					e.Capabilities = append(e.Capabilities, "vision")
+				case "audio":
+					e.Capabilities = append(e.Capabilities, "audio")
+				case "video":
+					e.Capabilities = append(e.Capabilities, "video")
+				}
+			}
+			e.Efforts, e.OffEffort, e.ThinkingToggle = parseReasoningOptions(m.ReasoningOptions)
 			e.Cost.Prompt = m.Cost.Input
 			e.Cost.Completion = m.Cost.Output
 			e.Cost.CacheRead = m.Cost.CacheRead
 			e.Cost.CacheWrite = m.Cost.CacheWrite
-			out = append(out, e)
+			ds.Models = append(ds.Models, e)
 		}
 	}
-	return out, nil
+	return ds, nil
+}
+
+type reasoningOption struct {
+	Type   string `json:"type"`
+	Values []any  `json:"values"`
+}
+
+// parseReasoningOptions reads models.dev reasoning_options: effort levels, the
+// "none"/null disable tier, and the boolean toggle form.
+func parseReasoningOptions(opts []reasoningOption) (efforts []string, offEffort string, toggle bool) {
+	for _, o := range opts {
+		switch o.Type {
+		case "toggle":
+			toggle = true
+		case "effort":
+			var levels []string
+			hasNull := false
+			for _, v := range o.Values {
+				if v == nil {
+					hasNull = true
+					continue
+				}
+				s, ok := v.(string)
+				if !ok || s == "" {
+					continue
+				}
+				if strings.EqualFold(s, "none") {
+					offEffort = s
+					continue
+				}
+				levels = append(levels, s)
+			}
+			if offEffort == "" && hasNull {
+				offEffort = "none"
+			}
+			if len(levels) > 0 {
+				efforts = levels
+			}
+		}
+	}
+	return efforts, offEffort, toggle
+}
+
+// isUsableChatModel drops deprecated/alpha models, embedding models, and
+// models that do not emit text.
+func isUsableChatModel(id, name, family, status string, outputModalities []string) bool {
+	if status == "deprecated" || status == "alpha" {
+		return false
+	}
+	if len(outputModalities) > 0 {
+		hasText := false
+		for _, m := range outputModalities {
+			if m == "text" {
+				hasText = true
+			}
+		}
+		if !hasText {
+			return false
+		}
+	}
+	return !hasEmbeddingMarker(id) && !hasEmbeddingMarker(name) && !hasEmbeddingMarker(family)
+}
+
+func hasEmbeddingMarker(v string) bool {
+	lower := strings.ToLower(v)
+	if strings.Contains(lower, "embedding") {
+		return true
+	}
+	for _, tok := range strings.FieldsFunc(lower, func(r rune) bool {
+		return r == '-' || r == '_' || r == '/'
+	}) {
+		if tok == "embed" {
+			return true
+		}
+	}
+	return false
 }

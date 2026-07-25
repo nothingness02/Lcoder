@@ -1,7 +1,11 @@
 // pkg/llm/catalog/catalog_test.go
 package catalog
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestSnapshotLoads(t *testing.T) {
 	c := New(Options{Refresh: false})
@@ -62,4 +66,188 @@ func TestProviderAliasGemini(t *testing.T) {
 	if out := c.MaxOutput("gemini", "gemini-2.5-flash"); out != 65536 {
 		t.Errorf("gemini alias MaxOutput=%d, want 65536", out)
 	}
+}
+
+// models.dev 风格 api.json 的一段,覆盖:limit.input、modalities、status 过滤、
+// embedding 过滤、reasoning_options 三形态(effort+none / toggle / 无)。
+const sampleAPIJSON = `{
+  "openai": {
+    "id": "openai",
+    "npm": "@ai-sdk/openai",
+    "api": "https://api.openai.com/v1",
+    "env": ["OPENAI_API_KEY"],
+    "models": {
+      "gpt-5": {
+        "name": "GPT-5",
+        "limit": {"context": 400000, "input": 272000, "output": 128000},
+        "modalities": {"input": ["text", "image"], "output": ["text"]},
+        "tool_call": true,
+        "reasoning": true,
+        "reasoning_options": [{"type": "effort", "values": ["low", "medium", "high", null]}],
+        "cost": {"input": 1.25, "output": 10}
+      },
+      "gpt-4o": {
+        "name": "GPT-4o",
+        "limit": {"context": 128000, "output": 16384},
+        "modalities": {"input": ["text", "image", "audio"], "output": ["text"]},
+        "tool_call": true,
+        "cost": {"input": 2.5, "output": 10}
+      },
+      "gpt-5-mini-alpha": {
+        "name": "alpha model",
+        "status": "alpha",
+        "limit": {"context": 100000, "output": 1000},
+        "modalities": {"input": ["text"], "output": ["text"]}
+      },
+      "old-model": {
+        "name": "deprecated model",
+        "status": "deprecated",
+        "limit": {"context": 100000, "output": 1000},
+        "modalities": {"input": ["text"], "output": ["text"]}
+      },
+      "text-embedding-3-large": {
+        "name": "embed",
+        "family": "embedding",
+        "limit": {"context": 8191, "output": 0},
+        "modalities": {"input": ["text"], "output": ["embedding"]}
+      },
+      "tts-1": {
+        "name": "tts",
+        "limit": {"context": 1000, "output": 0},
+        "modalities": {"input": ["text"], "output": ["audio"]}
+      }
+    }
+  },
+  "xai": {
+    "id": "xai",
+    "npm": "@ai-sdk/xai",
+    "api": "https://api.x.ai/v1",
+    "models": {
+      "grok-4": {
+        "name": "Grok 4",
+        "limit": {"context": 256000, "output": 64000},
+        "modalities": {"input": ["text"], "output": ["text"]},
+        "tool_call": true,
+        "reasoning": true,
+        "reasoning_options": [{"type": "effort", "values": ["low", "high", "none"]}]
+      },
+      "grok-toggle": {
+        "name": "Grok Toggle",
+        "limit": {"context": 100000, "output": 1000},
+        "modalities": {"input": ["text"], "output": ["text"]},
+        "reasoning": true,
+        "reasoning_options": [{"type": "toggle"}]
+      }
+    }
+  }
+}`
+
+func serveAndFetch(t *testing.T) (Dataset, error) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(sampleAPIJSON))
+	}))
+	defer srv.Close()
+	return FetchEntries(srv.URL)
+}
+
+func TestFetchEntriesParsesExtendedFields(t *testing.T) {
+	ds, err := serveAndFetch(t)
+	if err != nil {
+		t.Fatalf("FetchEntries: %v", err)
+	}
+	var gpt5 *Entry
+	for i := range ds.Models {
+		if ds.Models[i].ID == "gpt-5" {
+			gpt5 = &ds.Models[i]
+		}
+	}
+	if gpt5 == nil {
+		t.Fatal("gpt-5 missing from parsed models")
+	}
+	if gpt5.ContextWindow != 400000 || gpt5.MaxInput != 272000 || gpt5.MaxOutput != 128000 {
+		t.Errorf("limits = %d/%d/%d, want 400000/272000/128000", gpt5.ContextWindow, gpt5.MaxInput, gpt5.MaxOutput)
+	}
+	for _, want := range []string{"tools", "reasoning", "vision"} {
+		if !hasCap(gpt5.Capabilities, want) {
+			t.Errorf("gpt-5 missing capability %q (has %v)", want, gpt5.Capabilities)
+		}
+	}
+	if len(gpt5.Efforts) != 3 || gpt5.Efforts[0] != "low" || gpt5.Efforts[2] != "high" {
+		t.Errorf("efforts = %v, want [low medium high]", gpt5.Efforts)
+	}
+	// JSON null tier → OffEffort "none"
+	if gpt5.OffEffort != "none" {
+		t.Errorf("off_effort = %q, want none", gpt5.OffEffort)
+	}
+}
+
+func TestFetchEntriesFilters(t *testing.T) {
+	ds, err := serveAndFetch(t)
+	if err != nil {
+		t.Fatalf("FetchEntries: %v", err)
+	}
+	for _, e := range ds.Models {
+		switch e.ID {
+		case "gpt-5-mini-alpha", "old-model":
+			t.Errorf("status-filtered model %s should be filtered", e.ID)
+		case "text-embedding-3-large":
+			t.Errorf("embedding model should be filtered")
+		case "tts-1":
+			t.Errorf("non-text-output model should be filtered")
+		}
+	}
+}
+
+func TestFetchEntriesReasoningForms(t *testing.T) {
+	ds, err := serveAndFetch(t)
+	if err != nil {
+		t.Fatalf("FetchEntries: %v", err)
+	}
+	var grok, toggle *Entry
+	for i := range ds.Models {
+		switch ds.Models[i].ID {
+		case "grok-4":
+			grok = &ds.Models[i]
+		case "grok-toggle":
+			toggle = &ds.Models[i]
+		}
+	}
+	if grok == nil || toggle == nil {
+		t.Fatal("grok entries missing")
+	}
+	if len(grok.Efforts) != 2 || grok.OffEffort != "none" {
+		t.Errorf("grok-4 efforts=%v off=%q, want [low high]/none", grok.Efforts, grok.OffEffort)
+	}
+	if !toggle.ThinkingToggle || len(toggle.Efforts) != 0 {
+		t.Errorf("grok-toggle toggle=%v efforts=%v, want true/[]", toggle.ThinkingToggle, toggle.Efforts)
+	}
+}
+
+func TestFetchEntriesProviderMeta(t *testing.T) {
+	ds, err := serveAndFetch(t)
+	if err != nil {
+		t.Fatalf("FetchEntries: %v", err)
+	}
+	var openai *ProviderMeta
+	for i := range ds.Providers {
+		if ds.Providers[i].ID == "openai" {
+			openai = &ds.Providers[i]
+		}
+	}
+	if openai == nil {
+		t.Fatal("openai provider meta missing")
+	}
+	if openai.Npm != "@ai-sdk/openai" || openai.API != "https://api.openai.com/v1" {
+		t.Errorf("meta = %+v", openai)
+	}
+}
+
+func hasCap(caps []string, want string) bool {
+	for _, c := range caps {
+		if c == want {
+			return true
+		}
+	}
+	return false
 }
