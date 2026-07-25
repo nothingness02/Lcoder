@@ -54,7 +54,7 @@ Lcoder 是一个用 Go 编写的**极简、可扩展的 SWE（Software Engineeri
 | 维度 | Lcoder | Claude Code / Cursor 等商业工具 |
 |---|---|---|
 | 部署方式 | 本地源码构建，完全自托管 | 通常是闭源客户端或 IDE 插件 |
-| 扩展机制 | Go plugin、HTTP 工具、MCP 服务器 | 多由官方提供，扩展受限 |
+| 扩展机制 | 进程外扩展、HTTP 工具、MCP 服务器 | 多由官方提供，扩展受限 |
 | 模型路由 | 进程内引擎，支持任意 OpenAI 兼容端点 | 通常只支持官方模型 |
 | 会话存储 | JSONL，可手动检查、分叉、备份 | 通常私有存储 |
 | 权限控制 | 细粒度 glob 规则，本地审计日志 | 由产品决定 |
@@ -722,9 +722,9 @@ Lcoder 支持三种方式扩展 agent 可用工具：
 
 1. **内置工具**：由 Lcoder 自带，如 `read`、`write`、`edit`、`bash`、`memory`、`repo_index` 等。其中 `subagent` 仅在配置中启用后才注册。
 2. **HTTP 工具**：通过配置向任意 HTTP 端点暴露工具。
-3. **Go plugin 扩展**：编译为 `.so` 的 Go 扩展，需在 `tool_extensions` 中声明后加载。
+3. **进程外扩展**：以独立进程运行、通过 stdio JSON-RPC 与宿主通信的扩展，从 `~/.lcoder/extensions/`（全局）或 `.lcoder/extensions/`（项目级）自动发现，目录内需有 `lcoder-extension.yaml` 清单。
 
-> **注意**：`./lcoder install` 只是把扩展源码或包安装到 `~/.lcoder/extensions/` 或 `~/.lcoder/packages/`，不会自动注册。Go plugin 需要在 `~/.lcoder/config.yaml` 的 `tool_extensions` 中配置；HTTP 工具直接写 `http_tools` 即可生效。
+> **注意**：`./lcoder install` 只是把扩展源码或包安装到 `~/.lcoder/extensions/` 或 `~/.lcoder/packages/`，不会自动注册。进程外扩展按上述目录自动发现，无需在 `tool_extensions` 中声明；HTTP 工具直接写 `http_tools` 即可生效。
 
 ### 启用子代理
 
@@ -733,16 +733,18 @@ subagent:
   enabled: true
 ```
 
-### 注册 Go plugin 扩展
+### 注册扩展
+
+`tool_extensions` 目前仅支持 `type: json`：`path` 指向一个 JSON 描述文件（定义 HTTP 工具的 `name`/`endpoint`/`parameters` 等，与 `http_tools` 等价）：
 
 ```yaml
 tool_extensions:
   - name: weather
-    type: go-plugin
-    path: ~/.lcoder/plugins/weather.so
-    config:
-      api_key: ${WEATHER_API_KEY}
+    type: json
+    path: ~/.lcoder/tools/weather.json
 ```
+
+进程外扩展不通过 `tool_extensions` 配置，而是从 `~/.lcoder/extensions/`（全局）或 `.lcoder/extensions/`（项目级）自动发现，设计详见 `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`。
 
 ### 11.1 HTTP 工具
 

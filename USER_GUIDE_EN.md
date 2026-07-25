@@ -54,7 +54,7 @@ Lcoder is a **minimal, extensible SWE (Software Engineering) agent runtime frame
 | Dimension | Lcoder | Claude Code / Cursor / etc. |
 |---|---|---|
 | Deployment | Self-hosted from source | Usually closed-source client or IDE plugin |
-| Extension mechanism | Go plugin, HTTP tools, MCP servers | Mostly vendor-provided |
+| Extension mechanism | Process-external extensions, HTTP tools, MCP servers | Mostly vendor-provided |
 | Model routing | In-process engine, any OpenAI-compatible endpoint | Usually official models only |
 | Session storage | JSONL, inspectable, forkable, backup-friendly | Usually proprietary storage |
 | Permission control | Fine-grained glob rules, local audit log | Determined by the product |
@@ -330,16 +330,7 @@ The following flags belong to the main `lcoder` command and **cannot** be used o
 ./lcoder install ./acme-modes --name acme-modes --local
 ```
 
-> `./lcoder install` only copies files to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register Go plugins. Go plugins must also be declared in `~/.lcoder/config.yaml`:
-
-```yaml
-tool_extensions:
-  - name: weather
-    type: go-plugin
-    path: ~/.lcoder/plugins/weather.so
-    config:
-      api_key: ${WEATHER_API_KEY}
-```
+> `./lcoder install` only copies files to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register extensions. Process-external extensions are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `lcoder-extension.yaml` manifest; see `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
 
 ### 5.5 `sessions` and Session Recovery
 
@@ -721,9 +712,9 @@ Lcoder supports three ways to extend the tools available to the agent:
 
 1. **Built-in tools**: Provided by Lcoder, such as `read`, `write`, `edit`, `bash`, `memory`, `repo_index`, etc. `subagent` is registered only when explicitly enabled in the configuration.
 2. **HTTP tools**: Expose arbitrary HTTP endpoints as tools through configuration.
-3. **Go plugin extensions**: Go extensions compiled as `.so` files; they must be declared under `tool_extensions` to be loaded.
+3. **Process-external extensions**: Standalone processes that talk to the host over stdio JSON-RPC; they are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `lcoder-extension.yaml` manifest.
 
-> **Note**: `./lcoder install` only copies an extension or package to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register Go plugins. Go plugins must be declared in `~/.lcoder/config.yaml` under `tool_extensions` with `type: go-plugin`; HTTP tools take effect simply by adding them under `http_tools`.
+> **Note**: `./lcoder install` only copies an extension or package to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register extensions. Process-external extensions are discovered from the directories above and need no declaration in `tool_extensions`; HTTP tools take effect simply by adding them under `http_tools`.
 
 ### Enabling Subagent
 
@@ -732,16 +723,18 @@ subagent:
   enabled: true
 ```
 
-### Registering Go Plugin Extensions
+### Registering Extensions
+
+`tool_extensions` currently supports only `type: json`: `path` points to a JSON descriptor file that defines an HTTP tool (`name`/`endpoint`/`parameters`, etc., equivalent to `http_tools`):
 
 ```yaml
 tool_extensions:
   - name: weather
-    type: go-plugin
-    path: ~/.lcoder/plugins/weather.so
-    config:
-      api_key: ${WEATHER_API_KEY}
+    type: json
+    path: ~/.lcoder/tools/weather.json
 ```
+
+Process-external extensions are not configured via `tool_extensions`; they are auto-discovered from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level). See `docs/superpowers/specs/2026-07-24-extension-runtime-design.md` for the design.
 
 ### 11.1 HTTP Tools
 
