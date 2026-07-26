@@ -56,16 +56,19 @@ func (c *Catalog) resolveBase(name, route, explicit string) (string, error) {
 	if explicit != "" {
 		b := strings.TrimSpace(explicit)
 		if b == "" {
-			return "", fmt.Errorf("provider %q: base_url is blank", name)
+			return "", fmt.Errorf("base_url is blank")
 		}
 		if strings.Contains(b, "${") {
-			return "", fmt.Errorf("provider %q: base_url contains env placeholder, which config cannot express", name)
+			return "", fmt.Errorf("base_url contains env placeholder, which config cannot express")
 		}
 		return b, nil
 	}
 	if meta, ok := c.ProviderMeta(name); ok && meta.API != "" && !strings.Contains(meta.API, "${") {
 		return meta.API, nil
 	}
+	// 先按 provider 名查表、再按 route 查是有意的:name 命中(如 deepseek)时
+	// 避免错误指到 api.openai.com;矛盾配置(name=deepseek 且 route=anthropic)
+	// 属配置错误,可接受。
 	if d := provider.DefaultBaseURL(name); d != "" {
 		return d, nil
 	}
@@ -76,5 +79,5 @@ func (c *Catalog) resolveBase(name, route, explicit string) (string, error) {
 	if d := provider.DefaultBaseURL(route); d != "" {
 		return d, nil
 	}
-	return "", fmt.Errorf("provider %q: no base URL known; set base_url explicitly", name)
+	return "", fmt.Errorf("no base URL known; set base_url explicitly")
 }

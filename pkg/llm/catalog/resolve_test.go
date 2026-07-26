@@ -2,6 +2,7 @@
 package catalog
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/llm/provider"
@@ -92,5 +93,49 @@ func TestResolveRejectsBadBaseURL(t *testing.T) {
 	}
 	if res.BaseURL != "https://proxy.example.com/v1" {
 		t.Errorf("anthropic base must pass through verbatim, got %q", res.BaseURL)
+	}
+}
+
+func TestResolveUnknownRouteNoBaseURLError(t *testing.T) {
+	c := newResolveCatalog()
+	_, err := c.ResolveProvider("my-relay", "weird-route", "")
+	if err == nil {
+		t.Fatal("unknown route with no base URL must error")
+	}
+	if !strings.Contains(err.Error(), "no base URL known") {
+		t.Errorf("err = %q, want mention of missing base URL", err)
+	}
+}
+
+func TestResolveExplicitRouteNameDefaultBase(t *testing.T) {
+	c := newResolveCatalog()
+	// 显式 route + 无 base + 内置已知名:命中 name 默认表
+	res, err := c.ResolveProvider("deepseek", "openai", "")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if res.BaseURL != provider.DefaultBaseURL("deepseek") {
+		t.Errorf("base = %q, want name default %q", res.BaseURL, provider.DefaultBaseURL("deepseek"))
+	}
+	if res.Guessed {
+		t.Error("explicit route must not be flagged as guessed")
+	}
+}
+
+func TestResolveSkipsPlaceholderCatalogAPI(t *testing.T) {
+	c := newResolveCatalog()
+	c.mergeDataset(Dataset{Providers: []ProviderMeta{
+		{ID: "p1", API: "https://${HOST}/v1"},
+	}})
+	// catalog api 含占位符应被跳过,回落到 route(openai)默认 base
+	res, err := c.ResolveProvider("p1", "", "")
+	if err != nil {
+		t.Fatalf("placeholder catalog api must fall back, not error: %v", err)
+	}
+	if strings.Contains(res.BaseURL, "${") {
+		t.Errorf("base must not be the placeholder URL, got %q", res.BaseURL)
+	}
+	if res.BaseURL != provider.DefaultBaseURL("openai") {
+		t.Errorf("base = %q, want openai default %q", res.BaseURL, provider.DefaultBaseURL("openai"))
 	}
 }
