@@ -18,11 +18,11 @@ data: {"type":"response.output_text.delta","delta":" world"}
 
 data: {"type":"response.reasoning_summary_text.delta","delta":"thinking..."}
 
-data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_1","name":"read_file","arguments":""}}
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"path\":"}
 
-data: {"type":"response.function_call_arguments.delta","item_id":"call_1","delta":"{\"path\":"}
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"\"a.go\"}"}
 
-data: {"type":"response.function_call_arguments.delta","item_id":"call_1","delta":"\"a.go\"}"}
+data: {"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read_file","arguments":"{\"path\":\"a.go\"}"}}
 
 data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15,"input_tokens_details":{"cached_tokens":4}}}}
 
@@ -175,5 +175,30 @@ func TestResponsesErrorEvent(t *testing.T) {
 	}
 	if !sawErr {
 		t.Error("response.failed must surface as KindError")
+	}
+}
+
+func TestResponsesTopLevelErrorEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"type\":\"error\",\"message\":\"boom2\"}\n\n"))
+	}))
+	defer srv.Close()
+	ch, _ := OpenAIResponses{}.Stream(context.Background(), Conn{BaseURL: srv.URL}, models.TurnRequest{
+		Model:    models.ModelRef{ID: "gpt-5"},
+		Messages: []models.AgentMessage{models.UserMessage("hi")},
+	})
+	evs := collectEvents(t, ch)
+	var sawErr bool
+	for _, ev := range evs {
+		if ev.Kind == KindError {
+			sawErr = true
+			if !strings.Contains(ev.Err.Message, "boom2") {
+				t.Errorf("error = %v", ev.Err)
+			}
+		}
+	}
+	if !sawErr {
+		t.Error("top-level error event must surface as KindError")
 	}
 }

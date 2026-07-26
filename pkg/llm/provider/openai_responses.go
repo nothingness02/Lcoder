@@ -83,7 +83,7 @@ func (OpenAIResponses) Stream(ctx context.Context, conn Conn, req models.TurnReq
 
 		var textBuf, thinkBuf strings.Builder
 		tools := map[int]*toolBuffer{}
-		toolIdxByCallID := map[string]int{}
+		toolIdxByItemID := map[string]int{}
 		var usage *models.LLMUsage
 
 		scanner := bufio.NewScanner(resp.Body)
@@ -110,16 +110,27 @@ func (OpenAIResponses) Stream(ctx context.Context, conn Conn, req models.TurnReq
 				emit(ctx, out, Event{Kind: KindThinkingDelta, Delta: ev.Delta})
 			case "response.output_item.done":
 				if ev.Item.Type == "function_call" {
-					idx := len(toolIdxByCallID)
-					toolIdxByCallID[ev.Item.CallID] = idx
-					tools[idx] = &toolBuffer{id: ev.Item.CallID, name: ev.Item.Name}
+					// Correlate by output-item id: deltas key on item_id, which
+					// equals item.id (fc_...), not call_id (call_...).
+					idx, ok := toolIdxByItemID[ev.Item.ID]
+					if !ok {
+						idx = len(toolIdxByItemID)
+						toolIdxByItemID[ev.Item.ID] = idx
+						tools[idx] = &toolBuffer{}
+					}
+					buf := tools[idx]
+					buf.id = ev.Item.CallID
+					buf.name = ev.Item.Name
+					if buf.args.Len() == 0 && ev.Item.Arguments != "" {
+						buf.args.WriteString(ev.Item.Arguments)
+					}
 				}
 			case "response.function_call_arguments.delta":
-				idx, ok := toolIdxByCallID[ev.ItemID]
+				idx, ok := toolIdxByItemID[ev.ItemID]
 				if !ok {
-					idx = len(toolIdxByCallID)
-					toolIdxByCallID[ev.ItemID] = idx
-					tools[idx] = &toolBuffer{id: ev.ItemID}
+					idx = len(toolIdxByItemID)
+					toolIdxByItemID[ev.ItemID] = idx
+					tools[idx] = &toolBuffer{}
 				}
 				tools[idx].args.WriteString(ev.Delta)
 				emit(ctx, out, Event{Kind: KindToolCallDelta, ToolCallIndex: idx, ArgumentsJSON: ev.Delta})
@@ -131,6 +142,8 @@ func (OpenAIResponses) Stream(ctx context.Context, conn Conn, req models.TurnReq
 				msg := "responses stream failed"
 				if ev.Response.Error != nil && ev.Response.Error.Message != "" {
 					msg = ev.Response.Error.Message
+				} else if ev.Message != "" {
+					msg = ev.Message
 				}
 				emit(ctx, out, Event{Kind: KindError, Err: &EventError{Code: "internal", Message: msg}})
 				return
@@ -235,9 +248,12 @@ type responsesEvent struct {
 	Type  string `json:"type"`
 	Delta string `json:"delta"`
 	// function_call_arguments.delta carries item_id; output_item.done carries item.
-	ItemID string `json:"item_id"`
-	Item   struct {
+	// Top-level error events carry message.
+	ItemID  string `json:"item_id"`
+	Message string `json:"message"`
+	Item    struct {
 		Type      string `json:"type"`
+		ID        string `json:"id"`
 		CallID    string `json:"call_id"`
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
