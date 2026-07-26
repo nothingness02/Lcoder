@@ -33,10 +33,14 @@ func New(cat *catalog.Catalog) *Engine {
 }
 
 func defaultAdapterFactory(route string, marks provider.CacheMarks) provider.Adapter {
-	if route == "anthropic" {
+	switch route {
+	case "anthropic":
 		return provider.Anthropic{Marks: marks}
+	case "openai-responses":
+		return provider.OpenAIResponses{}
+	default:
+		return provider.OpenAICompat{}
 	}
-	return provider.OpenAICompat{}
 }
 
 // SetAdapterFactory overrides adapter construction (used by tests / llmtest).

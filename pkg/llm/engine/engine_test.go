@@ -156,6 +156,18 @@ func TestStreamTurnFillsOffEffort(t *testing.T) {
 	}
 }
 
+func TestAdapterFactoryRoutes(t *testing.T) {
+	if _, ok := defaultAdapterFactory("anthropic", provider.CacheMarks{}).(provider.Anthropic); !ok {
+		t.Error("anthropic route")
+	}
+	if _, ok := defaultAdapterFactory("openai-responses", provider.CacheMarks{}).(provider.OpenAIResponses); !ok {
+		t.Error("openai-responses route")
+	}
+	if _, ok := defaultAdapterFactory("deepseek", provider.CacheMarks{}).(provider.OpenAICompat); !ok {
+		t.Error("default route")
+	}
+}
+
 type captureAdapter struct{ req *models.TurnRequest }
 
 func (c captureAdapter) Stream(ctx context.Context, conn provider.Conn, req models.TurnRequest) (<-chan provider.Event, error) {
