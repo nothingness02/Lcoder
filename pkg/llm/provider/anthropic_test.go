@@ -112,7 +112,7 @@ func TestAnthropicThinkingMapping(t *testing.T) {
 		t.Error("empty thinking must not send the field")
 	}
 
-	// 小 max_tokens:budget 仍 < max_tokens
+	// 小 max_tokens:budget 钉在 API 下限 1024
 	body = captureRequestBody(t, Anthropic{}, models.TurnRequest{
 		Model:      models.ModelRef{ID: "claude-sonnet-4"},
 		Messages:   userMsg,
@@ -123,8 +123,19 @@ func TestAnthropicThinkingMapping(t *testing.T) {
 	if th == nil {
 		t.Fatal("thinking missing")
 	}
-	if b, _ := th["budget_tokens"].(float64); b >= 1500 {
-		t.Errorf("budget %v must be < max_tokens 1500", th["budget_tokens"])
+	if b, _ := th["budget_tokens"].(float64); b != float64(1024) {
+		t.Errorf("budget = %v, want 1024 (API minimum)", th["budget_tokens"])
+	}
+
+	// max_tokens 不足以容纳 API 下限 1024:省略 thinking 字段
+	body = captureRequestBody(t, Anthropic{}, models.TurnRequest{
+		Model:      models.ModelRef{ID: "claude-sonnet-4"},
+		Messages:   userMsg,
+		Generation: models.GenerationConfig{MaxTokens: 1024},
+		Thinking:   "on",
+	})
+	if _, exists := body["thinking"]; exists {
+		t.Errorf("max_tokens=1024 cannot satisfy the 1024 budget minimum; thinking must be omitted, got %v", body["thinking"])
 	}
 }
 

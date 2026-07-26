@@ -33,10 +33,11 @@ type anthropicBlock struct {
 func (a Anthropic) Stream(ctx context.Context, conn Conn, req models.TurnRequest) (<-chan Event, error) {
 	msgs := anthropicMessages(req.Messages)
 	applyMessageCacheMarks(msgs, a.Marks.MessageIdx)
+	maxTok := anthropicMaxTokens(req)
 	body := map[string]any{
 		"model":      req.Model.ID,
 		"messages":   msgs,
-		"max_tokens": anthropicMaxTokens(req),
+		"max_tokens": maxTok,
 		"stream":     true,
 	}
 	if sys := anthropicSystem(req); sys != nil {
@@ -66,7 +67,6 @@ func (a Anthropic) Stream(ctx context.Context, conn Conn, req models.TurnRequest
 	if req.Thinking == "off" {
 		body["thinking"] = map[string]any{"type": "disabled"}
 	} else if req.Thinking != "" {
-		maxTok := anthropicMaxTokens(req)
 		budget := maxTok / 2
 		if budget < 1024 {
 			budget = 1024
@@ -74,7 +74,9 @@ func (a Anthropic) Stream(ctx context.Context, conn Conn, req models.TurnRequest
 		if budget >= maxTok {
 			budget = maxTok - 1
 		}
-		if budget > 0 {
+		// The API rejects budget_tokens < 1024; omit the field instead of
+		// sending a value guaranteed to 400.
+		if budget >= 1024 {
 			body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
 		}
 	}

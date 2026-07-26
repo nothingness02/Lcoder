@@ -46,9 +46,14 @@ func (OpenAICompat) Stream(ctx context.Context, conn Conn, req models.TurnReques
 	}
 	// Thinking: concrete levels pass through; "off" only when the model
 	// declares an off encoding; "on" sends nothing (provider default is on).
-	if req.Thinking == "off" && req.ThinkingOffEffort != "" {
-		body["reasoning_effort"] = req.ThinkingOffEffort
-	} else if req.Thinking != "" && req.Thinking != "off" && req.Thinking != "on" {
+	switch req.Thinking {
+	case "", "on":
+		// send nothing
+	case "off":
+		if req.ThinkingOffEffort != "" {
+			body["reasoning_effort"] = req.ThinkingOffEffort
+		}
+	default:
 		body["reasoning_effort"] = req.Thinking
 	}
 
