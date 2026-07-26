@@ -97,7 +97,7 @@ func ResolveProvider(name string, conn config.ProviderConn, cat *Catalog) (Resol
 
 1. `route` 显式给出 → 直接使用，只校验 base URL
 2. `route` 为空 → 按 models.dev 记录推断：npm/id 含 `anthropic`/`claude` → `anthropic`；含 `codex` → `openai-responses`；其余 → `openai` 并置 `Guessed=true`（启动时一条 info 日志）；目录查不到的自定义 provider：有 `base_url` → `openai` + Guessed，无 → 报错提示必须给出 `base_url` 或 `route`
-3. base URL 校验（显式与推断同走）：为空且无协议默认 → 报错；含 `${` 占位符 → 报错（配置无法表达，防 key 发错主机）;route 为 `anthropic` 时剥掉尾部 `/v1`(models.dev 的 api 字段带 `/v1`，直连会 POST 到 `/v1/v1/messages` 404)
+3. base URL 校验（显式与推断同走）：为空且无协议默认 → 报错；含 `${` 占位符 → 报错（配置无法表达，防 key 发错主机）;base URL 按原样使用（Lcoder 的 anthropic 适配器只拼 `/messages`，默认 base 自带 `/v1`;kimi-code 的剥 `/v1` 规则不适用于本代码库）
 4. base URL 默认值查表按 **route 归属的协议族**查：`openai-responses` 复用 `openai` 的默认 base(二者同 `api.openai.com/v1`)
 
 **接线**:`cmd/lcoder/wiring.go` 的 `buildEngine` 注册连接前逐个 resolve；校验错误 fail-fast 启动失败（配置错误就该 fail-fast，与 hook 的 fail-open 策略不同）。

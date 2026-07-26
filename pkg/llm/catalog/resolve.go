@@ -61,10 +61,10 @@ func (c *Catalog) resolveBase(name, route, explicit string) (string, error) {
 		if strings.Contains(b, "${") {
 			return "", fmt.Errorf("provider %q: base_url contains env placeholder, which config cannot express", name)
 		}
-		return adaptBaseForRoute(b, route), nil
+		return b, nil
 	}
 	if meta, ok := c.ProviderMeta(name); ok && meta.API != "" && !strings.Contains(meta.API, "${") {
-		return adaptBaseForRoute(meta.API, route), nil
+		return meta.API, nil
 	}
 	if d := provider.DefaultBaseURL(name); d != "" {
 		return d, nil
@@ -77,14 +77,4 @@ func (c *Catalog) resolveBase(name, route, explicit string) (string, error) {
 		return d, nil
 	}
 	return "", fmt.Errorf("provider %q: no base URL known; set base_url explicitly", name)
-}
-
-// adaptBaseForRoute strips a trailing /v1 for the anthropic wire: the
-// Anthropic adapter appends /messages itself, and models.dev api fields carry
-// /v1 — keeping it would POST to /v1/v1/messages.
-func adaptBaseForRoute(base, route string) string {
-	if route == "anthropic" {
-		return strings.TrimSuffix(strings.TrimSuffix(base, "/"), "/v1")
-	}
-	return base
 }

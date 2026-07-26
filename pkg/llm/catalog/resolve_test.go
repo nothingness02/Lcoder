@@ -2,7 +2,6 @@
 package catalog
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/llm/provider"
@@ -41,9 +40,9 @@ func TestResolveInfersAnthropic(t *testing.T) {
 	if res.Route != "anthropic" || !res.Guessed {
 		t.Errorf("want anthropic+guessed, got %+v", res)
 	}
-	// catalog api 带 /v1,anthropic route 必须剥掉
-	if res.BaseURL != "https://api.anthropic.com" {
-		t.Errorf("base = %q, want /v1 stripped", res.BaseURL)
+	// catalog api 带 /v1,按原样使用:anthropic 适配器只拼 /messages
+	if res.BaseURL != "https://api.anthropic.com/v1" {
+		t.Errorf("base = %q, want /v1 kept", res.BaseURL)
 	}
 }
 
@@ -86,12 +85,12 @@ func TestResolveRejectsBadBaseURL(t *testing.T) {
 	if _, err := c.ResolveProvider("x", "openai", "https://${HOST}/v1"); err == nil {
 		t.Error("placeholder base_url must error")
 	}
-	// anthropic + 显式带 /v1 的 URL 也要剥
+	// anthropic + 显式带 /v1 的 URL 按原样透传
 	res, err := c.ResolveProvider("x", "anthropic", "https://proxy.example.com/v1")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if strings.HasSuffix(res.BaseURL, "/v1") {
-		t.Errorf("anthropic base must strip /v1, got %q", res.BaseURL)
+	if res.BaseURL != "https://proxy.example.com/v1" {
+		t.Errorf("anthropic base must pass through verbatim, got %q", res.BaseURL)
 	}
 }
