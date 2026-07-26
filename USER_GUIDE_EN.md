@@ -1113,7 +1113,7 @@ model: gpt-4o-mini
 |---|---|---|
 | `provider` | string | Default LLM provider. |
 | `model` | string | Default model ID. |
-| `thinking` | string | Thinking mode: `off` / `on` / a level declared by the model (e.g. `low`/`medium`/`high`). When unset, no thinking field is sent; undeclared levels fall back to `on` with a warning. |
+| `thinking` | string | Thinking mode: `off` / `on` / a level declared by the model (e.g. `low`/`medium`/`high`). When unset, no thinking field is sent; when the model declares levels, undeclared levels fall back to `on` with a warning; on always-thinking models (thinking cannot be disabled, e.g. gpt-5) `off` is ignored with a warning; when the model declares no level list, custom levels are passed through as-is. |
 | `models_source` | string | Custom models.dev-style model catalog URL (e.g. an intranet registry). The `LCODER_MODELS_SOURCE` environment variable takes precedence. |
 
 ### 15.2 TUI Configuration
