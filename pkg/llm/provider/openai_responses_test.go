@@ -153,6 +153,87 @@ func TestResponsesRequestShape(t *testing.T) {
 	}
 }
 
+func TestResponsesSystemRolePreserved(t *testing.T) {
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+	}))
+	defer srv.Close()
+
+	msgs := []models.AgentMessage{
+		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: "summary of earlier context"}),
+		models.UserMessage("continue"),
+	}
+	ch, err := OpenAIResponses{}.Stream(context.Background(), Conn{BaseURL: srv.URL, APIKey: "k"}, models.TurnRequest{
+		Model:    models.ModelRef{ID: "gpt-5-codex"},
+		Messages: msgs,
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	collectEvents(t, ch)
+
+	body := string(captured)
+	if !strings.Contains(body, `"role":"system"`) {
+		t.Errorf("system message must keep role system:\n%s", body)
+	}
+	if !strings.Contains(body, `"role":"user"`) {
+		t.Errorf("user message must keep role user:\n%s", body)
+	}
+}
+
+func TestResponsesToolCallFromItemDoneOnly(t *testing.T) {
+	// Defensive branch: output_item.done arrives with complete arguments and no
+	// preceding function_call_arguments.delta frames.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(`data: {"type":"response.output_item.done","item":{"type":"function_call","id":"fc_9","call_id":"call_9","name":"write_file","arguments":"{\"path\":\"b.go\",\"content\":\"hi\"}"}}
+
+data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}
+
+`))
+	}))
+	defer srv.Close()
+
+	ch, err := OpenAIResponses{}.Stream(context.Background(), Conn{BaseURL: srv.URL, APIKey: "k"}, models.TurnRequest{
+		Model:    models.ModelRef{ID: "gpt-5-codex"},
+		Messages: []models.AgentMessage{models.UserMessage("hi")},
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	evs := collectEvents(t, ch)
+
+	var done *Event
+	for i := range evs {
+		switch evs[i].Kind {
+		case KindDone:
+			done = &evs[i]
+		case KindError:
+			t.Fatalf("unexpected error event: %v", evs[i].Err)
+		}
+	}
+	if done == nil {
+		t.Fatal("no done event")
+	}
+	var calls []models.ToolCallContent
+	for _, p := range done.Message.Content {
+		if c, ok := p.(models.ToolCallContent); ok {
+			calls = append(calls, c)
+		}
+	}
+	if len(calls) != 1 {
+		t.Fatalf("tool calls = %+v, want exactly 1", calls)
+	}
+	if calls[0].ID != "call_9" || calls[0].Name != "write_file" {
+		t.Errorf("tool call id/name = %q/%q", calls[0].ID, calls[0].Name)
+	}
+	if calls[0].Arguments["path"] != "b.go" || calls[0].Arguments["content"] != "hi" {
+		t.Errorf("tool call arguments = %+v", calls[0].Arguments)
+	}
+}
+
 func TestResponsesErrorEvent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

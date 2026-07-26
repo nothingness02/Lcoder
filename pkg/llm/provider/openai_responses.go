@@ -186,7 +186,11 @@ func responsesInput(msgs []models.AgentMessage) []map[string]any {
 				}
 			}
 			if len(parts) > 0 {
-				out = append(out, map[string]any{"role": "user", "content": parts})
+				role := "system"
+				if m.Role == models.RoleUser {
+					role = "user"
+				}
+				out = append(out, map[string]any{"role": role, "content": parts})
 			}
 		case models.RoleAssistant:
 			var textParts []map[string]any
