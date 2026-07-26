@@ -16,7 +16,10 @@ func TestBuildTurnRequestCarriesThinking(t *testing.T) {
 		t.Errorf("Thinking = %q, want low", req.Thinking)
 	}
 	m2 := NewManager(TokenBudget{MaxTotal: 100000, ReserveOutput: 1000})
-	req2, _ := m2.BuildTurnRequest(models.ModelRef{Provider: "p", ID: "m"}, nil)
+	req2, err := m2.BuildTurnRequest(models.ModelRef{Provider: "p", ID: "m"}, nil)
+	if err != nil {
+		t.Fatalf("BuildTurnRequest: %v", err)
+	}
 	if req2.Thinking != "" {
 		t.Errorf("default Thinking must be empty, got %q", req2.Thinking)
 	}

@@ -197,7 +197,8 @@ type ThinkingSpec struct {
 // declaring effort levels with no way to turn thinking off (no OffEffort, no
 // toggle) is AlwaysThinking — except on the anthropic wire, where
 // thinking:{type:"disabled"} is a protocol-level off the effort list never
-// shows (mirrors kimi-code catalogProviderModels).
+// shows (mirrors kimi-code catalogProviderModels). No static fallback (same as
+// MaxInput): only Window/MaxOutput fall back to LookupFallback.
 func (c *Catalog) ThinkingSpec(route, provider, model string) ThinkingSpec {
 	e, ok := c.lookup(provider, model)
 	if !ok {

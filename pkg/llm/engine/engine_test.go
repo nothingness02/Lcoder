@@ -119,12 +119,22 @@ func TestResolveThinking(t *testing.T) {
 	}
 }
 
+// 空 Route 时回退为 provider 名,anthropic 例外仍生效:"off" 不被误判为
+// AlwaysThinking 而忽略。
+func TestResolveThinkingEmptyRouteFallsBackToProvider(t *testing.T) {
+	cat := catalog.New(catalog.Options{Refresh: false, Overrides: []catalog.Entry{
+		{ID: "claude-test", Provider: "anthropic", ContextWindow: 200000, Efforts: []string{"low", "high"}},
+	}})
+	e := New(cat)
+	e.RegisterProvider("anthropic", provider.Conn{})
+
+	if got, warn := e.ResolveThinking("anthropic", "claude-test", "off"); got != "off" || warn != "" {
+		t.Errorf("off on empty-route anthropic: got %q warn %q, want off+no warning", got, warn)
+	}
+}
+
 func TestStreamTurnFillsOffEffort(t *testing.T) {
 	e := New(testThinkingCatalog())
-	e.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
-		return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
-			Message: models.AgentMessage{Role: models.RoleAssistant}}}}
-	})
 	e.RegisterProvider("xai", provider.Conn{Route: "openai"})
 
 	// 需要捕获 adapter 收到的 req;用包装 adapter。

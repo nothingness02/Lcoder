@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/llm/catalog"
@@ -70,7 +71,12 @@ func (e *Engine) ResolveThinking(provider, model, want string) (resolved, warnin
 	if t == "" {
 		return "", ""
 	}
-	spec := e.catalog.ThinkingSpec(e.providers[provider].Route, provider, model)
+	// 与 StreamTurn 一致:空 Route 回退为 provider 名,否则 anthropic 例外失效。
+	route := e.providers[provider].Route
+	if route == "" {
+		route = provider
+	}
+	spec := e.catalog.ThinkingSpec(route, provider, model)
 	switch t {
 	case "off":
 		if spec.AlwaysThinking {
@@ -81,10 +87,8 @@ func (e *Engine) ResolveThinking(provider, model, want string) (resolved, warnin
 		return "on", ""
 	default:
 		if len(spec.Efforts) > 0 {
-			for _, lv := range spec.Efforts {
-				if lv == t {
-					return t, ""
-				}
+			if slices.Contains(spec.Efforts, t) {
+				return t, ""
 			}
 			return "on", fmt.Sprintf("模型 %s 未声明 thinking 档位 %q(支持 %v),已回退为 on", model, t, spec.Efforts)
 		}
