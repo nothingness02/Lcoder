@@ -18,10 +18,11 @@ func TestModelWindowExactMatch(t *testing.T) {
 
 func TestModelWindowPrefixMatch(t *testing.T) {
 	c := newTestClient()
-	// Snapshot id is "claude-sonnet-4-20250514"; a shorter query prefix-matches it.
+	// Snapshot ids start with "claude-sonnet-4-5"/"claude-sonnet-4-6"; a shorter
+	// query prefix-matches them (重生后 models.dev 不再单列 claude-sonnet-4)。
 	w, _ := c.ModelWindow(context.Background(), "anthropic", "claude-sonnet-4")
-	if w != 200000 {
-		t.Fatalf("expected 200000 via prefix, got %d", w)
+	if w != 1000000 {
+		t.Fatalf("expected 1000000 via prefix, got %d", w)
 	}
 }
 

@@ -109,13 +109,15 @@ func TestResolveUnknownRouteNoBaseURLError(t *testing.T) {
 
 func TestResolveExplicitRouteNameDefaultBase(t *testing.T) {
 	c := newResolveCatalog()
-	// 显式 route + 无 base + 内置已知名:命中 name 默认表
-	res, err := c.ResolveProvider("deepseek", "openai", "")
+	// 显式 route + 无 base + 内置已知名:命中 name 默认表。
+	// 用 kimi-code 而非 deepseek:重生后的 snapshot 带 deepseek provider meta,
+	// catalog api 分支会先于 name 默认表命中;kimi-code 不在 models.dev 收录内。
+	res, err := c.ResolveProvider("kimi-code", "openai", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if res.BaseURL != provider.DefaultBaseURL("deepseek") {
-		t.Errorf("base = %q, want name default %q", res.BaseURL, provider.DefaultBaseURL("deepseek"))
+	if res.BaseURL != provider.DefaultBaseURL("kimi-code") {
+		t.Errorf("base = %q, want name default %q", res.BaseURL, provider.DefaultBaseURL("kimi-code"))
 	}
 	if res.Guessed {
 		t.Error("explicit route must not be flagged as guessed")

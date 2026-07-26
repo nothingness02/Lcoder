@@ -21,7 +21,8 @@ func TestWindowExactAndPrefix(t *testing.T) {
 		t.Errorf("gpt-4o window=%d", w)
 	}
 	// Dated Anthropic id resolves by prefix to the base catalog entry.
-	if w := c.Window("anthropic", "claude-sonnet-4-20250514"); w != 200000 {
+	// (models.dev 不再单列 claude-sonnet-4;基准条目是 claude-sonnet-4-5。)
+	if w := c.Window("anthropic", "claude-sonnet-4-5-20260514"); w != 1000000 {
 		t.Errorf("sonnet window=%d", w)
 	}
 }
@@ -48,7 +49,7 @@ func TestSnapshotMaxOutput(t *testing.T) {
 	if got := c.MaxOutput("openai", "gpt-4o"); got != 16384 {
 		t.Errorf("gpt-4o MaxOutput=%d, want 16384", got)
 	}
-	if got := c.MaxOutput("anthropic", "claude-sonnet-4-20250514"); got != 64000 {
+	if got := c.MaxOutput("anthropic", "claude-sonnet-4-5"); got != 64000 {
 		t.Errorf("claude sonnet MaxOutput=%d, want 64000", got)
 	}
 	if got := c.MaxOutput("gemini", "gemini-2.5-pro"); got != 65536 {

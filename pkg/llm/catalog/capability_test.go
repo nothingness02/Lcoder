@@ -71,10 +71,14 @@ func TestWindowFallsBackToStaticTable(t *testing.T) {
 
 // 目录命中优先于静态表;目录未命中时 Capabilities 回落 LookupFallback。
 func TestCatalogHitPreferredOverFallback(t *testing.T) {
-	c := New(Options{Refresh: false})
+	// 重生后的 models.dev snapshot 里 gpt-4o 能力集与静态表相同([tools vision]),
+	// 无法再区分来源,故用 override 注入标记能力 "streaming"(静态表没有),
+	// 验证目录/override 命中优先于 LookupFallback。
+	c := New(Options{Refresh: false, Overrides: []Entry{
+		{ID: "gpt-4o", Provider: "openai", Capabilities: []string{"tools", "vision", "streaming"}},
+	}})
 
 	// 目录精确命中 gpt-4o:Window/Capabilities 用条目值。
-	// 快照条目含 "streaming",静态表 gpt-4o 规则没有 — 借此区分来源。
 	if w := c.Window("openai", "gpt-4o"); w != 128000 {
 		t.Errorf("gpt-4o window = %d, want catalog value 128000", w)
 	}
