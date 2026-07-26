@@ -27,7 +27,11 @@ func modelsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client := llm.NewClient(buildEngine(cfg))
+			eng, err := buildEngine(cfg)
+			if err != nil {
+				return fmt.Errorf("build llm engine: %w", err)
+			}
+			client := llm.NewClient(eng)
 			models, err := client.ListModels(cmd.Context())
 			if err != nil {
 				return err

@@ -166,7 +166,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		fmt.Fprintf(os.Stderr, "warning: model %q does not declare the \"tools\" capability; tool calls may fail\n", cfg.Model)
 	}
 
-	llmClient := llm.NewClient(buildEngine(cfg))
+	eng, err := buildEngine(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build llm engine: %w", err)
+	}
+	llmClient := llm.NewClient(eng)
 
 	var memStore *memory.Store
 	if cfg.Memory.Enabled {
@@ -296,11 +300,19 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 
 	window, _ := llmClient.ModelWindow(context.Background(), cfg.Provider, cfg.Model)
 	maxOutput, _ := llmClient.ModelMaxOutput(context.Background(), cfg.Provider, cfg.Model)
+	maxInput, _ := llmClient.ModelMaxInput(context.Background(), cfg.Provider, cfg.Model)
 	budget, source := cfg.ResolveContextBudget(window, maxOutput)
 	if source == "default" {
 		fmt.Fprintf(os.Stderr, "warning: 未能自动获取模型 %q 的上下文窗口,回退默认 %d\n", cfg.Model, budget.MaxTotal)
 	}
-	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.EffectiveMessages(), memStore)
+	if budget.ClampToMaxInput(maxInput, source) {
+		fmt.Fprintf(os.Stderr, "info: 模型 %q prompt 上限 %d 低于上下文窗口,预算按 %d 计算\n", cfg.Model, maxInput, maxInput)
+	}
+	thinking, thinkWarn := llmClient.ResolveThinking(context.Background(), cfg.Provider, cfg.Model, cfg.Thinking)
+	if thinkWarn != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", thinkWarn)
+	}
+	mgr := agentsetup.NewContextManager(cfg, budget, thinking, llmClient, contextText, skillsBlock, sess.EffectiveMessages(), memStore)
 
 	var memoryInjector memory.MemoryInjector
 	var injector *memory.Injector

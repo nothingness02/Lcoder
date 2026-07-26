@@ -99,6 +99,8 @@ type MemoryConfig struct {
 type Config struct {
 	Provider       string                  `yaml:"provider"`
 	Model          string                  `yaml:"model"`
+	Thinking       string                  `yaml:"thinking"`
+	ModelsSource   string                  `yaml:"models_source"`
 	TUI            TUIConfig               `yaml:"tui"`
 	Context        ContextConfig           `yaml:"context"`
 	Permissions    PermissionConfig        `yaml:"permissions"`
@@ -347,6 +349,23 @@ type TokenBudget struct {
 	DropThreshold    float64
 }
 
+// ClampToMaxInput clamps MaxTotal to the model's prompt cap (max_input) and,
+// when the clamp pushes MaxTotal below TargetTotal, recomputes TargetTotal
+// with the same ratio ResolveContextBudget uses — otherwise compaction would
+// never trigger for models whose prompt cap is below the context window.
+// source is the ResolveContextBudget source: "user" budgets are explicit and
+// never clamped. Returns true when the budget was clamped.
+func (b *TokenBudget) ClampToMaxInput(maxInput int, source string) bool {
+	if source == "user" || maxInput <= 0 || b.MaxTotal <= maxInput {
+		return false
+	}
+	b.MaxTotal = maxInput
+	if b.TargetTotal > b.MaxTotal {
+		b.TargetTotal = int(float64(b.MaxTotal) * defaultTargetRatio)
+	}
+	return true
+}
+
 // Load reads configuration from standard locations.
 func Load() (Config, error) {
 	k := koanf.NewWithConf(koanf.Conf{
@@ -407,6 +426,11 @@ func Load() (Config, error) {
 
 	if err := k.UnmarshalWithConf("", &cfg, koanf.UnmarshalConf{Tag: "yaml"}); err != nil {
 		return cfg, fmt.Errorf("unmarshal config: %w", err)
+	}
+
+	// models_source 是嵌套受限 env 映射的平级字段,显式兜底 LCODER_MODELS_SOURCE。
+	if v := os.Getenv("LCODER_MODELS_SOURCE"); v != "" {
+		cfg.ModelsSource = v
 	}
 
 	// Fold TUI-managed credentials (~/.lcoder/credentials.yaml) into providers,

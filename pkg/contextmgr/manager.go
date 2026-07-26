@@ -115,6 +115,9 @@ type Manager struct {
 	// cachePolicy controls how aggressively cache breakpoints are placed; empty
 	// means CachePolicyDefault.
 	cachePolicy CacheHintPolicy
+
+	// thinking is the resolved thinking value carried on turn requests.
+	thinking string
 }
 
 // Option configures a Manager.
@@ -160,6 +163,11 @@ func WithKeepRecentTokens(n int) Option {
 // WithCacheHintPolicy sets the cache breakpoint policy for BuildTurnRequest.
 func WithCacheHintPolicy(p CacheHintPolicy) Option {
 	return func(m *Manager) { m.cachePolicy = p }
+}
+
+// WithThinking sets the resolved thinking value carried on turn requests.
+func WithThinking(v string) Option {
+	return func(m *Manager) { m.thinking = v }
 }
 
 // WithModePromptPriority sets how the mode system prompt is combined with the
@@ -385,6 +393,7 @@ func (m *Manager) BuildTurnRequest(model models.ModelRef, tools []models.ToolDef
 		Tools:            tools,
 		Cache:            "auto",
 		CacheBreakpoints: breakpoints,
+		Thinking:         m.thinking,
 		Generation:       models.GenerationConfig{MaxTokens: m.budget.ResolveMaxTokens(inputTokens)},
 	}, nil
 }

@@ -53,6 +53,16 @@ func (c *Client) ModelMaxOutput(ctx context.Context, prov, model string) (int, e
 	return c.engine.ModelMaxOutput(prov, model), nil
 }
 
+// ModelMaxInput returns the model prompt cap (0 = use the context window).
+func (c *Client) ModelMaxInput(ctx context.Context, prov, model string) (int, error) {
+	return c.engine.ModelMaxInput(prov, model), nil
+}
+
+// ResolveThinking validates the configured thinking value; see engine.
+func (c *Client) ResolveThinking(ctx context.Context, provider, model, want string) (string, string) {
+	return c.engine.ResolveThinking(provider, model, want)
+}
+
 // Health reports in-process readiness.
 func (c *Client) Health(ctx context.Context) (map[string]string, error) {
 	return map[string]string{"status": "ok"}, nil

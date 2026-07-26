@@ -73,6 +73,72 @@ func TestAnthropicStreamTextThinkingUsage(t *testing.T) {
 	}
 }
 
+func TestAnthropicThinkingMapping(t *testing.T) {
+	userMsg := []models.AgentMessage{models.UserMessage("hi")}
+
+	// on → enabled, budget = max(1024, maxTokens/2) 且 < max_tokens
+	body := captureRequestBody(t, Anthropic{}, models.TurnRequest{
+		Model:      models.ModelRef{ID: "claude-sonnet-4"},
+		Messages:   userMsg,
+		Generation: models.GenerationConfig{MaxTokens: 16384},
+		Thinking:   "on",
+	})
+	th, ok := body["thinking"].(map[string]any)
+	if !ok || th["type"] != "enabled" {
+		t.Fatalf("thinking = %v, want enabled", body["thinking"])
+	}
+	if th["budget_tokens"] != float64(8192) {
+		t.Errorf("budget = %v, want 8192 (16384/2)", th["budget_tokens"])
+	}
+
+	// off → disabled
+	body = captureRequestBody(t, Anthropic{}, models.TurnRequest{
+		Model:      models.ModelRef{ID: "claude-sonnet-4"},
+		Messages:   userMsg,
+		Generation: models.GenerationConfig{MaxTokens: 16384},
+		Thinking:   "off",
+	})
+	th, _ = body["thinking"].(map[string]any)
+	if th == nil || th["type"] != "disabled" {
+		t.Errorf("thinking = %v, want disabled", body["thinking"])
+	}
+
+	// 空 → 无字段
+	body = captureRequestBody(t, Anthropic{}, models.TurnRequest{
+		Model:    models.ModelRef{ID: "claude-sonnet-4"},
+		Messages: userMsg,
+	})
+	if _, exists := body["thinking"]; exists {
+		t.Error("empty thinking must not send the field")
+	}
+
+	// 小 max_tokens:budget 钉在 API 下限 1024
+	body = captureRequestBody(t, Anthropic{}, models.TurnRequest{
+		Model:      models.ModelRef{ID: "claude-sonnet-4"},
+		Messages:   userMsg,
+		Generation: models.GenerationConfig{MaxTokens: 1500},
+		Thinking:   "on",
+	})
+	th, _ = body["thinking"].(map[string]any)
+	if th == nil {
+		t.Fatal("thinking missing")
+	}
+	if b, _ := th["budget_tokens"].(float64); b != float64(1024) {
+		t.Errorf("budget = %v, want 1024 (API minimum)", th["budget_tokens"])
+	}
+
+	// max_tokens 不足以容纳 API 下限 1024:省略 thinking 字段
+	body = captureRequestBody(t, Anthropic{}, models.TurnRequest{
+		Model:      models.ModelRef{ID: "claude-sonnet-4"},
+		Messages:   userMsg,
+		Generation: models.GenerationConfig{MaxTokens: 1024},
+		Thinking:   "on",
+	})
+	if _, exists := body["thinking"]; exists {
+		t.Errorf("max_tokens=1024 cannot satisfy the 1024 budget minimum; thinking must be omitted, got %v", body["thinking"])
+	}
+}
+
 func TestAnthropicStreamToolUse(t *testing.T) {
 	body := "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tu1\",\"name\":\"read\"}}\n\n" +
 		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\"}}\n\n" +

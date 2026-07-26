@@ -37,7 +37,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 
 func TestContextManagerBlocksSetCacheHint(t *testing.T) {
 	cfg := config.Config{Context: config.ContextConfig{MinRecent: 1}}
-	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, nil, "project context here", "skill block here", nil, nil)
+	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "project context here", "skill block here", nil, nil)
 
 	pd, ok := mgr.GetBlock(contextmgr.BlockProjectDocs, "project_docs")
 	if !ok {
@@ -61,7 +61,7 @@ func TestContextManagerBlocksSetCacheHint(t *testing.T) {
 // them inside the system block.
 func TestContextManagerBlocks(t *testing.T) {
 	cfg := config.Config{Context: config.ContextConfig{MinRecent: 1}}
-	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, nil, "project context here", "skill block here", nil, nil)
+	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "project context here", "skill block here", nil, nil)
 
 	sys, ok := mgr.GetBlock(contextmgr.BlockSystem, "system")
 	if !ok {
@@ -110,7 +110,7 @@ func TestContextManagerMemoryBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{Context: config.ContextConfig{MinRecent: 1}, Memory: config.MemoryConfig{Enabled: true}}
-	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, nil, "", "", nil, store)
+	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "", "", nil, store)
 
 	if _, ok := mgr.GetBlock(contextmgr.BlockUserProfile, "user_profile"); !ok {
 		t.Fatal("missing user_profile block")
@@ -153,7 +153,7 @@ func TestContextManagerDynamicRecallSkipsStaticMemory(t *testing.T) {
 		Context: config.ContextConfig{MinRecent: 1},
 		Memory:  config.MemoryConfig{Enabled: true, DynamicRecall: true},
 	}
-	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, nil, "", "", nil, store)
+	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "", "", nil, store)
 
 	if _, ok := mgr.GetBlock(contextmgr.BlockUserProfile, "user_profile"); !ok {
 		t.Fatal("missing user_profile block")

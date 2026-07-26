@@ -212,6 +212,37 @@ func TestOpenAIStreamThinkingDelta(t *testing.T) {
 	}
 }
 
+func TestOpenAIThinkingMapping(t *testing.T) {
+	cases := []struct {
+		name       string
+		thinking   string
+		offEffort  string
+		wantEffort string // "" = 字段不应出现
+	}{
+		{"empty sends nothing", "", "", ""},
+		{"on sends nothing", "on", "", ""},
+		{"level passes through", "low", "", "low"},
+		{"off with off-effort", "off", "none", "none"},
+		{"off without off-effort sends nothing", "off", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := captureRequestBody(t, OpenAICompat{}, models.TurnRequest{
+				Model:    models.ModelRef{ID: "gpt-5"},
+				Messages: []models.AgentMessage{models.UserMessage("hi")},
+				Thinking: tc.thinking, ThinkingOffEffort: tc.offEffort,
+			})
+			got, exists := body["reasoning_effort"]
+			if tc.wantEffort == "" && exists {
+				t.Errorf("reasoning_effort should be absent, got %v", got)
+			}
+			if tc.wantEffort != "" && got != tc.wantEffort {
+				t.Errorf("reasoning_effort = %v, want %q", got, tc.wantEffort)
+			}
+		})
+	}
+}
+
 func TestOpenAIStreamHTTPErrorClassified(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)

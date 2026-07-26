@@ -1110,12 +1110,16 @@ invalid config: ...
 ```yaml
 provider: openai
 model: gpt-4o-mini
+# thinking: medium
+# models_source: https://models.dev/api.json
 ```
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `provider` | string | 默认 LLM provider。 |
 | `model` | string | 默认模型 ID。 |
+| `thinking` | string | 思考模式：`off` / `on` / 模型声明的档位（如 `low`/`medium`/`high`）。缺省不发 thinking 字段；模型已声明档位时未声明的档位回退为 `on` 并输出 warning；always-thinking 模型（thinking 不可关闭，如 gpt-5）配置 `off` 会被忽略并输出 warning；模型未声明档位列表时自定义档位原样透传。 |
+| `models_source` | string | 自定义 models.dev 风格模型目录 URL（如内网 registry）。环境变量 `LCODER_MODELS_SOURCE` 优先。 |
 
 ### 15.2 TUI 配置
 
