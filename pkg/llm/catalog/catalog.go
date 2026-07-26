@@ -204,48 +204,73 @@ func (c *Catalog) List() []models.ModelInfo {
 	return out
 }
 
-// Window returns the context window for provider/model: exact match first, then
-// a prefix match (either direction) so dated variants resolve. 0 if unknown.
-func (c *Catalog) Window(provider, model string) int {
+// lookup finds a catalog entry by exact key, then either-direction prefix
+// (alias-aware). Returns false when nothing matches.
+func (c *Catalog) lookup(provider, model string) (Entry, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for _, p := range providerCandidates(provider) {
-		if e, ok := c.entries[p+"/"+model]; ok && e.ContextWindow > 0 {
-			return e.ContextWindow
+		if e, ok := c.entries[p+"/"+model]; ok {
+			return e, true
 		}
 		for _, key := range c.order {
 			e := c.entries[key]
-			if e.Provider != p || e.ContextWindow <= 0 {
+			if e.Provider != p {
 				continue
 			}
 			if strings.HasPrefix(e.ID, model) || strings.HasPrefix(model, e.ID) {
-				return e.ContextWindow
+				return e, true
 			}
 		}
+	}
+	return Entry{}, false
+}
+
+// Window returns the context window for provider/model: exact match first, then
+// a prefix match (either direction) so dated variants resolve, with the static
+// fallback table as last resort. 0 if unknown.
+func (c *Catalog) Window(provider, model string) int {
+	if e, ok := c.lookup(provider, model); ok && e.ContextWindow > 0 {
+		return e.ContextWindow
+	}
+	if fb, ok := LookupFallback(provider, model); ok {
+		return fb.ContextWindow // 可能为 0,由下游走默认值
 	}
 	return 0
 }
 
 // MaxOutput returns the single-response output ceiling for provider/model using
-// the same exact-then-prefix matching as Window. 0 if unknown.
+// the same exact-then-prefix matching as Window, static table as last resort.
+// 0 if unknown.
 func (c *Catalog) MaxOutput(provider, model string) int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	for _, p := range providerCandidates(provider) {
-		if e, ok := c.entries[p+"/"+model]; ok && e.MaxOutput > 0 {
-			return e.MaxOutput
-		}
-		for _, key := range c.order {
-			e := c.entries[key]
-			if e.Provider != p || e.MaxOutput <= 0 {
-				continue
-			}
-			if strings.HasPrefix(e.ID, model) || strings.HasPrefix(model, e.ID) {
-				return e.MaxOutput
-			}
-		}
+	if e, ok := c.lookup(provider, model); ok && e.MaxOutput > 0 {
+		return e.MaxOutput
+	}
+	if fb, ok := LookupFallback(provider, model); ok {
+		return fb.MaxOutput
 	}
 	return 0
+}
+
+// MaxInput returns the model's declared prompt cap (0 = no separate cap; the
+// context window is the only ceiling). No static fallback: an invented input
+// cap is worse than none.
+func (c *Catalog) MaxInput(provider, model string) int {
+	if e, ok := c.lookup(provider, model); ok {
+		return e.MaxInput
+	}
+	return 0
+}
+
+// Capabilities returns the declared capability strings, static table as last resort.
+func (c *Catalog) Capabilities(provider, model string) []string {
+	if e, ok := c.lookup(provider, model); ok && len(e.Capabilities) > 0 {
+		return e.Capabilities
+	}
+	if fb, ok := LookupFallback(provider, model); ok {
+		return fb.Capabilities
+	}
+	return nil
 }
 
 // PriceTable returns a pricing table for pricing.EstimateCost, catalog entries
