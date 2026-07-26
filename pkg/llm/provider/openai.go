@@ -44,6 +44,13 @@ func (OpenAICompat) Stream(ctx context.Context, conn Conn, req models.TurnReques
 	if req.Generation.TopP != 0 {
 		body["top_p"] = req.Generation.TopP
 	}
+	// Thinking: concrete levels pass through; "off" only when the model
+	// declares an off encoding; "on" sends nothing (provider default is on).
+	if req.Thinking == "off" && req.ThinkingOffEffort != "" {
+		body["reasoning_effort"] = req.ThinkingOffEffort
+	} else if req.Thinking != "" && req.Thinking != "off" && req.Thinking != "on" {
+		body["reasoning_effort"] = req.Thinking
+	}
 
 	raw, err := json.Marshal(body)
 	if err != nil {

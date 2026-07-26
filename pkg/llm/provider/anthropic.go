@@ -61,6 +61,23 @@ func (a Anthropic) Stream(ctx context.Context, conn Conn, req models.TurnRequest
 	if req.Generation.TopP != 0 {
 		body["top_p"] = req.Generation.TopP
 	}
+	// Anthropic has no effort levels: any on-signal enables thinking with a
+	// budget derived from the output cap; off is explicit disable.
+	if req.Thinking == "off" {
+		body["thinking"] = map[string]any{"type": "disabled"}
+	} else if req.Thinking != "" {
+		maxTok := anthropicMaxTokens(req)
+		budget := maxTok / 2
+		if budget < 1024 {
+			budget = 1024
+		}
+		if budget >= maxTok {
+			budget = maxTok - 1
+		}
+		if budget > 0 {
+			body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+		}
+	}
 
 	raw, err := json.Marshal(body)
 	if err != nil {
