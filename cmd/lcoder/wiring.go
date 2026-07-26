@@ -20,24 +20,34 @@ import (
 
 // buildEngine constructs the in-process LLM engine: a model catalog (snapshot +
 // background refresh + models.yaml overrides) plus every configured provider
-// connection. The returned engine is passed to llm.NewClient.
-func buildEngine(cfg config.Config) *engine.Engine {
+// connection. Provider entries are resolved fail-fast via the catalog: an
+// undeclared route is inferred (logged), an invalid base URL aborts startup.
+// The returned engine is passed to llm.NewClient.
+func buildEngine(cfg config.Config) (*engine.Engine, error) {
 	cachePath := paths.LCoderHome("cache", "models.json")
 	cat := catalog.New(catalog.Options{
 		Refresh:   true,
 		CachePath: cachePath,
+		SourceURL: cfg.ModelsSource,
 		Overrides: catalogOverridesFromConfig(cfg),
 	})
 	eng := engine.New(cat)
 	for name, conn := range cfg.Providers {
+		res, err := cat.ResolveProvider(name, conn.Route, conn.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("provider %q: %w", name, err)
+		}
+		if res.Guessed {
+			fmt.Fprintf(os.Stderr, "info: provider %q 未声明 route,推断为 %s\n", name, res.Route)
+		}
 		eng.RegisterProvider(name, llmprovider.Conn{
-			BaseURL: conn.BaseURL,
+			BaseURL: res.BaseURL,
 			APIKey:  conn.APIKey,
-			Route:   conn.Route,
+			Route:   res.Route,
 			Headers: conn.Headers,
 		})
 	}
-	return eng
+	return eng, nil
 }
 
 // catalogOverridesFromConfig maps the user's models.yaml catalog entries into

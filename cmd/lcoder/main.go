@@ -166,7 +166,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		fmt.Fprintf(os.Stderr, "warning: model %q does not declare the \"tools\" capability; tool calls may fail\n", cfg.Model)
 	}
 
-	llmClient := llm.NewClient(buildEngine(cfg))
+	eng, err := buildEngine(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build llm engine: %w", err)
+	}
+	llmClient := llm.NewClient(eng)
 
 	var memStore *memory.Store
 	if cfg.Memory.Enabled {

@@ -99,6 +99,8 @@ type MemoryConfig struct {
 type Config struct {
 	Provider       string                  `yaml:"provider"`
 	Model          string                  `yaml:"model"`
+	Thinking       string                  `yaml:"thinking"`
+	ModelsSource   string                  `yaml:"models_source"`
 	TUI            TUIConfig               `yaml:"tui"`
 	Context        ContextConfig           `yaml:"context"`
 	Permissions    PermissionConfig        `yaml:"permissions"`
@@ -407,6 +409,11 @@ func Load() (Config, error) {
 
 	if err := k.UnmarshalWithConf("", &cfg, koanf.UnmarshalConf{Tag: "yaml"}); err != nil {
 		return cfg, fmt.Errorf("unmarshal config: %w", err)
+	}
+
+	// models_source 是嵌套受限 env 映射的平级字段,显式兜底 LCODER_MODELS_SOURCE。
+	if v := os.Getenv("LCODER_MODELS_SOURCE"); v != "" {
+		cfg.ModelsSource = v
 	}
 
 	// Fold TUI-managed credentials (~/.lcoder/credentials.yaml) into providers,
