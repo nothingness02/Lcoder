@@ -186,6 +186,30 @@ func (c *Catalog) merge(entries []Entry) {
 	}
 }
 
+// ThinkingSpec is a model's declared thinking-effort behavior.
+type ThinkingSpec struct {
+	Efforts        []string
+	OffEffort      string
+	AlwaysThinking bool
+}
+
+// ThinkingSpec derives the spec for provider/model on the given wire. A model
+// declaring effort levels with no way to turn thinking off (no OffEffort, no
+// toggle) is AlwaysThinking — except on the anthropic wire, where
+// thinking:{type:"disabled"} is a protocol-level off the effort list never
+// shows (mirrors kimi-code catalogProviderModels).
+func (c *Catalog) ThinkingSpec(route, provider, model string) ThinkingSpec {
+	e, ok := c.lookup(provider, model)
+	if !ok {
+		return ThinkingSpec{}
+	}
+	spec := ThinkingSpec{Efforts: e.Efforts, OffEffort: e.OffEffort}
+	if len(e.Efforts) > 0 && e.OffEffort == "" && !e.ThinkingToggle && route != "anthropic" {
+		spec.AlwaysThinking = true
+	}
+	return spec
+}
+
 // List returns all models as ModelInfo in stable insertion order.
 func (c *Catalog) List() []models.ModelInfo {
 	c.mu.RLock()

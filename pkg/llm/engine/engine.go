@@ -3,6 +3,8 @@ package engine
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/lcoder/lcoder/pkg/llm/catalog"
 	"github.com/lcoder/lcoder/pkg/llm/pricing"
@@ -54,6 +56,42 @@ func (e *Engine) ModelWindow(prov, model string) int { return e.catalog.Window(p
 // provider/model (0 if unknown).
 func (e *Engine) ModelMaxOutput(prov, model string) int { return e.catalog.MaxOutput(prov, model) }
 
+// ProviderRoute returns the resolved route of a registered provider ("" if
+// the provider is not registered).
+func (e *Engine) ProviderRoute(name string) string {
+	return e.providers[name].Route
+}
+
+// ResolveThinking validates a configured thinking value against the catalog
+// and returns the value to put on turn requests, plus a user-facing warning
+// when the config had to be adjusted. "" means "send no thinking field".
+func (e *Engine) ResolveThinking(provider, model, want string) (resolved, warning string) {
+	t := strings.ToLower(strings.TrimSpace(want))
+	if t == "" {
+		return "", ""
+	}
+	spec := e.catalog.ThinkingSpec(e.providers[provider].Route, provider, model)
+	switch t {
+	case "off":
+		if spec.AlwaysThinking {
+			return "", fmt.Sprintf("模型 %s 的 thinking 不可关闭,已忽略 thinking: off", model)
+		}
+		return "off", ""
+	case "on":
+		return "on", ""
+	default:
+		if len(spec.Efforts) > 0 {
+			for _, lv := range spec.Efforts {
+				if lv == t {
+					return t, ""
+				}
+			}
+			return "on", fmt.Sprintf("模型 %s 未声明 thinking 档位 %q(支持 %v),已回退为 on", model, t, spec.Efforts)
+		}
+		return t, ""
+	}
+}
+
 func (e *Engine) resolveProvider(ref models.ModelRef) string {
 	if ref.Provider != "" {
 		return ref.Provider
@@ -77,6 +115,10 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 	anthropic := conn.Route == "anthropic"
 	marks := provider.ComputeCacheMarks(req.Cache, req.CacheBreakpoints, len(req.Messages), anthropic)
 	conn.BaseURL = provider.ResolveBaseURL(conn)
+
+	if req.Thinking == "off" {
+		req.ThinkingOffEffort = e.catalog.ThinkingSpec(conn.Route, prov, req.Model.ID).OffEffort
+	}
 
 	adapter := e.newAdapter(conn.Route, marks)
 	src, err := adapter.Stream(ctx, conn, req)

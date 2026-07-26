@@ -116,7 +116,7 @@ func runAgentForCompare(t *testing.T, cfg config.Config, client *llm.Client, pro
 	// Project docs come from the TARGET project (not the Lcoder repo) so neither
 	// agent gets Lcoder-specific instructions while exploring Kocoro.
 	contextText, _ := contextloader.NewLoader(targetRoot).Load()
-	mgr := agentsetup.NewContextManager(cfg, budget, client, contextText, "", nil, nil)
+	mgr := agentsetup.NewContextManager(cfg, budget, "", client, contextText, "", nil, nil)
 
 	registry := tools.NewRegistry(targetRoot)
 	if err := registry.RegisterBuiltinFactories(targetRoot); err != nil {

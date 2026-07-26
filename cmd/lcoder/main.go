@@ -304,7 +304,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	if source == "default" {
 		fmt.Fprintf(os.Stderr, "warning: 未能自动获取模型 %q 的上下文窗口,回退默认 %d\n", cfg.Model, budget.MaxTotal)
 	}
-	mgr := agentsetup.NewContextManager(cfg, budget, llmClient, contextText, skillsBlock, sess.EffectiveMessages(), memStore)
+	thinking, thinkWarn := llmClient.ResolveThinking(context.Background(), cfg.Provider, cfg.Model, cfg.Thinking)
+	if thinkWarn != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", thinkWarn)
+	}
+	mgr := agentsetup.NewContextManager(cfg, budget, thinking, llmClient, contextText, skillsBlock, sess.EffectiveMessages(), memStore)
 
 	var memoryInjector memory.MemoryInjector
 	var injector *memory.Injector

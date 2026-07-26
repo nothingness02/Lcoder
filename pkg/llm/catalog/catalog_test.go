@@ -316,3 +316,33 @@ func TestProviderMetaAliasAware(t *testing.T) {
 		t.Error("unknown provider should return ok=false")
 	}
 }
+
+// ThinkingSpec 派生:efforts 无 off 无 toggle → always;anthropic wire 例外。
+func TestThinkingSpec(t *testing.T) {
+	c := New(Options{Refresh: false})
+	c.mergeDataset(Dataset{Models: []Entry{
+		{ID: "gpt-5", Provider: "openai", ContextWindow: 400000,
+			Efforts: []string{"low", "medium", "high"}, OffEffort: ""}, // 无 toggle 无 off → always
+		{ID: "grok-4", Provider: "xai", ContextWindow: 256000,
+			Efforts: []string{"low", "high"}, OffEffort: "none"},
+		{ID: "claude-sonnet-4", Provider: "anthropic", ContextWindow: 200000,
+			Efforts: []string{"low", "high"}}, // anthropic wire → 不标 always
+		{ID: "toggler", Provider: "openai", ContextWindow: 100000,
+			Efforts: []string{"high"}, ThinkingToggle: true},
+	}})
+	if s := c.ThinkingSpec("openai", "openai", "gpt-5"); !s.AlwaysThinking {
+		t.Error("gpt-5 (efforts, no off, no toggle) must be AlwaysThinking")
+	}
+	if s := c.ThinkingSpec("openai", "xai", "grok-4"); s.AlwaysThinking {
+		t.Error("grok-4 has OffEffort, must not be AlwaysThinking")
+	}
+	if s := c.ThinkingSpec("anthropic", "anthropic", "claude-sonnet-4"); s.AlwaysThinking {
+		t.Error("anthropic wire has protocol-level disable, never AlwaysThinking")
+	}
+	if s := c.ThinkingSpec("openai", "openai", "toggler"); s.AlwaysThinking {
+		t.Error("toggle form means thinking can be disabled")
+	}
+	if s := c.ThinkingSpec("openai", "openai", "unknown-model"); s.Efforts != nil || s.AlwaysThinking {
+		t.Errorf("unknown model must return zero spec, got %+v", s)
+	}
+}

@@ -78,3 +78,80 @@ func TestEngineRoutesAnthropicCacheMarks(t *testing.T) {
 		t.Fatalf("anthropic cache marks not computed: %+v", gotMarks)
 	}
 }
+
+func testThinkingCatalog() *catalog.Catalog {
+	return catalog.New(catalog.Options{Refresh: false, Overrides: []catalog.Entry{
+		{ID: "gpt-5", Provider: "openai", ContextWindow: 400000, Efforts: []string{"low", "medium", "high"}},
+		{ID: "grok-4", Provider: "xai", ContextWindow: 256000, Efforts: []string{"low", "high"}, OffEffort: "none"},
+	}})
+}
+
+func TestResolveThinking(t *testing.T) {
+	e := New(testThinkingCatalog())
+	e.RegisterProvider("openai", provider.Conn{Route: "openai"})
+	e.RegisterProvider("xai", provider.Conn{Route: "openai"})
+
+	// 空配置 → 空
+	if got, warn := e.ResolveThinking("openai", "gpt-5", ""); got != "" || warn != "" {
+		t.Errorf("empty config: got %q warn %q", got, warn)
+	}
+	// off + AlwaysThinking → 忽略 + warning
+	got, warn := e.ResolveThinking("openai", "gpt-5", "off")
+	if got != "" || warn == "" {
+		t.Errorf("off on always-thinking: got %q warn %q, want empty+warning", got, warn)
+	}
+	// off + 有 OffEffort → 保留
+	if got, _ := e.ResolveThinking("xai", "grok-4", "off"); got != "off" {
+		t.Errorf("grok-4 off: got %q", got)
+	}
+	// 合法档位 → 保留
+	if got, _ := e.ResolveThinking("openai", "gpt-5", "low"); got != "low" {
+		t.Errorf("gpt-5 low: got %q", got)
+	}
+	// 非法档位 → on + warning
+	got, warn = e.ResolveThinking("openai", "gpt-5", "extreme")
+	if got != "on" || warn == "" {
+		t.Errorf("bad effort: got %q warn %q", got, warn)
+	}
+	// on 原样
+	if got, _ := e.ResolveThinking("openai", "gpt-5", "on"); got != "on" {
+		t.Errorf("on: got %q", got)
+	}
+}
+
+func TestStreamTurnFillsOffEffort(t *testing.T) {
+	e := New(testThinkingCatalog())
+	e.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+		return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
+			Message: models.AgentMessage{Role: models.RoleAssistant}}}}
+	})
+	e.RegisterProvider("xai", provider.Conn{Route: "openai"})
+
+	// 需要捕获 adapter 收到的 req;用包装 adapter。
+	var gotReq models.TurnRequest
+	e.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+		return captureAdapter{&gotReq}
+	})
+	ch, err := e.StreamTurn(context.Background(), models.TurnRequest{
+		Model:    models.ModelRef{Provider: "xai", ID: "grok-4"},
+		Thinking: "off",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	if gotReq.ThinkingOffEffort != "none" {
+		t.Errorf("ThinkingOffEffort = %q, want none", gotReq.ThinkingOffEffort)
+	}
+}
+
+type captureAdapter struct{ req *models.TurnRequest }
+
+func (c captureAdapter) Stream(ctx context.Context, conn provider.Conn, req models.TurnRequest) (<-chan provider.Event, error) {
+	*c.req = req
+	ch := make(chan provider.Event, 1)
+	ch <- provider.Event{Kind: provider.KindDone, Message: models.AgentMessage{Role: models.RoleAssistant}}
+	close(ch)
+	return ch, nil
+}

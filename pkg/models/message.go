@@ -359,6 +359,12 @@ type TurnRequest struct {
 	Generation       GenerationConfig `json:"generation,omitempty"`
 	Cache            string           `json:"cache,omitempty"`
 	CacheBreakpoints []int            `json:"cache_breakpoints,omitempty"`
+	// Thinking is the resolved thinking intent: "" (send nothing), "off",
+	// "on", or a model-declared effort level. ThinkingOffEffort is the wire
+	// encoding for "off" when the model declares one (e.g. "none"), filled by
+	// the engine from the catalog.
+	Thinking          string `json:"thinking,omitempty"`
+	ThinkingOffEffort string `json:"thinking_off_effort,omitempty"`
 }
 
 // LLMUsage captures token and cost information from a provider turn.

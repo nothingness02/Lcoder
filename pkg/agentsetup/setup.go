@@ -48,13 +48,16 @@ func BuildSystemPrompt() string {
 // project-docs, skills, and recent blocks. A summarizer is always attached so
 // that checkpoint restore has a wired manager and compaction can run when the
 // budget policy asks for it.
-func NewContextManager(cfg config.Config, budget config.TokenBudget, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage, memStore *memory.Store) *contextmgr.Manager {
+func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking string, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage, memStore *memory.Store) *contextmgr.Manager {
 	opts := []contextmgr.Option{
 		contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(cfg.Context.MinRecent)),
 		contextmgr.WithMinRecent(cfg.Context.MinRecent),
 		contextmgr.WithKeepRecentTokens(cfg.Context.KeepRecentTokens),
 		contextmgr.WithCacheHintPolicy(contextmgr.ParseCacheHintPolicy(cfg.Context.CacheHintPolicy)),
 		contextmgr.WithSummarizer(contextmgr.SummarizeFunc(compaction.NewCircuitBreaker(0).Wrap(compaction.NewLLMSummarizer(llmClient, models.ModelRef{Provider: cfg.Provider, ID: cfg.Model})))),
+	}
+	if thinking != "" {
+		opts = append(opts, contextmgr.WithThinking(thinking))
 	}
 
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{
