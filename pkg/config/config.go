@@ -349,6 +349,23 @@ type TokenBudget struct {
 	DropThreshold    float64
 }
 
+// ClampToMaxInput clamps MaxTotal to the model's prompt cap (max_input) and,
+// when the clamp pushes MaxTotal below TargetTotal, recomputes TargetTotal
+// with the same ratio ResolveContextBudget uses — otherwise compaction would
+// never trigger for models whose prompt cap is below the context window.
+// source is the ResolveContextBudget source: "user" budgets are explicit and
+// never clamped. Returns true when the budget was clamped.
+func (b *TokenBudget) ClampToMaxInput(maxInput int, source string) bool {
+	if source == "user" || maxInput <= 0 || b.MaxTotal <= maxInput {
+		return false
+	}
+	b.MaxTotal = maxInput
+	if b.TargetTotal > b.MaxTotal {
+		b.TargetTotal = int(float64(b.MaxTotal) * defaultTargetRatio)
+	}
+	return true
+}
+
 // Load reads configuration from standard locations.
 func Load() (Config, error) {
 	k := koanf.NewWithConf(koanf.Conf{

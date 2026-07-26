@@ -65,12 +65,6 @@ func (e *Engine) ModelMaxOutput(prov, model string) int { return e.catalog.MaxOu
 // separate cap; use the context window).
 func (e *Engine) ModelMaxInput(prov, model string) int { return e.catalog.MaxInput(prov, model) }
 
-// ProviderRoute returns the resolved route of a registered provider ("" if
-// the provider is not registered).
-func (e *Engine) ProviderRoute(name string) string {
-	return e.providers[name].Route
-}
-
 // ResolveThinking validates a configured thinking value against the catalog
 // and returns the value to put on turn requests, plus a user-facing warning
 // when the config had to be adjusted. "" means "send no thinking field".

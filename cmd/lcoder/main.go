@@ -305,9 +305,8 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	if source == "default" {
 		fmt.Fprintf(os.Stderr, "warning: 未能自动获取模型 %q 的上下文窗口,回退默认 %d\n", cfg.Model, budget.MaxTotal)
 	}
-	if source != "user" && maxInput > 0 && budget.MaxTotal > maxInput {
+	if budget.ClampToMaxInput(maxInput, source) {
 		fmt.Fprintf(os.Stderr, "info: 模型 %q prompt 上限 %d 低于上下文窗口,预算按 %d 计算\n", cfg.Model, maxInput, maxInput)
-		budget.MaxTotal = maxInput
 	}
 	thinking, thinkWarn := llmClient.ResolveThinking(context.Background(), cfg.Provider, cfg.Model, cfg.Thinking)
 	if thinkWarn != "" {

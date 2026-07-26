@@ -185,6 +185,80 @@ func TestResolveContextBudgetTargetClamped(t *testing.T) {
 	}
 }
 
+func TestClampToMaxInput(t *testing.T) {
+	ratioTarget := func(max int) int { return int(float64(max) * defaultTargetRatio) }
+	cases := []struct {
+		name        string
+		budget      TokenBudget
+		maxInput    int
+		source      string
+		wantClamped bool
+		wantMax     int
+		wantTarget  int
+	}{
+		{
+			name:        "clamp shrinks max and recomputes target",
+			budget:      TokenBudget{MaxTotal: 400000, TargetTotal: ratioTarget(400000)},
+			maxInput:    272000,
+			source:      "catalog",
+			wantClamped: true,
+			wantMax:     272000,
+			wantTarget:  ratioTarget(272000),
+		},
+		{
+			name:        "clamp keeps target when already within new max",
+			budget:      TokenBudget{MaxTotal: 400000, TargetTotal: 100000},
+			maxInput:    272000,
+			source:      "catalog",
+			wantClamped: true,
+			wantMax:     272000,
+			wantTarget:  100000,
+		},
+		{
+			name:        "user source untouched",
+			budget:      TokenBudget{MaxTotal: 400000, TargetTotal: ratioTarget(400000)},
+			maxInput:    272000,
+			source:      "user",
+			wantClamped: false,
+			wantMax:     400000,
+			wantTarget:  ratioTarget(400000),
+		},
+		{
+			name:        "zero maxInput untouched",
+			budget:      TokenBudget{MaxTotal: 400000, TargetTotal: ratioTarget(400000)},
+			maxInput:    0,
+			source:      "catalog",
+			wantClamped: false,
+			wantMax:     400000,
+			wantTarget:  ratioTarget(400000),
+		},
+		{
+			name:        "maxInput above max untouched",
+			budget:      TokenBudget{MaxTotal: 200000, TargetTotal: ratioTarget(200000)},
+			maxInput:    272000,
+			source:      "catalog",
+			wantClamped: false,
+			wantMax:     200000,
+			wantTarget:  ratioTarget(200000),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := tc.budget
+			got := b.ClampToMaxInput(tc.maxInput, tc.source)
+			if got != tc.wantClamped {
+				t.Fatalf("clamped = %v, want %v", got, tc.wantClamped)
+			}
+			if b.MaxTotal != tc.wantMax {
+				t.Fatalf("MaxTotal = %d, want %d", b.MaxTotal, tc.wantMax)
+			}
+			if b.TargetTotal != tc.wantTarget {
+				t.Fatalf("TargetTotal = %d, want %d", b.TargetTotal, tc.wantTarget)
+			}
+		})
+	}
+}
+
 func TestResolveContextBudgetCompactThresholdDefault(t *testing.T) {
 	cfg := DefaultConfig()
 	budget, _ := cfg.ResolveContextBudget(0, 0)
