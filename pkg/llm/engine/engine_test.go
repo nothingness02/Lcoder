@@ -156,6 +156,18 @@ func TestStreamTurnFillsOffEffort(t *testing.T) {
 	}
 }
 
+func TestModelMaxInput(t *testing.T) {
+	e := New(catalog.New(catalog.Options{Refresh: false, Overrides: []catalog.Entry{
+		{ID: "gpt-5", Provider: "openai", ContextWindow: 400000, MaxInput: 272000},
+	}}))
+	if got := e.ModelMaxInput("openai", "gpt-5"); got != 272000 {
+		t.Errorf("ModelMaxInput = %d, want 272000", got)
+	}
+	if got := e.ModelMaxInput("openai", "no-such-model"); got != 0 {
+		t.Errorf("unknown model MaxInput = %d, want 0", got)
+	}
+}
+
 func TestAdapterFactoryRoutes(t *testing.T) {
 	if _, ok := defaultAdapterFactory("anthropic", provider.CacheMarks{}).(provider.Anthropic); !ok {
 		t.Error("anthropic route")

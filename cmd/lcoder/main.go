@@ -300,6 +300,9 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 
 	window, _ := llmClient.ModelWindow(context.Background(), cfg.Provider, cfg.Model)
 	maxOutput, _ := llmClient.ModelMaxOutput(context.Background(), cfg.Provider, cfg.Model)
+	if maxInput, _ := llmClient.ModelMaxInput(context.Background(), cfg.Provider, cfg.Model); maxInput > 0 && maxInput < window {
+		window = maxInput
+	}
 	budget, source := cfg.ResolveContextBudget(window, maxOutput)
 	if source == "default" {
 		fmt.Fprintf(os.Stderr, "warning: 未能自动获取模型 %q 的上下文窗口,回退默认 %d\n", cfg.Model, budget.MaxTotal)

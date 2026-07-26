@@ -61,6 +61,10 @@ func (e *Engine) ModelWindow(prov, model string) int { return e.catalog.Window(p
 // provider/model (0 if unknown).
 func (e *Engine) ModelMaxOutput(prov, model string) int { return e.catalog.MaxOutput(prov, model) }
 
+// ModelMaxInput returns the catalog prompt cap for provider/model (0 = no
+// separate cap; use the context window).
+func (e *Engine) ModelMaxInput(prov, model string) int { return e.catalog.MaxInput(prov, model) }
+
 // ProviderRoute returns the resolved route of a registered provider ("" if
 // the provider is not registered).
 func (e *Engine) ProviderRoute(name string) string {
