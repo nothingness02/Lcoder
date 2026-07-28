@@ -320,14 +320,11 @@ export OPENAI_API_KEY=sk-...
 ### 5.4 `install` 命令详解
 
 ```bash
-# 从本地目录安装 Go 扩展
+# 从本地目录安装扩展
 ./lcoder install ./my-extension --name my-ext --local
 
 # 从 git 仓库安装
 ./lcoder install https://github.com/acme/lcoder-ext-tools.git --name acme-tools
-
-# 安装 package（模式包等）
-./lcoder install ./acme-modes --name acme-modes --local
 ```
 
 ### 5.5 `sessions` 与会话恢复
@@ -720,11 +717,11 @@ rules:
 
 Lcoder 支持三种方式扩展 agent 可用工具：
 
-1. **内置工具**：由 Lcoder 自带，如 `read`、`write`、`edit`、`bash`、`memory`、`repo_index` 等。其中 `subagent` 仅在配置中启用后才注册。
+1. **内置工具**：由 Lcoder 自带，如 `read`、`write`、`edit`、`bash`、`memory` 等。其中 `subagent` 仅在配置中启用后才注册。
 2. **HTTP 工具**：通过配置向任意 HTTP 端点暴露工具。
 3. **进程外扩展**：以独立进程运行、通过 stdio JSON-RPC 与宿主通信的扩展，从 `~/.lcoder/extensions/`（全局）或 `.lcoder/extensions/`（项目级）自动发现，目录内需有 `extension.yaml` 清单。
 
-> **注意**：`./lcoder install` 只是把扩展源码或包安装到 `~/.lcoder/extensions/` 或 `~/.lcoder/packages/`，不会自动注册。进程外扩展按上述目录自动发现，无需在 `tool_extensions` 中声明；HTTP 工具直接写 `http_tools` 即可生效。
+> **注意**：`./lcoder install` 只是把扩展源码安装到 `~/.lcoder/extensions/`，不会自动注册。进程外扩展按上述目录自动发现，无需在 `tool_extensions` 中声明；HTTP 工具直接写 `http_tools` 即可生效。
 
 ### 启用子代理
 
@@ -875,85 +872,46 @@ mcp_servers:
 
 ---
 
-## 12. 代码索引
+## 12. 代码智能（MCP / codegraph）
 
-代码索引是 Lcoder 的可选功能，用于为 agent 提供更丰富的仓库上下文。它会在后台构建一个 SQLite 持久化的代码图，支持按调用、引用、包含、继承等关系搜索相关符号。
+Lcoder 不内置代码索引，而是通过 MCP 接入外部代码智能工具。推荐搭配 [codegraph](https://github.com/colbymchenry/codegraph)：它用 tree-sitter 将仓库解析为符号/关系图（SQLite + FTS5），并以 MCP server 形式暴露只读工具。
 
-### 12.1 启用代码索引
+### 12.1 安装与建索引
+
+1. 按 codegraph 项目 README 安装（自带 Node runtime 的独立二进制，无需安装 Node）。
+2. 在仓库根目录执行一次 `codegraph init`，生成 `.codegraph/` 并建立全量索引。之后 `serve` 进程内的文件监听器会自动做增量更新（约 1 秒延迟）。
+
+### 12.2 在 Lcoder 中注册
 
 在 `~/.lcoder/config.yaml` 中配置：
 
 ```yaml
-code_index:
-  enabled: true
-  auto_inject: false
-  max_results: 10
-  max_tokens: 8192
-  languages: [go, python, javascript, typescript]
-  exclude:
-    - ".git/**"
-    - ".claude/**"
-    - "reference/**"
-    - "vendor/**"
-    - "node_modules/**"
+mcp_servers:
+  - name: codegraph
+    transport: stdio
+    command: ["codegraph", "serve", "--mcp", "--path", "."]
+    env:
+      CODEGRAPH_NO_DAEMON: "1"   # 单进程直连，生命周期由 lcoder 管理
+      CODEGRAPH_TELEMETRY: "0"   # 关闭匿名遥测
 ```
 
-字段说明：
+### 12.3 可用工具
 
-| 字段 | 说明 |
+连接后 agent 可使用 codegraph 暴露的只读工具（默认只开放 `codegraph_explore`，可用 `CODEGRAPH_MCP_TOOLS` 环境变量开放更多）：
+
+| 工具 | 说明 |
 |---|---|
-| `enabled` | 是否启用代码索引。 |
-| `auto_inject` | 是否每轮用户输入时自动注入相关代码上下文。 |
-| `max_results` | 每次查询返回的最大结果数。 |
-| `max_tokens` | 注入上下文的最大 token 预算。 |
-| `languages` | 要索引的语言列表：`go`、`python`、`javascript`、`typescript`。 |
-| `exclude` | 排除路径的 glob 列表。 |
+| `codegraph_explore` | 自然语言/关键词 → 相关符号源码（带行号）、调用路径、影响面摘要 |
+| `codegraph_search` | 符号名搜索，返回位置 |
+| `codegraph_files` | 索引文件树 |
 
-### 12.2 首次运行与增量更新
-
-首次启用时，Lcoder 会全量扫描项目并建立索引。之后：
-
-- 通过对比文件修改时间和大小，仅重新解析变更、新增或删除的文件。
-- 如果 `watch: true`，文件变更会自动触发索引更新（带防抖）。
-- 进程退出时会清理索引资源。
-
-### 12.3 `repo_index` 工具
-
-启用代码索引后，agent 可以使用 `repo_index` 工具主动搜索代码库：
+示例：
 
 ```text
-请使用 repo_index 搜索所有调用 NewClient 的地方
+用 codegraph_explore 查一下 NewClient 的调用方和相关代码
 ```
 
-`repo_index` 会返回相关符号的摘要，而不是完整文件内容，帮助 agent 快速理解代码结构。
-
-### 12.4 自动注入
-
-当 `auto_inject: true` 时，Lcoder 会在每轮用户输入时：
-
-1. 取用户消息的第一句话作为查询。
-2. 使用代码索引搜索相关符号。
-3. 将结果自动注入到当前上下文中。
-
-示例配置：
-
-```yaml
-code_index:
-  enabled: true
-  watch: true
-  auto_inject: true
-  max_tokens: 8000
-```
-
-### 12.5 调试代码索引
-
-```bash
-# 运行代码索引评估 CLI
-go run ./cmd/codeindex-eval -root=. -queries="Update,Search"
-
-# 运行相关测试
-go test ./pkg/codeindex/...
-```
+explore/plan/review 模式的 prompt 已引导 agent 在定位符号、调用链时优先使用这类工具，找不到时再回退到 grep/find。
 
 ---
 
@@ -1224,23 +1182,18 @@ hooks:
 | `sensitive_file_check` | map | 检查敏感文件访问。 |
 | `bash_denylist` | map | bash 命令黑名单。 |
 
-### 15.10 包与扩展
+### 15.10 扩展
 
 ```yaml
-packages:
-  - name: acme-modes
-    path: ~/.lcoder/packages/acme-modes
 extensions:
-  - name: acme-tools
-    source: github.com/acme/lcoder-ext-tools
-    config:
-      api_key: ${ACME_API_KEY}
+  disabled: ["noisy"]      # 按名禁用已发现的进程外扩展
+  hook_timeout_ms: 5000    # 扩展 hook 超时
 ```
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `packages` | list | 要加载的模式/技能包。 |
-| `extensions` | list | 要安装的 Go 扩展。 |
+| `extensions.disabled` | list | 按名禁用的进程外扩展。 |
+| `extensions.hook_timeout_ms` | int | 扩展 hook 超时（毫秒）。 |
 
 ---
 
@@ -1269,8 +1222,7 @@ extensions:
 | `~/.lcoder/skills/<name>/SKILL.md` | 全局技能。 |
 | `~/.lcoder/modes/` | 全局模式目录。 |
 | `~/.lcoder/memory/{MEMORY,USER}.md` | 全局记忆文件。 |
-| `~/.lcoder/packages/` | 已安装的包。 |
-| `~/.lcoder/extensions/` | 已安装的 Go 扩展源码。 |
+| `~/.lcoder/extensions/` | 已安装的进程外扩展。 |
 | `<repo>/AGENTS.md` | 项目级 agent 说明（从当前目录向上搜索到 git 根）。 |
 | `<repo>/CLAUDE.md` | 项目级 Claude Code 原则（搜索方式同上）。 |
 | `<repo>/LCODER.md` | 项目级 Lcoder 说明（搜索方式同上）。 |

@@ -58,31 +58,7 @@ func TestDefaultBashPermissionRules(t *testing.T) {
 	}
 }
 
-func TestMemoryDefaults(t *testing.T) {
-	cfg := DefaultConfig()
-	if !cfg.Memory.Enabled {
-		t.Fatal("expected Memory.Enabled to default to true")
-	}
-	if !cfg.Memory.DynamicRecall {
-		t.Fatal("expected Memory.DynamicRecall to default to true")
-	}
-	if cfg.Memory.RecallMaxTokens != 1024 {
-		t.Fatalf("expected Memory.RecallMaxTokens 1024, got %d", cfg.Memory.RecallMaxTokens)
-	}
-	if cfg.Memory.RecallMinScore < 0.09 || cfg.Memory.RecallMinScore > 0.11 {
-		t.Fatalf("expected Memory.RecallMinScore ~0.1, got %v", cfg.Memory.RecallMinScore)
-	}
-}
 
-func TestDefaultMemoryProviderConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	if len(cfg.Memory.Providers) != 0 {
-		t.Fatalf("expected no providers by default, got %d", len(cfg.Memory.Providers))
-	}
-	if cfg.Memory.RecallMaxTokens != 1024 {
-		t.Fatalf("expected recall_max_tokens 1024, got %d", cfg.Memory.RecallMaxTokens)
-	}
-}
 
 func TestResolveContextBudgetDefaultFallback(t *testing.T) {
 	cfg := DefaultConfig()
@@ -386,25 +362,6 @@ mcp_servers:
 	}
 }
 
-func TestCodeIndexDefaults(t *testing.T) {
-	cfg := DefaultConfig()
-	if cfg.CodeIndex.Enabled {
-		t.Fatal("expected CodeIndex.Enabled to default to false")
-	}
-	if cfg.CodeIndex.MaxResults != 10 {
-		t.Fatalf("expected MaxResults 10, got %d", cfg.CodeIndex.MaxResults)
-	}
-	if cfg.CodeIndex.MaxTokens != 8192 {
-		t.Fatalf("expected MaxTokens 8192, got %d", cfg.CodeIndex.MaxTokens)
-	}
-	if len(cfg.CodeIndex.Languages) != 1 || cfg.CodeIndex.Languages[0] != "go" {
-		t.Fatalf("expected Languages [go], got %v", cfg.CodeIndex.Languages)
-	}
-	if len(cfg.CodeIndex.Exclude) != 7 {
-		t.Fatalf("expected 7 exclude patterns, got %d", len(cfg.CodeIndex.Exclude))
-	}
-}
-
 func TestContextConfigKeepRecentTokens(t *testing.T) {
 	// 默认值。
 	cfg := DefaultConfig()
@@ -419,55 +376,6 @@ func TestContextConfigKeepRecentTokens(t *testing.T) {
 	}
 }
 
-func TestLoadMemoryProviderConfig(t *testing.T) {
-	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "lcoder.yaml")
-	data := `
-memory:
-  providers:
-    - name: hermes-http
-      type: http
-      config:
-        endpoint: "http://localhost:8000"
-        api_key: "{env:HERMES_TEST_KEY}"
-        timeout: 15
-`
-	if err := os.WriteFile(cfgPath, []byte(data), 0640); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HERMES_TEST_KEY", "secret-123")
-
-	// Temporarily point Load to the temp file by changing the working directory.
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origWd)
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(cfg.Memory.Providers) != 1 {
-		t.Fatalf("expected 1 provider, got %d", len(cfg.Memory.Providers))
-	}
-	p := cfg.Memory.Providers[0]
-	if p.Name != "hermes-http" || p.Type != "http" {
-		t.Fatalf("unexpected provider: %+v", p)
-	}
-	if p.Config.Endpoint != "http://localhost:8000" {
-		t.Fatalf("unexpected endpoint: %q", p.Config.Endpoint)
-	}
-	if p.Config.APIKey != "secret-123" {
-		t.Fatalf("expected api_key expanded, got %q", p.Config.APIKey)
-	}
-	if p.Config.Timeout != 15 {
-		t.Fatalf("expected timeout 15, got %d", p.Config.Timeout)
-	}
-}
 
 func TestExtensionsConfigParses(t *testing.T) {
 	tmp := t.TempDir()

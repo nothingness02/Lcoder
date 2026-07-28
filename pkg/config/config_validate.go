@@ -19,12 +19,6 @@ func (c Config) Validate() error {
 	if err := c.Context.Validate(); err != nil {
 		return fmt.Errorf("context: %w", err)
 	}
-	if err := c.Memory.Validate(); err != nil {
-		return fmt.Errorf("memory: %w", err)
-	}
-	if err := c.CodeIndex.Validate(); err != nil {
-		return fmt.Errorf("code_index: %w", err)
-	}
 	if err := c.Subagent.Validate(); err != nil {
 		return fmt.Errorf("subagent: %w", err)
 	}
@@ -66,54 +60,6 @@ func (c ContextConfig) Validate() error {
 	}
 	if c.KeepRecentTokens < 0 {
 		return fmt.Errorf("keep_recent_tokens must be non-negative")
-	}
-	return nil
-}
-
-// Validate checks memory limits and provider configurations.
-func (c MemoryConfig) Validate() error {
-	if c.MemoryCharLimit < 0 {
-		return fmt.Errorf("memory_char_limit must be non-negative")
-	}
-	if c.UserCharLimit < 0 {
-		return fmt.Errorf("user_char_limit must be non-negative")
-	}
-	for i, p := range c.Providers {
-		if err := p.Validate(); err != nil {
-			return fmt.Errorf("providers[%d]: %w", i, err)
-		}
-	}
-	return nil
-}
-
-// Validate checks a memory provider configuration.
-func (c MemoryProviderConfig) Validate() error {
-	if strings.TrimSpace(c.Type) == "" {
-		return fmt.Errorf("type is required")
-	}
-	if c.Type != "http" {
-		return fmt.Errorf("type %q is not valid; must be http", c.Type)
-	}
-	if strings.TrimSpace(c.Config.Endpoint) == "" {
-		return fmt.Errorf("endpoint is required")
-	}
-	u, err := url.Parse(c.Config.Endpoint)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return fmt.Errorf("endpoint %q must be an http or https URL", c.Config.Endpoint)
-	}
-	if c.Config.Timeout < 0 {
-		return fmt.Errorf("timeout must be non-negative")
-	}
-	return nil
-}
-
-// Validate checks code index settings.
-func (c CodeIndexConfig) Validate() error {
-	if c.MaxResults < 0 {
-		return fmt.Errorf("max_results must be non-negative")
-	}
-	if c.MaxTokens < 0 {
-		return fmt.Errorf("max_tokens must be non-negative")
 	}
 	return nil
 }

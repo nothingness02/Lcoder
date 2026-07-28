@@ -16,17 +16,13 @@ import (
 	"github.com/lcoder/lcoder/pkg/agent/hooks"
 	"github.com/lcoder/lcoder/pkg/agentsetup"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
-	"github.com/lcoder/lcoder/pkg/codeindex"
-	"github.com/lcoder/lcoder/pkg/codeindex/sqlitestore"
 	"github.com/lcoder/lcoder/pkg/config"
 	contextloader "github.com/lcoder/lcoder/pkg/context"
 	"github.com/lcoder/lcoder/pkg/events"
-	"github.com/lcoder/lcoder/pkg/extension"
 	"github.com/lcoder/lcoder/pkg/extension/bridge"
 	"github.com/lcoder/lcoder/pkg/extension/runtime"
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/mcp"
-	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/permissions"
@@ -127,6 +123,7 @@ func loadConfig() (config.Config, error) {
 type agentSetup struct {
 	ag               *agent.Agent
 	sess             *session.Session
+	activeSession    *agentsetup.ActiveSession
 	store            *session.Store
 	bus              *events.Bus
 	mcpRegistry      *mcp.Registry
@@ -135,7 +132,6 @@ type agentSetup struct {
 	llmClient        *llm.Client
 	checkpointStore  checkpoint.Store
 	obsWatcher       *observability.ConfigWatcher
-	codeIndexWatcher *codeindex.Watcher
 	extHost          *runtime.Host  // nil when no extensions loaded
 	extBridge        *bridge.Bridge // nil when no extensions loaded
 	cleanup          func()
@@ -154,9 +150,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		return nil, err
 	}
 
-	extMgr := extension.DefaultManager()
-
-	skillPaths := append(skills.DefaultPaths(cwd), extMgr.SkillDirs()...)
+	skillPaths := skills.DefaultPaths(cwd)
 	loadedSkillCatalog, _ := skills.LoadCatalog(skillPaths)
 	skillsBlock := skills.ToCatalogBlock(loadedSkillCatalog)
 
@@ -172,26 +166,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 	llmClient := llm.NewClient(eng)
 
-	var memStore *memory.Store
-	if cfg.Memory.Enabled {
-		memStore, err = memory.NewStore(cwd)
-		if err != nil {
-			return nil, fmt.Errorf("init memory store: %w", err)
-		}
-		memStore.WithLimits(memory.Limits{
-			MemoryCharLimit: cfg.Memory.MemoryCharLimit,
-			UserCharLimit:   cfg.Memory.UserCharLimit,
-		})
-	}
-
 	registry := tools.NewRegistry(cwd)
 	if err := registry.RegisterBuiltinFactories(cwd); err != nil {
 		return nil, fmt.Errorf("register built-in tools: %w", err)
 	}
 	registry.Register(skills.UseSkillToolName, builtinTools.NewUseSkill(cwd, loadedSkillCatalog))
-	if memStore != nil {
-		registry.Register("memory", builtinTools.NewMemory(cwd, memStore))
-	}
 	if cfg.Subagent.Enabled {
 		runner, err := subagent.NewRunner(cwd)
 		if err != nil {
@@ -234,6 +213,8 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 
 	permEngine := permissions.NewEngineFromRules(parsePermissionConfig(cfg.Permissions))
 	permEngine.SetUnsafeMode(cfg.Permissions.UnsafeMode)
+	homeDir, _ := os.UserHomeDir()
+	permEngine.SetPathContext(cwd, homeDir)
 	_ = permEngine.LoadGlobalLearnedRules(paths.LCoderHome("permissions", "global.yaml"))
 	_ = permEngine.LoadProjectRules(filepath.Join(cwd, ".lcoder", "permissions.yaml"))
 
@@ -292,7 +273,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 
 	modeManager := agent.NewModeManager()
-	modeDirs := append(agent.DefaultModeDirs(cwd), extMgr.AgentDirs()...)
+	modeDirs := agent.DefaultModeDirs(cwd)
 	_ = modeManager.LoadModes(modeDirs)
 	if modeName == "" {
 		modeName = "code"
@@ -312,89 +293,14 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	if thinkWarn != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", thinkWarn)
 	}
-	mgr := agentsetup.NewContextManager(cfg, budget, thinking, llmClient, contextText, skillsBlock, sess.EffectiveMessages(), memStore)
-
-	var memoryInjector memory.MemoryInjector
-	var injector *memory.Injector
-	if memStore != nil && cfg.Memory.DynamicRecall {
-		injector = memory.NewInjector(memStore, mgr, cfg.Memory.RecallMaxTokens).
-			WithRanker(memory.NewDefaultRanker().WithMinScore(cfg.Memory.RecallMinScore))
-		memoryInjector = injector
-	}
-	if len(cfg.Memory.Providers) > 0 {
-		if injector == nil {
-			if !cfg.Memory.Enabled {
-				fmt.Fprintln(os.Stderr, "warning: memory.providers configured but memory is disabled; external providers will not be used")
-			} else if !cfg.Memory.DynamicRecall {
-				fmt.Fprintln(os.Stderr, "warning: memory.providers configured but dynamic recall is disabled; external providers will not be used")
-			}
-		} else {
-			providers := make([]memory.Provider, 0, len(cfg.Memory.Providers))
-			for _, p := range cfg.Memory.Providers {
-				switch p.Type {
-				case "http":
-					providers = append(providers, memory.NewHTTPProvider(memory.HTTPProviderConfig{
-						Endpoint:       p.Config.Endpoint,
-						APIKey:         p.Config.APIKey,
-						Headers:        p.Config.Headers,
-						Timeout:        p.Config.Timeout,
-						SearchPath:     p.Config.SearchPath,
-						ObservePath:    p.Config.ObservePath,
-						SessionEndPath: p.Config.SessionEndPath,
-					}))
-				default:
-					fmt.Fprintf(os.Stderr, "warning: unsupported memory provider type %q\n", p.Type)
-				}
-			}
-			if len(providers) > 0 {
-				injector = injector.WithProviders(providers...)
-				memoryInjector = injector
-			}
-		}
-	}
+	activeSession := agentsetup.NewActiveSession(sess)
+	mgr := agentsetup.NewContextManager(cfg, budget, thinking, llmClient, contextText, skillsBlock,
+		sess.EffectiveMessages(), agentsetup.SessionCompactionSink(activeSession.Get))
 
 	var reminderProducers []agent.ReminderProducer
-	var repoIndexTool *builtinTools.RepoIndex
-	var repoIndexer *sqlitestore.Indexer
-	var codeIndexWatcher *codeindex.Watcher
-	if cfg.CodeIndex.Enabled {
-		var err error
-		repoIndexer, err = sqlitestore.NewIndexer(
-			cfg.CodeIndex.Languages,
-			cfg.CodeIndex.Exclude,
-			sqlitestore.DefaultPath(cwd),
-		)
-		if err != nil {
-			mcpRegistry.Close()
-			return nil, fmt.Errorf("init code index: %w", err)
-		}
-		codeInjector := codeindex.NewInjector(repoIndexer, mgr, cwd, cfg.CodeIndex.MaxTokens)
-		repoIndexTool = builtinTools.NewRepoIndex(cwd)
-		repoIndexTool.SetInjector(codeInjector)
-		registry.Register("repo_index", repoIndexTool)
-		if cfg.CodeIndex.AutoInject {
-			reminderProducers = append(reminderProducers, autoInjectReminder(codeInjector))
-		}
-		if cfg.CodeIndex.Watch {
-			codeIndexWatcher, err = codeindex.NewWatcher(repoIndexer, cwd, cfg.CodeIndex.Exclude)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to start code index watcher: %v\n", err)
-				codeIndexWatcher = nil
-			} else {
-				go func() {
-					if err := codeIndexWatcher.Start(context.Background()); err != nil && err != context.Canceled {
-						fmt.Fprintf(os.Stderr, "warning: code index watcher exited: %v\n", err)
-					}
-				}()
-			}
-		}
-	}
 
 	chkStore := checkpoint.NewFileStore(filepath.Join(session.DefaultDir(), "checkpoints"))
 	coreTools := cfg.Context.CoreTools
-	if repoIndexTool != nil && cfg.Context.DeferredTools {
-		coreTools = appendCoreTool(coreTools, "repo_index")
-	}
 
 	agBuilder := agent.NewBuilder().
 		WithConfig(agent.Config{
@@ -417,9 +323,6 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		WithEventBus(bus).
 		WithObservability(obsCollector).
 		WithContextSnapshotRecorder(contextSnapshotRecorder)
-	if memoryInjector != nil {
-		agBuilder = agBuilder.WithMemoryInjector(memoryInjector)
-	}
 	ag, err := agBuilder.
 		WithSessionID(sess.ID).
 		WithCheckpointStore(chkStore).
@@ -451,6 +354,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	return &agentSetup{
 		ag:              ag,
 		sess:            sess,
+		activeSession:   activeSession,
 		store:           sessStore,
 		bus:             bus,
 		mcpRegistry:     mcpRegistry,
@@ -462,12 +366,6 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		extHost:         extHost,
 		extBridge:       extBridge,
 		cleanup: func() {
-			if codeIndexWatcher != nil {
-				_ = codeIndexWatcher.Close()
-			}
-			if repoIndexer != nil {
-				_ = repoIndexer.Close()
-			}
 			if obsWatcher != nil {
 				_ = obsWatcher.Close()
 			}
@@ -479,45 +377,6 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			mcpRegistry.Close()
 		},
 	}, nil
-}
-
-func appendCoreTool(existing []string, name string) []string {
-	for _, n := range existing {
-		if n == name {
-			return existing
-		}
-	}
-	return append(existing, name)
-}
-
-func autoInjectReminder(inj *codeindex.Injector) agent.ReminderProducer {
-	return func(msgs []models.AgentMessage) []string {
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == models.RoleUser {
-				query := extractAutoInjectQuery(msgs[i].Text())
-				if query == "" {
-					return nil
-				}
-				ctx := context.Background()
-				if err := inj.Inject(ctx, query, 0); err != nil {
-					return nil
-				}
-				return []string{fmt.Sprintf("[repo_index auto-injected context for: %s]", query)}
-			}
-		}
-		return nil
-	}
-}
-
-func extractAutoInjectQuery(text string) string {
-	text = strings.TrimSpace(text)
-	if idx := strings.IndexAny(text, "\n.?!"); idx > 0 {
-		text = text[:idx]
-	}
-	if len(text) > 200 {
-		text = text[:200]
-	}
-	return text
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
@@ -636,17 +495,11 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 
 	// Persist after each assistant/tool message turn.
 	persistHandler := func(ctx context.Context, ev events.Event) error {
-		switch e := ev.(type) {
-		case events.CompactionCommittedEvent:
-			// Append-only: record the compaction entry; raw messages stay on disk.
-			// Degraded folds (breaker open) carry no summary and persist nothing.
-			if !e.Degraded && e.Summary != "" {
-				_ = setup.sess.AppendCompactionEntry(e.Summary, e.FirstKeptID, e.TokensBefore)
-				// Mirror the kept tail now: with the entry on disk, AppendMissing
-				// skips the runtime summary and appends only the not-yet-persisted
-				// kept messages, so a crash before run end cannot lose them.
-				_ = setup.sess.AppendMissing(setup.ag.AllMessages())
-			}
+		switch ev.(type) {
+		// Compactions are persisted by the context manager's CompactionSink
+		// (agentsetup.SessionCompactionSink), inside the same call that folds the
+		// context — not from here, where a missed event would silently leave the
+		// session claiming the folded messages are still active.
 		case events.TurnEndEvent, events.AgentEndEvent:
 			// Mirror the completed turn's assistant/tool messages into the
 			// session now. TurnEnd is dispatched synchronously from the agent
@@ -743,5 +596,7 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 		}
 	}
 
-	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup, setup.cfg.loadedSkillCatalog...)
+	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup,
+		func(s *session.Session) { setup.activeSession.Set(s) },
+		setup.cfg.loadedSkillCatalog...)
 }

@@ -60,13 +60,6 @@ func TestValidate_ContextNumericRanges(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidMemoryLimits(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.Memory.MemoryCharLimit = -1
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected memory limit error")
-	}
-}
 
 func TestValidate_InvalidHTTPTool(t *testing.T) {
 	cfg := DefaultConfig()
@@ -111,52 +104,5 @@ func TestValidate_InvalidPermissionDecision(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidCodeIndex(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.CodeIndex.MaxResults = -1
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "code_index") {
-		t.Fatalf("expected code_index error, got %v", err)
-	}
-	cfg = DefaultConfig()
-	cfg.CodeIndex.MaxTokens = -1
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "code_index") {
-		t.Fatalf("expected code_index error, got %v", err)
-	}
-}
 
-func TestValidate_InvalidMemoryProvider(t *testing.T) {
-	cases := []struct {
-		name string
-		p    MemoryProviderConfig
-	}{
-		{"missing type", MemoryProviderConfig{Type: "", Config: HTTPProviderConfig{Endpoint: "http://example.com"}}},
-		{"invalid type", MemoryProviderConfig{Type: "grpc", Config: HTTPProviderConfig{Endpoint: "http://example.com"}}},
-		{"missing endpoint", MemoryProviderConfig{Type: "http", Config: HTTPProviderConfig{Endpoint: ""}}},
-		{"invalid endpoint", MemoryProviderConfig{Type: "http", Config: HTTPProviderConfig{Endpoint: "not-a-url"}}},
-		{"wrong scheme", MemoryProviderConfig{Type: "http", Config: HTTPProviderConfig{Endpoint: "ftp://example.com"}}},
-		{"negative timeout", MemoryProviderConfig{Type: "http", Config: HTTPProviderConfig{Endpoint: "http://example.com", Timeout: -1}}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := DefaultConfig()
-			cfg.Memory.Providers = []MemoryProviderConfig{tc.p}
-			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "memory") {
-				t.Fatalf("expected memory provider error for %s, got %v", tc.name, err)
-			}
-		})
-	}
-}
 
-func TestValidate_ValidMemoryProvider(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.Memory.Providers = []MemoryProviderConfig{{
-		Type: "http",
-		Config: HTTPProviderConfig{
-			Endpoint: "https://example.com/memory",
-			Timeout:  5,
-		},
-	}}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("expected valid config, got %v", err)
-	}
-}

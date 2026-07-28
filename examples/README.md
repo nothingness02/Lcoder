@@ -10,7 +10,7 @@ This directory contains runnable examples for extending Lcoder.
 | [extension-hook](extension-hook) | Custom before-tool-call hook |
 | [extension-exporter](extension-exporter) | Custom observability exporter |
 | [extension-http-tool](extension-http-tool) | Declarative HTTP tool |
-| [extension-mode](extension-mode) | Packaged agent mode |
+| [extension-mode](extension-mode) | Custom agent mode |
 
 ## Running Examples
 

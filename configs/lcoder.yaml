@@ -63,38 +63,17 @@ context:
   compact_threshold: 0.9   # compact when usage reaches this ratio of target_tokens
   cache_hint_policy: default  # default | aggressive | none
 
-# Persistent memory. Lcoder loads ~/.lcoder/memory/{MEMORY,USER}.md and
-# <repo>/.lcoder/memory/{MEMORY,USER}.md into the system prompt.
-# The memory tool writes to the global files only.
-memory:
-  enabled: true
-  dynamic_recall: true        # per-turn relevance recall; set false for static snapshot
-  recall_max_tokens: 1024     # token budget for recalled memory each turn
-  recall_min_score: 0.1       # minimum relevance score (0..1) for an entry to be recalled
-  # memory_char_limit: 2200
-  # user_char_limit: 1375
-  # External memory providers (Hermes-style). Currently only "http" is supported.
-  # providers:
-  #   - name: hermes-http
-  #     type: http
-  #     config:
-  #       endpoint: "http://localhost:8000"
-  #       api_key: "{env:HERMES_MEMORY_API_KEY}"
-  #       timeout: 10
-  #       search_path: "/search"
-  #       observe_path: "/observe"
-  #       session_end_path: "/session/end"
-
-# Repository-level code indexing. When enabled, `repo_index` can search the
-# codebase and inject symbol stubs into the context. Auto-inject runs on every
-# user turn using the first sentence of the user message as the query.
-# code_index:
-#   enabled: true
-#   auto_inject: false
-#   max_results: 10
-#   max_tokens: 8192
-#   languages: [go, python, javascript, typescript]
-#   exclude: ["vendor/", "node_modules/", "**/*_test.go"]
+# Repository-level code intelligence is provided via MCP, not built in. Point
+# lcoder at a codegraph server (https://github.com/colbymchenry/codegraph) to
+# get symbol/call-graph search as MCP tools. After installing codegraph, run
+# `codegraph init` in the repo once to build the index, then uncomment:
+# mcp_servers:
+#   - name: codegraph
+#     transport: stdio
+#     command: ["codegraph", "serve", "--mcp", "--path", "."]
+#     env:
+#       CODEGRAPH_NO_DAEMON: "1"   # single process; lifecycle owned by lcoder
+#       CODEGRAPH_TELEMETRY: "0"   # disable anonymous telemetry
 
 permissions:
   # Set unsafe_mode: true to bypass the permission engine for the current run.

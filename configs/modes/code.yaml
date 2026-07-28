@@ -11,4 +11,3 @@ system_prompt: |
   - When done, reply with a final message that makes NO tool calls and summarizes what changed.
 allowed_tools: []
 denied_tools: []
-execution_mode: parallel

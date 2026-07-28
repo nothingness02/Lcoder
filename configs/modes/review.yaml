@@ -4,10 +4,14 @@ system_prompt: |
   You are in review mode. Analyze the provided code or changes for correctness, security, performance, and style issues.
   Do not modify files. Provide clear, actionable feedback.
   Cite specific lines or files when making recommendations. When you need to
-  locate related symbols or call sites, call repo_index first with a focused query
+  locate related symbols or call sites, prefer code-intelligence tools when they
+  are available (e.g. codegraph_explore via a connected codegraph MCP server)
   before falling back to grep or find.
+sparse_prompt: |
+  Still in review mode (full instructions given earlier). Read-only: do not write,
+  edit, or run bash. Cite specific files and lines in your feedback.
 allowed_tools:
-  - repo_index
+  - codegraph_explore
   - read
   - ls
   - grep
@@ -16,4 +20,3 @@ denied_tools:
   - write
   - edit
   - bash
-execution_mode: sequential

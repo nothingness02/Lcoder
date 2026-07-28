@@ -146,8 +146,6 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/permissions` | 权限引擎与规则匹配。 |
 | `pkg/observability` | 事件收集、指标、trace、导出器。 |
 | `pkg/extension` | 包/扩展管理与进程外扩展运行时（`proto`/`runtime`/`bridge`）。 |
-| `pkg/memory` | 持久化记忆与动态召回。 |
-| `pkg/codeindex` | SQLite 代码图索引。 |
 
 ### 3.1 关键接口速览
 
@@ -491,29 +489,11 @@ http_tools:
 
 ## 8. 如何添加 Agent Mode
 
-Agent mode 是一组 system prompt 与工具白名单/黑名单配置。你可以把它打包成一个 mode package。
+Agent mode 是一组 system prompt 与工具白名单/黑名单配置。无需打包，把一个 YAML 文件放进 mode 搜索目录即可。
 
-### 8.1 目录结构
+### 8.1 Mode 定义文件
 
-```
-my-mode/
-  lcoder-package.yaml
-  agents/
-    review.yaml
-```
-
-### 8.2 `lcoder-package.yaml`
-
-```yaml
-name: my-mode
-version: 1.0.0
-author: your-name
-description: My custom agent mode
-```
-
-### 8.3 Mode 定义文件
-
-`agents/review.yaml`：
+新建 `review.yaml`（参考 `configs/modes/plan.yaml` 或 `examples/extension-mode/review.yaml`）：
 
 ```yaml
 name: review
@@ -532,38 +512,33 @@ denied_tools:
   - bash
 ```
 
-### 8.4 安装与使用
+### 8.2 放置位置与覆盖规则
+
+按优先级从低到高，同名 mode 后者覆盖前者：
+
+1. 内嵌默认 modes（`configs/modes/*.yaml`，随二进制分发）
+2. `~/.lcoder/modes/*.yaml`（用户级）
+3. `<项目>/.lcoder/modes/*.yaml`（项目级）
+
+### 8.3 使用
 
 ```bash
-./lcoder install --local ./my-mode
-```
-
-> `./lcoder install` 仅复制文件，不会自动加载包。安装后需在 `~/.lcoder/config.yaml` 的 `packages` 中声明：
-
-```yaml
-packages:
-  - name: my-mode
-    path: ~/.lcoder/packages/my-mode
-```
-
-然后即可使用：
-
-```bash
+./lcoder modes                              # 列出全部 mode
 ./lcoder --mode review -p "review pkg/agent/loop.go"
 ```
 
-### 8.5 Mode 配置字段
+### 8.4 Mode 配置字段
 
 | 字段 | 说明 |
 |---|---|
 | `name` | 模式名称，命令行 `--mode` 使用。 |
 | `description` | 模式描述，`./lcoder modes` 显示。 |
-| `system_prompt` | 注入到 system prompt 的指令。 |
-| `allowed_tools` | 允许使用的工具列表；设置后只有列表内工具可用。 |
-| `denied_tools` | 禁止使用的工具列表。 |
-| `model` | 该模式使用的模型 ID（可选）。 |
-| `provider` | 该模式使用的 provider（可选）。 |
-| `execution_mode` | `parallel` 或 `sequential`（可选）。 |
+| `system_prompt` | 模式指令全文。作为 ephemeral reminder 注入到消息尾部，不写入 system prompt。 |
+| `sparse_prompt` | 精简提醒（可选）。两次全文之间的轮次发送此文本，应只重申硬约束并指回前文，不重复全文。留空则始终发全文。 |
+| `allowed_tools` | 允许使用的工具列表；设置后列表外的工具在执行时被拒绝。 |
+| `denied_tools` | 禁止使用的工具列表；命中的工具在执行时被拒绝。 |
+
+模式的工具限制是**执行时拒绝**，而非过滤工具 schema：工具数组是 provider 缓存前缀的第一层，切换模式时改动它会导致整段对话按全新输入重新计费。模型仍会看到被限制工具的完整 schema，调用后拿到一条带脱困路径的 `tool_result` 错误。同理，模式指令走 ephemeral reminder 落在最后一个缓存断点之后，因此只花它自身的字节，不动缓存前缀。
 
 ---
 

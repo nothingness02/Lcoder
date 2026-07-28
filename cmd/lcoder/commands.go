@@ -53,7 +53,7 @@ func skillsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			paths := append(skills.DefaultPaths(cwd), extension.DefaultManager().SkillDirs()...)
+			paths := skills.DefaultPaths(cwd)
 			catalog, err := skills.LoadCatalog(paths)
 			if err != nil {
 				return err
@@ -98,7 +98,7 @@ func modesCmd() *cobra.Command {
 				return err
 			}
 			mm := agent.NewModeManager()
-			dirs := append(agent.DefaultModeDirs(cwd), extension.DefaultManager().AgentDirs()...)
+			dirs := agent.DefaultModeDirs(cwd)
 			_ = mm.LoadModes(dirs)
 			for _, mode := range mm.List() {
 				fmt.Printf("- %s: %s\n", mode.Name, mode.Description)
@@ -224,7 +224,7 @@ func installCmd() *cobra.Command {
 	var local bool
 	cmd := &cobra.Command{
 		Use:   "install SOURCE",
-		Short: "Install an extension or package from a local path or git repo",
+		Short: "Install an extension from a local path or git repo",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			source := args[0]
@@ -238,23 +238,16 @@ func installCmd() *cobra.Command {
 			if name == "" {
 				name = guessName(source)
 			}
-			mgr := extension.DefaultManager()
-			pkg, err := mgr.InstallPackage(name, source)
+			loader := extension.DefaultLoader()
+			dir, err := loader.Install(name, source)
 			if err != nil {
-				// Fall back to installing as an extension directory.
-				loader := extension.DefaultLoader()
-				dir, err2 := loader.Install(name, source)
-				if err2 != nil {
-					return fmt.Errorf("install package: %w\ninstall extension: %w", err, err2)
-				}
-				fmt.Printf("Installed extension %s at %s\n", name, dir)
-				return nil
+				return fmt.Errorf("install extension: %w", err)
 			}
-			fmt.Printf("Installed package %s v%s at %s\n", pkg.Info.Name, pkg.Info.Version, pkg.RootDir)
+			fmt.Printf("Installed extension %s at %s\n", name, dir)
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&name, "name", "n", "", "Name for the installed extension/package")
+	cmd.Flags().StringVarP(&name, "name", "n", "", "Name for the installed extension")
 	cmd.Flags().BoolVarP(&local, "local", "l", false, "Force treat SOURCE as a local path")
 	return cmd
 }
@@ -262,20 +255,12 @@ func installCmd() *cobra.Command {
 func uninstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall NAME",
-		Short: "Uninstall an extension or package",
+		Short: "Uninstall an extension",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			mgr := extension.DefaultManager()
-			var errs []error
-			if err := mgr.UninstallPackage(name); err != nil {
-				errs = append(errs, err)
-			}
 			if err := extension.DefaultLoader().Uninstall(name); err != nil {
-				errs = append(errs, err)
-			}
-			if len(errs) == 2 {
-				return fmt.Errorf("uninstall failed: %v", errs)
+				return fmt.Errorf("uninstall failed: %w", err)
 			}
 			fmt.Printf("Uninstalled %s\n", name)
 			return nil
@@ -286,19 +271,8 @@ func uninstallCmd() *cobra.Command {
 func listExtensionsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list-extensions",
-		Short: "List installed extensions and packages",
+		Short: "List installed extensions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mgr := extension.DefaultManager()
-			pkgs, err := mgr.ListPackages()
-			if err != nil {
-				return err
-			}
-			if len(pkgs) > 0 {
-				fmt.Println("Packages:")
-				for _, p := range pkgs {
-					fmt.Printf("- %s v%s (%s)\n", p.Info.Name, p.Info.Version, p.RootDir)
-				}
-			}
 			exts, err := extension.DefaultLoader().List()
 			if err != nil {
 				return err
@@ -308,9 +282,8 @@ func listExtensionsCmd() *cobra.Command {
 				for _, e := range exts {
 					fmt.Printf("- %s\n", e)
 				}
-			}
-			if len(pkgs) == 0 && len(exts) == 0 {
-				fmt.Println("No extensions or packages installed.")
+			} else {
+				fmt.Println("No extensions installed.")
 			}
 			return nil
 		},

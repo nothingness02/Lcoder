@@ -43,11 +43,3 @@ type ExtensionsConfig struct {
 	Disabled      []string `yaml:"disabled"`
 	HookTimeoutMs int      `yaml:"hook_timeout_ms"`
 }
-
-// PackageConfig describes an installed package containing modes/skills/tools.
-type PackageConfig struct {
-	Name   string         `yaml:"name"`
-	Source string         `yaml:"source"`
-	Path   string         `yaml:"path"`
-	Config map[string]any `yaml:"config"`
-}

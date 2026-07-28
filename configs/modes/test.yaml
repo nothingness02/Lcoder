@@ -13,4 +13,3 @@ allowed_tools:
   - grep
   - find
 denied_tools: []
-execution_mode: sequential

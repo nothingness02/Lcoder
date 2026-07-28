@@ -211,48 +211,27 @@ TUI 中可用 `/mcp` 查看并重连服务器。
 - MCP 工具在服务器未自行定义时，暴露可选的 `timeout_seconds` 参数（默认 **120**）。
 - 若 LLM 未指定参数，则使用默认值。
 
-## 代码索引
+## 代码智能（MCP / codegraph）
 
-Lcoder 现在内置持久化、增量式的代码图索引，用于提供 richer 的仓库上下文。
+Lcoder 不内置代码索引，而是通过 MCP 接入外部代码智能工具。推荐搭配 [codegraph](https://github.com/colbymchenry/codegraph)：它用 tree-sitter 把仓库解析成符号/关系图（SQLite + FTS5），并通过 MCP 暴露 `codegraph_explore`（自然语言/关键词 → 相关符号源码、调用路径、影响面）、`codegraph_search`、`codegraph_files` 等只读工具。
 
-特性：
+使用方式：
 
-- **SQLite 持久化存储**（`pkg/codeindex/sqlitestore`）—— 索引在进程重启后仍然保留。
-- **增量索引** —— 通过对比修改时间/大小，仅重新解析变更/新增/删除的文件；首次运行时才会全量重建。
-- **文件监听器**（`pkg/codeindex/watcher`）—— 源文件变更时自动更新索引，带防抖。
-- **图上下文构建器**（`pkg/codeindex/contextbuilder`）—— 沿 call/reference/contains/extends/implements 边扩展搜索种子，返回相关符号而非仅关键词匹配。
-- **多语言解析器** —— Go、TypeScript/JavaScript、Python。
-
-在 `~/.lcoder/config.yaml` 中开启：
+1. 安装 codegraph（自带 Node runtime 的独立二进制，见项目 README）。
+2. 在仓库根目录执行一次 `codegraph init` 建立索引（之后其 serve 进程内的 watcher 会自动增量更新）。
+3. 在 `~/.lcoder/config.yaml` 中注册 MCP 服务器：
 
 ```yaml
-code_index:
-  enabled: true
-  watch: true
-  languages: [go, ts, js, python]
-  max_results: 20
-  max_tokens: 8000
-  exclude:
-    - ".git/**"
-    - ".claude/**"
-    - "reference/**"
-    - "vendor/**"
-    - "node_modules/**"
+mcp_servers:
+  - name: codegraph
+    transport: stdio
+    command: ["codegraph", "serve", "--mcp", "--path", "."]
+    env:
+      CODEGRAPH_NO_DAEMON: "1"   # 单进程直连，生命周期由 lcoder 管理
+      CODEGRAPH_TELEMETRY: "0"   # 关闭匿名遥测
 ```
 
-开启后，`lcoder` 会打开项目专属的 SQLite 索引；若 `watch: true`（默认）则启动监听器。关闭时会清理索引。
-
-运行代码索引评估/指标 CLI：
-
-```bash
-go run ./cmd/codeindex-eval -root=. -queries="Update,Search"
-```
-
-运行测试：
-
-```bash
-go test ./pkg/codeindex/...
-```
+连接后，agent 在探索符号、调用链、影响面时会优先使用这些 MCP 工具（explore/plan/review 模式的 prompt 已按此引导）。
 
 ## SWE-bench Lite 评测
 

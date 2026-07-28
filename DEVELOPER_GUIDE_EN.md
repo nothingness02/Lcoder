@@ -146,8 +146,6 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/permissions` | Permission engine and rule matching. |
 | `pkg/observability` | Event collection, metrics, traces, exporters. |
 | `pkg/extension` | Package/extension management and the process-external extension runtime (`proto`/`runtime`/`bridge`). |
-| `pkg/memory` | Persistent memory and dynamic recall. |
-| `pkg/codeindex` | SQLite code graph index. |
 
 ### 3.1 Key Interfaces
 
@@ -491,29 +489,11 @@ The response should be a tool result. The simplest form is a text content block:
 
 ## 8. How to Add an Agent Mode
 
-An agent mode is a system prompt plus optional tool allow/deny lists. You can package it as a mode package.
+An agent mode is a system prompt plus optional tool allow/deny lists. No packaging is needed — drop a YAML file into one of the mode search directories.
 
-### 8.1 Directory Structure
+### 8.1 Mode Definition File
 
-```
-my-mode/
-  lcoder-package.yaml
-  agents/
-    review.yaml
-```
-
-### 8.2 `lcoder-package.yaml`
-
-```yaml
-name: my-mode
-version: 1.0.0
-author: your-name
-description: My custom agent mode
-```
-
-### 8.3 Mode Definition File
-
-`agents/review.yaml`:
+Create `review.yaml` (see `configs/modes/plan.yaml` or `examples/extension-mode/review.yaml`):
 
 ```yaml
 name: review
@@ -532,25 +512,33 @@ denied_tools:
   - bash
 ```
 
-### 8.4 Install and Use
+### 8.2 Locations and Override Rules
+
+From lowest to highest precedence; a later mode with the same name overrides the earlier one:
+
+1. Embedded default modes (`configs/modes/*.yaml`, shipped in the binary)
+2. `~/.lcoder/modes/*.yaml` (user level)
+3. `<project>/.lcoder/modes/*.yaml` (project level)
+
+### 8.3 Usage
 
 ```bash
-./lcoder install --local ./my-mode
+./lcoder modes                              # list all modes
 ./lcoder --mode review -p "review pkg/agent/loop.go"
 ```
 
-### 8.5 Mode Configuration Fields
+### 8.4 Mode Configuration Fields
 
 | Field | Description |
 |---|---|
 | `name` | Mode name; used with `--mode`. |
 | `description` | Mode description shown by `./lcoder modes`. |
-| `system_prompt` | Instructions injected into the system prompt. |
-| `allowed_tools` | Allowed tools; if set, only these tools are available. |
-| `denied_tools` | Denied tools. |
-| `model` | Model ID for this mode (optional). |
-| `provider` | Provider for this mode (optional). |
-| `execution_mode` | `parallel` or `sequential` (optional). |
+| `system_prompt` | Full mode instructions, injected as an ephemeral reminder at the message tail rather than into the system prompt. |
+| `sparse_prompt` | Abbreviated reminder (optional), sent on turns between full refreshes. It should restate only the mode's hard invariant and point back to the full text already in context. Empty means always send the full text. |
+| `allowed_tools` | Allowed tools; if set, tools outside the list are refused at execution time. |
+| `denied_tools` | Denied tools; matching tools are refused at execution time. |
+
+Mode tool restrictions are enforced by **refusing at execution time**, not by filtering the tool schemas: the tool array is the first layer of the provider cache prefix, so changing it on a mode switch re-bills the entire conversation as fresh input. The model still sees the full schema of a restricted tool and receives a `tool_result` error naming the escape hatch if it calls one. For the same reason the mode instructions go out as an ephemeral reminder, which lands after the last cache breakpoint and therefore costs only its own bytes.
 
 ---
 

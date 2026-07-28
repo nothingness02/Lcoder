@@ -300,10 +300,10 @@ The following flags belong to the main `lcoder` command and **cannot** be used o
 | `export` | `./lcoder export <session-id>` | Export session observability data; default is HTML. |
 | `metrics` | `./lcoder metrics [port]` | Run the Prometheus metrics endpoint; default port `:9090`. |
 | `tui` | `./lcoder tui` | Start the interactive TUI. To resume a session, use `./lcoder --session ID` or `./lcoder -c`. |
-| `install` | `./lcoder install SOURCE` | Install an extension or package. |
-| `uninstall` | `./lcoder uninstall NAME` | Uninstall an extension or package. |
-| `list-extensions` | `./lcoder list-extensions` | List installed extensions and packages. |
-| `update` | `./lcoder update NAME` | Update an installed extension or package. |
+| `install` | `./lcoder install SOURCE` | Install an extension. |
+| `uninstall` | `./lcoder uninstall NAME` | Uninstall an extension. |
+| `list-extensions` | `./lcoder list-extensions` | List installed extensions. |
+| `update` | `./lcoder update NAME` | Update an installed extension. |
 
 ### 5.3 `export` Command Details
 
@@ -320,17 +320,14 @@ The following flags belong to the main `lcoder` command and **cannot** be used o
 ### 5.4 `install` Command Details
 
 ```bash
-# Install a Go extension from a local directory
+# Install an extension from a local directory
 ./lcoder install ./my-extension --name my-ext --local
 
 # Install from a git repository
 ./lcoder install https://github.com/acme/lcoder-ext-tools.git --name acme-tools
-
-# Install a package (e.g. a mode pack)
-./lcoder install ./acme-modes --name acme-modes --local
 ```
 
-> `./lcoder install` only copies files to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register extensions. Process-external extensions are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `extension.yaml` manifest; see `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
+> `./lcoder install` only copies files to `~/.lcoder/extensions/`; it does **not** auto-register extensions. Process-external extensions are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `extension.yaml` manifest; see `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`.
 
 ### 5.5 `sessions` and Session Recovery
 
@@ -710,11 +707,11 @@ The global permission file `~/.lcoder/permissions/global.yaml` uses the same for
 
 Lcoder supports three ways to extend the tools available to the agent:
 
-1. **Built-in tools**: Provided by Lcoder, such as `read`, `write`, `edit`, `bash`, `memory`, `repo_index`, etc. `subagent` is registered only when explicitly enabled in the configuration.
+1. **Built-in tools**: Provided by Lcoder, such as `read`, `write`, `edit`, `bash`, `memory`, etc. `subagent` is registered only when explicitly enabled in the configuration.
 2. **HTTP tools**: Expose arbitrary HTTP endpoints as tools through configuration.
 3. **Process-external extensions**: Standalone processes that talk to the host over stdio JSON-RPC; they are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `extension.yaml` manifest.
 
-> **Note**: `./lcoder install` only copies an extension or package to `~/.lcoder/extensions/` or `~/.lcoder/packages/`; it does **not** auto-register extensions. Process-external extensions are discovered from the directories above and need no declaration in `tool_extensions`; HTTP tools take effect simply by adding them under `http_tools`.
+> **Note**: `./lcoder install` only copies an extension to `~/.lcoder/extensions/`; it does **not** auto-register extensions. Process-external extensions are discovered from the directories above and need no declaration in `tool_extensions`; HTTP tools take effect simply by adding them under `http_tools`.
 
 ### Enabling Subagent
 
@@ -872,85 +869,46 @@ If the LLM does not specify a timeout, the default is used.
 
 ---
 
-## 12. Code Index
+## 12. Code Intelligence (MCP / codegraph)
 
-The code index is an optional Lcoder feature that provides richer repository context. It builds a SQLite-backed code graph in the background and supports searching related symbols by call, reference, containment, inheritance, and other relationships.
+Lcoder does not bundle a code index; it connects to external code-intelligence tools over MCP. The recommended companion is [codegraph](https://github.com/colbymchenry/codegraph): it parses the repo into a symbol/relation graph with tree-sitter (SQLite + FTS5) and serves read-only tools over MCP.
 
-### 12.1 Enable the Code Index
+### 12.1 Install and Index
+
+1. Install codegraph per its project README (a self-contained binary with a bundled Node runtime — no Node install required).
+2. Run `codegraph init` once in the repo root to create `.codegraph/` and build the full index. Its serve process then keeps the index incrementally updated via a file watcher (~1s lag).
+
+### 12.2 Register in Lcoder
 
 Configure in `~/.lcoder/config.yaml`:
 
 ```yaml
-code_index:
-  enabled: true
-  auto_inject: false
-  max_results: 10
-  max_tokens: 8192
-  languages: [go, python, javascript, typescript]
-  exclude:
-    - ".git/**"
-    - ".claude/**"
-    - "reference/**"
-    - "vendor/**"
-    - "node_modules/**"
+mcp_servers:
+  - name: codegraph
+    transport: stdio
+    command: ["codegraph", "serve", "--mcp", "--path", "."]
+    env:
+      CODEGRAPH_NO_DAEMON: "1"   # single process; lifecycle owned by lcoder
+      CODEGRAPH_TELEMETRY: "0"   # disable anonymous telemetry
 ```
 
-Field descriptions:
+### 12.3 Available Tools
 
-| Field | Description |
+Once connected, the agent can use the read-only tools codegraph exposes (only `codegraph_explore` is listed by default; open more via the `CODEGRAPH_MCP_TOOLS` env var):
+
+| Tool | Description |
 |---|---|
-| `enabled` | Whether to enable the code index. |
-| `auto_inject` | Whether to automatically inject relevant code context on each user turn. |
-| `max_results` | Maximum number of results per query. |
-| `max_tokens` | Maximum token budget for injected context. |
-| `languages` | Languages to index: `go`, `python`, `javascript`, `typescript`. |
-| `exclude` | Glob list of paths to exclude. |
+| `codegraph_explore` | Natural-language/keyword query → relevant symbol source (with line numbers), call paths, blast-radius summary |
+| `codegraph_search` | Symbol-name search, returns locations |
+| `codegraph_files` | Indexed file tree |
 
-### 12.2 First Run and Incremental Updates
-
-On first enable, Lcoder performs a full project scan and builds the index. After that:
-
-- Only changed, added, or deleted files are re-parsed by comparing mod-time and size.
-- If `watch: true`, file changes automatically trigger index updates with debouncing.
-- Index resources are cleaned up on process exit.
-
-### 12.3 The `repo_index` Tool
-
-With the code index enabled, the agent can actively search the codebase using the `repo_index` tool:
+Example:
 
 ```text
-Please use repo_index to find all places that call NewClient
+Use codegraph_explore to find the callers of NewClient and the related code
 ```
 
-`repo_index` returns summaries of related symbols rather than full file contents, helping the agent understand the codebase structure quickly.
-
-### 12.4 Auto-Injection
-
-When `auto_inject: true`, Lcoder does the following on each user turn:
-
-1. Takes the first sentence of the user message as the query.
-2. Searches the code index for relevant symbols.
-3. Injects the results into the current context.
-
-Example configuration:
-
-```yaml
-code_index:
-  enabled: true
-  watch: true
-  auto_inject: true
-  max_tokens: 8000
-```
-
-### 12.5 Debugging the Code Index
-
-```bash
-# Run the code-index evaluation CLI
-go run ./cmd/codeindex-eval -root=. -queries="Update,Search"
-
-# Run related tests
-go test ./pkg/codeindex/...
-```
+The explore/plan/review mode prompts already guide the agent to prefer these tools for locating symbols and call chains, falling back to grep/find when unavailable.
 
 ---
 
@@ -1219,23 +1177,18 @@ hooks:
 | `sensitive_file_check` | map | Check sensitive file access. |
 | `bash_denylist` | map | Bash command denylist. |
 
-### 15.10 Packages and Extensions
+### 15.10 Extensions
 
 ```yaml
-packages:
-  - name: acme-modes
-    path: ~/.lcoder/packages/acme-modes
 extensions:
-  - name: acme-tools
-    source: github.com/acme/lcoder-ext-tools
-    config:
-      api_key: ${ACME_API_KEY}
+  disabled: ["noisy"]      # disable discovered process-external extensions by name
+  hook_timeout_ms: 5000    # extension hook timeout
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `packages` | list | Mode/skill packages to load. |
-| `extensions` | list | Go extensions to install. |
+| `extensions.disabled` | list | Process-external extensions to disable by name. |
+| `extensions.hook_timeout_ms` | int | Extension hook timeout in milliseconds. |
 
 ---
 
@@ -1264,8 +1217,7 @@ extensions:
 | `~/.lcoder/skills/<name>/SKILL.md` | Global skills. |
 | `~/.lcoder/modes/` | Global modes. |
 | `~/.lcoder/memory/{MEMORY,USER}.md` | Global memory files. |
-| `~/.lcoder/packages/` | Installed packages. |
-| `~/.lcoder/extensions/` | Installed Go extension source files. |
+| `~/.lcoder/extensions/` | Installed process-external extensions. |
 | `<repo>/AGENTS.md` | Project-level agent instructions (searched upward to the git root). |
 | `<repo>/CLAUDE.md` | Project-level Claude Code principles (searched upward to the git root). |
 | `<repo>/LCODER.md` | Project-level Lcoder notes (searched upward to the git root). |

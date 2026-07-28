@@ -1,24 +1,32 @@
-# Extension Mode Package Example
+# Extension Mode Example
 
-This example shows how to package and distribute a custom agent mode.
+This example shows how to add a custom agent mode — no packaging needed.
 
 ## Structure
 
 ```
 extension-mode/
-  lcoder-package.yaml
-  agents/
-    review.yaml
+  review.yaml     # the mode definition
 ```
 
-## Install
+## Usage
+
+Copy the mode file into one of the mode search directories:
 
 ```bash
-lcoder install --local ./examples/extension-mode
+# user level
+cp review.yaml ~/.lcoder/modes/
+
+# or project level
+cp review.yaml <your-project>/.lcoder/modes/
 ```
 
 Then run:
 
 ```bash
+lcoder modes
 lcoder --mode review "review pkg/agent/loop.go"
 ```
+
+Project-level modes override user-level modes with the same name; both
+override the embedded defaults.

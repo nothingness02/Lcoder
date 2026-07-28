@@ -21,7 +21,6 @@ var toolFriendlyLabels = map[string]string{
 	"find":        "Finding files",
 	"ls":          "Listing files",
 	"memory":      "Updating memory",
-	"repo_index":  "Indexing the repository",
 	"subagent":    "Running a subagent",
 	"tool_search": "Searching for tools",
 }

@@ -217,48 +217,27 @@ Time-consuming tools accept an LLM-controllable timeout:
 - MCP tools expose an optional `timeout_seconds` parameter (default **120**) when the server does not already define one.
 - If the LLM omits the parameter, the default is used.
 
-## Code Index
+## Code Intelligence (MCP / codegraph)
 
-Lcoder now includes a persistent, incremental code graph index for richer repository context.
+Lcoder does not bundle a code index; it connects to external code-intelligence tools over MCP. The recommended companion is [codegraph](https://github.com/colbymchenry/codegraph): it parses the repo into a symbol/relation graph with tree-sitter (SQLite + FTS5) and exposes read-only MCP tools such as `codegraph_explore` (natural-language/keyword query → relevant symbol source, call paths, blast radius), `codegraph_search`, and `codegraph_files`.
 
-Features:
+To use it:
 
-- **SQLite-backed storage** (`pkg/codeindex/sqlitestore`) — the index persists across process restarts.
-- **Incremental indexing** — only changed/new/deleted files are re-parsed by comparing mod-time/size; full rebuild happens only on first run.
-- **File watcher** (`pkg/codeindex/watcher`) — auto-updates the index as source files change, with debouncing.
-- **Graph-based context building** (`pkg/codeindex/contextbuilder`) — expands search seeds along call/reference/contains/extends/implements edges to return related symbols, not just keyword matches.
-- **Multi-language parsers** — Go, TypeScript/JavaScript, and Python.
-
-Enable it in `~/.lcoder/config.yaml`:
+1. Install codegraph (a self-contained binary with a bundled Node runtime; see its README).
+2. Run `codegraph init` once in the repo root to build the index (its serve process then keeps it incrementally updated via a file watcher).
+3. Register the MCP server in `~/.lcoder/config.yaml`:
 
 ```yaml
-code_index:
-  enabled: true
-  watch: true
-  languages: [go, ts, js, python]
-  max_results: 20
-  max_tokens: 8000
-  exclude:
-    - ".git/**"
-    - ".claude/**"
-    - "reference/**"
-    - "vendor/**"
-    - "node_modules/**"
+mcp_servers:
+  - name: codegraph
+    transport: stdio
+    command: ["codegraph", "serve", "--mcp", "--path", "."]
+    env:
+      CODEGRAPH_NO_DAEMON: "1"   # single process; lifecycle owned by lcoder
+      CODEGRAPH_TELEMETRY: "0"   # disable anonymous telemetry
 ```
 
-When `enabled`, `lcoder` opens a project-specific SQLite index and starts the watcher if `watch: true` (default). The index is cleaned up on shutdown.
-
-Run the code-index evaluation/metrics CLI:
-
-```bash
-go run ./cmd/codeindex-eval -root=. -queries="Update,Search"
-```
-
-Run tests:
-
-```bash
-go test ./pkg/codeindex/...
-```
+Once connected, the agent prefers these MCP tools for symbol/call-chain/impact exploration (the explore/plan/review mode prompts already guide it this way).
 
 ## SWE-bench Lite Evaluation
 

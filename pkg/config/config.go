@@ -61,38 +61,9 @@ type ContextConfig struct {
 	DropThreshold    float64  `yaml:"drop_threshold"`     // ratio of effective input at which old msgs drop
 }
 
-// MemoryProviderConfig describes an external memory provider.
-type MemoryProviderConfig struct {
-	Name   string             `yaml:"name"`
-	Type   string             `yaml:"type"` // "http"
-	Config HTTPProviderConfig `yaml:"config"`
-}
-
-// HTTPProviderConfig configures a generic HTTP memory provider.
-type HTTPProviderConfig struct {
-	Endpoint       string            `yaml:"endpoint"`
-	APIKey         string            `yaml:"api_key"`
-	Headers        map[string]string `yaml:"headers"`
-	Timeout        int               `yaml:"timeout"`
-	SearchPath     string            `yaml:"search_path"`
-	ObservePath    string            `yaml:"observe_path"`
-	SessionEndPath string            `yaml:"session_end_path"`
-}
-
 // SubagentConfig controls the built-in subagent tool.
 type SubagentConfig struct {
 	Enabled bool `yaml:"enabled"`
-}
-
-// MemoryConfig controls persistent memory behavior.
-type MemoryConfig struct {
-	Enabled         bool                   `yaml:"enabled"`
-	MemoryCharLimit int                    `yaml:"memory_char_limit"`
-	UserCharLimit   int                    `yaml:"user_char_limit"`
-	DynamicRecall   bool                   `yaml:"dynamic_recall"`
-	RecallMaxTokens int                    `yaml:"recall_max_tokens"`
-	RecallMinScore  float64                `yaml:"recall_min_score"`
-	Providers       []MemoryProviderConfig `yaml:"providers"`
 }
 
 // Config is the full Lcoder configuration.
@@ -109,10 +80,7 @@ type Config struct {
 	MCPServers     []MCPServerConfig       `yaml:"mcp_servers"`
 	Hooks          HookConfig              `yaml:"hooks"`
 	Extensions     ExtensionsConfig        `yaml:"extensions"`
-	Packages       []PackageConfig         `yaml:"packages"`
 	Providers      map[string]ProviderConn `yaml:"providers"`
-	Memory         MemoryConfig            `yaml:"memory"`
-	CodeIndex      CodeIndexConfig         `yaml:"code_index"`
 	Subagent       SubagentConfig          `yaml:"subagent"`
 	// Language    string                  `yaml:"language"`
 	// Catalog is the shared model metadata loaded from models.yaml (not parsed
@@ -140,24 +108,6 @@ func DefaultConfig() Config {
 			DeferredTools:    false,
 			CoreTools:        nil,
 			DropThreshold:    1.0,
-		},
-		Memory: MemoryConfig{
-			Enabled:         true,
-			MemoryCharLimit: 0,
-			UserCharLimit:   0,
-			DynamicRecall:   true,
-			RecallMaxTokens: 1024,
-			RecallMinScore:  0.1,
-			Providers:       nil,
-		},
-		CodeIndex: CodeIndexConfig{
-			Enabled:    false,
-			AutoInject: false,
-			Watch:      true,
-			MaxResults: 10,
-			MaxTokens:  8192,
-			Languages:  []string{"go"},
-			Exclude:    []string{".git/", ".claude/", ".worktrees/", "reference/", "vendor/", "node_modules/", "*_test.go"},
 		},
 		Subagent: SubagentConfig{
 			Enabled: false,
@@ -225,17 +175,6 @@ func DefaultConfig() Config {
 			},
 		},
 	}
-}
-
-// CodeIndexConfig configures the repository code-indexing engine.
-type CodeIndexConfig struct {
-	Enabled    bool     `yaml:"enabled"`
-	AutoInject bool     `yaml:"auto_inject"`
-	Watch      bool     `yaml:"watch"`
-	MaxResults int      `yaml:"max_results"`
-	MaxTokens  int      `yaml:"max_tokens"`
-	Languages  []string `yaml:"languages"`
-	Exclude    []string `yaml:"exclude"`
 }
 
 // Budget resolution fallbacks, used only when no explicit user/catalog/discovered
@@ -392,15 +331,6 @@ func Load() (Config, error) {
 			"core_tools":         cfg.Context.CoreTools,
 			"drop_threshold":     cfg.Context.DropThreshold,
 		},
-		"memory": map[string]any{
-			"enabled":           cfg.Memory.Enabled,
-			"memory_char_limit": cfg.Memory.MemoryCharLimit,
-			"user_char_limit":   cfg.Memory.UserCharLimit,
-			"dynamic_recall":    cfg.Memory.DynamicRecall,
-			"recall_max_tokens": cfg.Memory.RecallMaxTokens,
-			"recall_min_score":  cfg.Memory.RecallMinScore,
-			"providers":         cfg.Memory.Providers,
-		},
 		"subagent": map[string]any{
 			"enabled": cfg.Subagent.Enabled,
 		},
@@ -445,9 +375,6 @@ func Load() (Config, error) {
 
 	// Expand {env:VAR} references in provider connection settings.
 	cfg.Providers = resolveProviders(cfg.Providers)
-
-	// Expand {env:VAR} references in memory provider config.
-	cfg.Memory.Providers = resolveMemoryProviders(cfg.Memory.Providers)
 
 	// Fold the shared model catalog (models.yaml) into the config when present,
 	// so context budgets and capabilities come from a single source of truth.

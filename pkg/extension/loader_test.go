@@ -52,32 +52,3 @@ func TestLoaderInstallLocal(t *testing.T) {
 	}
 }
 
-func TestLoadPackage(t *testing.T) {
-	dir, err := os.MkdirTemp("", "lcoder-pkg-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-
-	meta := `name: my-pkg
-version: 1.0.0
-author: test
-`
-	if err := os.WriteFile(filepath.Join(dir, "lcoder-package.yaml"), []byte(meta), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	pkg, err := LoadPackage(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pkg.Info.Name != "my-pkg" {
-		t.Fatalf("unexpected name: %s", pkg.Info.Name)
-	}
-	if !pkg.HasAgents() {
-		t.Fatal("expected agents dir")
-	}
-}
