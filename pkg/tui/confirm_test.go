@@ -86,9 +86,14 @@ func TestConfirmPanelSelectionAndDecision(t *testing.T) {
 	if p.selected != 0 {
 		t.Fatalf("default selection should be Deny(0), got %d", p.selected)
 	}
-	wantOptions := []string{"Deny", "Once", "Project allow", "Global allow"}
-	if len(p.options) != len(wantOptions) {
-		t.Fatalf("expected %v options, got %v", wantOptions, p.options)
+	wantLabels := []string{"Deny", "Once", "Session", "Project (bash: ls *)", "Global (bash: ls *)"}
+	if len(p.options) != len(wantLabels) {
+		t.Fatalf("expected %v options, got %v", wantLabels, p.options)
+	}
+	for i, opt := range p.options {
+		if opt.label != wantLabels[i] {
+			t.Fatalf("option %d: expected %q, got %q", i, wantLabels[i], opt.label)
+		}
 	}
 
 	p.next()
@@ -111,6 +116,11 @@ func TestConfirmPanelSelectionAndDecision(t *testing.T) {
 	res = p.confirm()
 	if !res.Allow || res.Scope != agent.ScopeOnce {
 		t.Fatalf("confirm on Once should return allow=true scope=ScopeOnce, got %v", res)
+	}
+	p.next()
+	res = p.confirm()
+	if !res.Allow || res.Scope != agent.ScopeSession {
+		t.Fatalf("confirm on Session should return allow=true scope=ScopeSession, got %v", res)
 	}
 }
 
@@ -136,7 +146,7 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 	if !strings.Contains(view, "Permission request: bash") {
 		t.Fatalf("view missing permission prompt:\n%s", view)
 	}
-	for _, opt := range []string{"Deny", "Once", "Project allow", "Global allow"} {
+	for _, opt := range []string{"Deny", "Once", "Session", "Project (bash: ls *)", "Global (bash: ls *)"} {
 		if !strings.Contains(view, opt) {
 			t.Fatalf("view missing option %q:\n%s", opt, view)
 		}
@@ -213,7 +223,7 @@ func TestConfirmPanelUltraDestructiveHidesGlobal(t *testing.T) {
 		t.Fatal("expected ultra-destructive panel")
 	}
 	for _, opt := range mm.confirm.options {
-		if opt == "Global allow" {
+		if opt.scope == agent.ScopeGlobal {
 			t.Fatal("global allow should not be offered for ultra-destructive commands")
 		}
 	}

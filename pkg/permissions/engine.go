@@ -3,9 +3,7 @@ package permissions
 import (
 	"fmt"
 	"os"
-	"path"
-	"path/filepath"
-	"strings"
+	"sync"
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
@@ -51,11 +49,23 @@ type ruleSource struct {
 	origin int // higher wins on tie
 }
 
-// Engine evaluates permission requests.
+// Engine evaluates permission requests through an ordered policy chain (see
+// policy.go). User rule sources feed the rule policies; guard policies
+// installed via SetGuardPolicies run ahead of the built-in chain.
 type Engine struct {
 	sources    []ruleSource
 	nextOrigin int
 	unsafeMode bool
+	guards     []Policy
+
+	// cwd/homeDir give the engine the session's path context so path rules
+	// can be matched against equivalent spellings of a path (see
+	// pathVariants). Empty means pure lexical matching (tests, headless use).
+	cwd     string
+	homeDir string
+
+	sessionMu    sync.RWMutex
+	sessionRules map[string]map[string]bool // tool -> exact target -> approved
 }
 
 // NewEngine creates a permission engine from config.
@@ -76,6 +86,71 @@ func (e *Engine) SetUnsafeMode(v bool) {
 // UnsafeMode returns the current unsafe mode state.
 func (e *Engine) UnsafeMode() bool {
 	return e.unsafeMode
+}
+
+// SetGuardPolicies replaces the guard policies that run ahead of the
+// built-in chain. Guards express harness constraints (e.g. mode/skill tool
+// surface restrictions) that must hold regardless of unsafe mode or user
+// rules, so they are always evaluated first.
+func (e *Engine) SetGuardPolicies(policies ...Policy) {
+	e.guards = policies
+}
+
+// SetPathContext gives the engine the session's working directory and home
+// directory, enabling path-variant matching: rules then match paths the way
+// the tools will resolve them, not just the raw string the model wrote.
+// Callers should wire the process cwd and os.UserHomeDir here.
+func (e *Engine) SetPathContext(cwd, homeDir string) {
+	e.cwd = cwd
+	e.homeDir = homeDir
+}
+
+// AddSessionRule records an exact-match approval for the tool call that
+// lasts for the rest of the session (in memory only — it is never persisted,
+// so it can never leak into other sessions). Commands are matched verbatim;
+// path targets are stored in canonical form (when path context is set), so
+// approving "/repo/a.go" also covers a later "a.go" spelling of the same
+// file — but never a different file.
+func (e *Engine) AddSessionRule(tool string, args map[string]any) {
+	target := e.sessionTarget(RequestFor(tool, args))
+	e.sessionMu.Lock()
+	defer e.sessionMu.Unlock()
+	if e.sessionRules == nil {
+		e.sessionRules = make(map[string]map[string]bool)
+	}
+	if e.sessionRules[tool] == nil {
+		e.sessionRules[tool] = make(map[string]bool)
+	}
+	e.sessionRules[tool][target] = true
+}
+
+// hasSessionRule reports whether the exact (tool, target) pair was approved
+// earlier in this session.
+func (e *Engine) hasSessionRule(req Request) bool {
+	target := e.sessionTarget(req)
+	e.sessionMu.RLock()
+	defer e.sessionMu.RUnlock()
+	return e.sessionRules[req.Tool][target]
+}
+
+// sessionTarget normalizes the match target for session rules: commands
+// stay verbatim; path targets are canonicalized when possible so equivalent
+// spellings of one file share a single approval.
+func (e *Engine) sessionTarget(req Request) string {
+	target := requestTarget(req)
+	if req.Command == "" {
+		if c := e.canonicalPath(target); c != "" {
+			target = c
+		}
+	}
+	return target
+}
+
+// ClearSessionRules drops all session approvals (e.g. on session reset).
+func (e *Engine) ClearSessionRules() {
+	e.sessionMu.Lock()
+	defer e.sessionMu.Unlock()
+	e.sessionRules = nil
 }
 
 // AddSource appends a rule source. Later sources win on specificity tie.
@@ -119,8 +194,9 @@ func NewEngineFromRules(rules []Rule) *Engine {
 	return NewEngine(Config{Rules: rulesMap})
 }
 
-// Decide returns the decision for a tool call using the command/path target.
-func (e *Engine) Decide(tool string, args map[string]any) Decision {
+// RequestFor builds a Request from a tool name and its call arguments,
+// lifting the well-known path/command arguments into dedicated fields.
+func RequestFor(tool string, args map[string]any) Request {
 	req := Request{Tool: tool, Args: args}
 	if path, ok := args["path"].(string); ok {
 		req.Path = path
@@ -128,7 +204,18 @@ func (e *Engine) Decide(tool string, args map[string]any) Decision {
 	if cmd, ok := args["command"].(string); ok {
 		req.Command = cmd
 	}
-	return e.Evaluate(req)
+	return req
+}
+
+// Decide returns the decision for a tool call using the command/path target.
+func (e *Engine) Decide(tool string, args map[string]any) Decision {
+	return e.Evaluate(RequestFor(tool, args))
+}
+
+// DecideWithSource is Decide plus the name of the deciding policy and its
+// reason (see EvaluateWithSource).
+func (e *Engine) DecideWithSource(tool string, args map[string]any) (Decision, string, string) {
+	return e.EvaluateWithSource(RequestFor(tool, args))
 }
 
 // dangerousTools default to Deny when no rule table exists, so that an
@@ -185,61 +272,26 @@ func IsUltraDestructiveCommand(command string) bool {
 // MatchUltraDestructive matches a single ultra-destructive pattern against a
 // normalized command. It treats '/' as a literal character.
 func MatchUltraDestructive(pattern, target string) (bool, error) {
-	const placeholder = "\x00"
-	return path.Match(strings.ReplaceAll(pattern, "/", placeholder), strings.ReplaceAll(target, "/", placeholder))
+	return MatchCommand(pattern, target), nil
 }
 
 // Evaluate returns the decision for a request.
-// Unknown tools default to Allow; dangerous tools default to Deny unless a
-// rule table (even an empty one) exists for them.
 func (e *Engine) Evaluate(req Request) Decision {
-	if e.unsafeMode {
-		if req.Tool == "bash" && req.Command != "" && e.IsUltraDestructive(req.Command) {
-			return Ask
-		}
-		return Allow
-	}
+	d, _, _ := e.EvaluateWithSource(req)
+	return d
+}
 
-	table, ok := e.mergedRules(req.Tool)
-	if !ok {
-		if dangerousTools[req.Tool] {
-			return Deny
-		}
-		return Allow
-	}
-
-	target := req.Command
-	if target == "" {
-		target = req.Path
-	}
-	if target == "" {
-		target = "*"
-	}
-
-	var bestPattern string
-	var best Decision
-	set := false
-
-	for pattern, decision := range table {
-		matched, err := match(pattern, target)
-		if err != nil {
-			continue
-		}
-		if matched {
-			if !set || specificity(pattern) > specificity(bestPattern) {
-				bestPattern = pattern
-				best = decision
-				set = true
-			}
+// EvaluateWithSource returns the decision along with the name of the policy
+// that made it and the policy-provided reason (empty when the policy gave
+// none). The reason is meant to be fed back to the model.
+func (e *Engine) EvaluateWithSource(req Request) (decision Decision, policy, reason string) {
+	for _, p := range e.chain() {
+		if d, why, ok := p.Decide(req); ok {
+			return d, p.Name(), why
 		}
 	}
-	if !set {
-		if dangerousTools[req.Tool] {
-			return Deny
-		}
-		return Allow
-	}
-	return best
+	// Unreachable while fallbackAllowPolicy terminates the chain.
+	return Allow, "default-allow", ""
 }
 
 func (e *Engine) mergedRules(tool string) (RuleTable, bool) {
@@ -257,35 +309,19 @@ func (e *Engine) mergedRules(tool string) (RuleTable, bool) {
 	return merged, found
 }
 
-// match checks whether a glob pattern matches a target.
-func match(pattern, target string) (bool, error) {
-	// filepath.Match supports * and ? but not **.
-	return filepath.Match(pattern, target)
-}
-
-// specificity ranks a pattern by its length and number of literals.
-func specificity(pattern string) int {
-	return len(pattern)
-}
-
 // DefaultConfig returns the default allow-all permission config.
 func DefaultConfig() Config {
 	return Config{Rules: map[string]RuleTable{}}
 }
 
-// Explain returns a human-readable explanation for a decision.
+// Explain returns a human-readable explanation for a decision, naming the
+// policy that made it.
 func (e *Engine) Explain(req Request) string {
-	decision := e.Evaluate(req)
-	switch decision {
-	case Allow:
-		return fmt.Sprintf("allowed: %s", req.Tool)
-	case Ask:
-		return fmt.Sprintf("requires approval: %s", req.Tool)
-	case Deny:
-		return fmt.Sprintf("denied by policy: %s", req.Tool)
-	default:
-		return fmt.Sprintf("unknown decision for %s", req.Tool)
+	decision, policy, reason := e.EvaluateWithSource(req)
+	if reason != "" {
+		return fmt.Sprintf("%s: %s (%s: %s)", decision, req.Tool, policy, reason)
 	}
+	return fmt.Sprintf("%s: %s (by %s)", decision, req.Tool, policy)
 }
 
 func loadRulesYAML(path string) (Config, error) {

@@ -16,14 +16,34 @@ import (
 
 // ModeConfig describes an agent mode.
 type ModeConfig struct {
-	Name          string   `yaml:"name"`
-	Description   string   `yaml:"description"`
-	SystemPrompt  string   `yaml:"system_prompt"`
-	AllowedTools  []string `yaml:"allowed_tools,omitempty"`
-	DeniedTools   []string `yaml:"denied_tools,omitempty"`
-	Model         string   `yaml:"model,omitempty"`
-	Provider      string   `yaml:"provider,omitempty"`
-	ExecutionMode string   `yaml:"execution_mode,omitempty"`
+	Name         string `yaml:"name"`
+	Description  string `yaml:"description"`
+	SystemPrompt string `yaml:"system_prompt"`
+	// SparsePrompt is the abbreviated reminder sent on steps between full
+	// refreshes. It should restate only the mode's hard invariant and point
+	// back to the full text already in context rather than repeating it —
+	// that is what keeps the per-step cost of an uncached tail reminder
+	// negligible. Empty means always send SystemPrompt.
+	SparsePrompt string   `yaml:"sparse_prompt,omitempty"`
+	AllowedTools []string `yaml:"allowed_tools,omitempty"`
+	DeniedTools  []string `yaml:"denied_tools,omitempty"`
+	// Rules constrains tool calls by argument pattern within this mode
+	// (e.g. plan mode may allow bash but deny "git push *"). Evaluated by the
+	// mode-guard policy after the allowed/denied name lists.
+	Rules []ModeRule `yaml:"rules,omitempty"`
+	// RequireApprovalToExit makes switch_mode out of this mode an ask: the
+	// user confirms before the agent leaves (kimi-code's ExitPlanMode review).
+	RequireApprovalToExit bool `yaml:"require_approval_to_exit,omitempty"`
+}
+
+// ModeRule is an argument-level tool constraint within a mode. Match is a
+// glob (same syntax as permission rules) matched against the command for
+// bash and the path for file tools; empty Match covers every call of Tool.
+// Decision must be "deny" or "ask".
+type ModeRule struct {
+	Tool     string `yaml:"tool"`
+	Match    string `yaml:"match,omitempty"`
+	Decision string `yaml:"decision"`
 }
 
 // ModeManager loads and selects agent modes.
@@ -106,6 +126,14 @@ func (mm *ModeManager) loadModeData(data []byte, filename string) error {
 	if mode.Name == "" {
 		mode.Name = strings.TrimSuffix(filename, filepath.Ext(filename))
 	}
+	for i, rule := range mode.Rules {
+		if rule.Tool == "" {
+			return fmt.Errorf("mode %q: rules[%d] missing tool", mode.Name, i)
+		}
+		if rule.Decision != "deny" && rule.Decision != "ask" {
+			return fmt.Errorf("mode %q: rules[%d] decision must be \"deny\" or \"ask\", got %q", mode.Name, i, rule.Decision)
+		}
+	}
 	mm.modes[mode.Name] = mode
 	return nil
 }
@@ -118,7 +146,7 @@ func (mm *ModeManager) Get(name string) ModeConfig {
 	if mode, ok := mm.modes["code"]; ok {
 		return mode
 	}
-	return ModeConfig{Name: "code", Description: "Default coding mode", ExecutionMode: "parallel"}
+	return ModeConfig{Name: "code", Description: "Default coding mode"}
 }
 
 // List returns all loaded modes sorted by name.

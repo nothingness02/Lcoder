@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -67,7 +66,7 @@ type executor struct {
 
 // newExecutor creates an executor with an initialized activeDeferred map.
 func newExecutor(cfg *Config, mgr *contextmgr.Manager, registry *tools.Registry, permissions *permissions.Engine, emitter *eventEmitter, taskMgr *task.Manager) *executor {
-	return &executor{
+	ex := &executor{
 		cfg:            cfg,
 		mgr:            mgr,
 		registry:       registry,
@@ -76,6 +75,23 @@ func newExecutor(cfg *Config, mgr *contextmgr.Manager, registry *tools.Registry,
 		activeDeferred: make(map[string]bool),
 		taskMgr:        taskMgr,
 	}
+	// Mode/skill surface constraints run as guard policies ahead of the
+	// built-in permission chain.
+	if permissions != nil {
+		permissions.SetGuardPolicies(modeGuardPolicy{ex: ex}, skillGuardPolicy{ex: ex})
+	}
+	return ex
+}
+
+// installGuardPolicies (re)installs the mode/skill guard policies on the
+// permission engine. It runs before every evaluation because executors built
+// directly (e.g. in tests) bypass newExecutor; the policies are stateless
+// adapters over executor state, so re-installing is cheap and always in sync.
+func (e *executor) installGuardPolicies() {
+	if e.permissions == nil {
+		return
+	}
+	e.permissions.SetGuardPolicies(modeGuardPolicy{ex: e}, skillGuardPolicy{ex: e}, modeTransitionPolicy{ex: e})
 }
 
 func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.AgentMessage, calls []models.ToolCallContent, execMode models.ExecutionMode) ([]models.AgentMessage, bool) {
@@ -84,12 +100,6 @@ func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.Ag
 	e.dedupMu.Unlock()
 
 	sequential := execMode == models.ExecutionSequential
-	if e.cfg.ModeManager != nil {
-		mode := e.cfg.ModeManager.Get(e.cfg.Mode)
-		if mode.ExecutionMode == "sequential" {
-			sequential = true
-		}
-	}
 	if !sequential {
 		for _, call := range calls {
 			if exec, ok := e.registry.Get(call.Name); ok {
@@ -160,21 +170,36 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		return e.handleToolSearch(ctx, turn, assistantMsg, call)
 	}
 
-	// switch_mode is a meta-tool that changes the agent mode for the next turn.
+	// switch_mode is a meta-tool that changes the agent mode for the next
+	// turn. It still goes through the permission chain first: the
+	// mode-transition guard may require user approval to leave a mode with
+	// require_approval_to_exit set.
 	if call.Name == switchModeToolName {
+		info := ToolCallInfo{
+			AssistantMessage: assistantMsg,
+			ToolCall:         call,
+			Args:             args,
+			Context:          e.mgr.AllMessages(),
+		}
+		allowed, _, denyReason, confirmErr := e.confirmToolCall(ctx, turn, info)
+		if confirmErr != nil || !allowed {
+			reason := denyReason
+			if confirmErr != nil {
+				reason = confirmErr.Error()
+			}
+			if reason == "" {
+				reason = "denied"
+			}
+			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(reason), true)
+		}
 		return e.handleSwitchMode(ctx, turn, assistantMsg, call)
 	}
 
-	// An active skill may restrict the tool surface (SKILL.md frontmatter
-	// allowed_tools). Enforcement is execution-time, not schema filtering, so
-	// the tool list — and with it the prompt cache prefix — stays stable
-	// across turns. use_skill itself is exempt: the model must always be able
-	// to activate a different skill, which replaces or lifts the restriction.
-	if call.Name != skills.UseSkillToolName && !e.skillAllows(call.Name) {
-		return e.makeToolResultMessage(call, models.NewToolExecutionResultError(
-			fmt.Sprintf("tool %q is restricted by the active skill; allowed tools: %s (plus %s)",
-				call.Name, strings.Join(e.skillFilterNames(), ", "), skills.UseSkillToolName)), true)
-	}
+	// Mode/skill tool-surface restrictions are enforced inside the permission
+	// chain (guard policies, see guard_policies.go) rather than by filtering
+	// the tool schemas: schema filtering would rebuild the tools array on
+	// every switch, and tools are the first layer of the provider cache
+	// prefix, so the whole conversation would be re-billed as fresh input.
 
 	// Pre-execution argument validation. On failure we do NOT emit any tool
 	// events: the failed attempt stays invisible in the live TUI, and the error
@@ -192,11 +217,14 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		Args:             args,
 		Context:          e.mgr.AllMessages(),
 	}
-	allowed, _, confirmErr := e.confirmToolCall(ctx, turn, info)
+	allowed, _, denyReason, confirmErr := e.confirmToolCall(ctx, turn, info)
 	if confirmErr != nil || !allowed {
-		reason := "denied"
+		reason := denyReason
 		if confirmErr != nil {
 			reason = confirmErr.Error()
+		}
+		if reason == "" {
+			reason = "denied"
 		}
 		return e.makeToolResultMessage(call, models.NewToolExecutionResultError(reason), true)
 	}
@@ -334,6 +362,41 @@ func (e *executor) skillAllows(name string) bool {
 		return true
 	}
 	return e.skillFilter[name]
+}
+
+// currentMode returns the active mode's config.
+func (e *executor) currentMode() ModeConfig {
+	if e.cfg.ModeManager == nil {
+		return ModeConfig{Name: e.cfg.Mode}
+	}
+	return e.cfg.ModeManager.Get(e.cfg.Mode)
+}
+
+// modeDenies reports whether the active mode forbids a tool. The reason names
+// the escape hatch so the model can recover from the tool_result rather than
+// retrying the same blocked call.
+func (e *executor) modeDenies(name string) (string, bool) {
+	mode := e.currentMode()
+	blocked := false
+	if len(mode.AllowedTools) > 0 && !matchToolName(name, patternSet(mode.AllowedTools)) {
+		blocked = true
+	}
+	if len(mode.DeniedTools) > 0 && matchToolName(name, patternSet(mode.DeniedTools)) {
+		blocked = true
+	}
+	if !blocked {
+		return "", false
+	}
+	return "tool " + name + " is not available in " + mode.Name + " mode. Call " +
+		switchModeToolName + ` with a mode that permits it (e.g. mode="code") before retrying.`, true
+}
+
+func patternSet(patterns []string) map[string]bool {
+	set := make(map[string]bool, len(patterns))
+	for _, p := range patterns {
+		set[p] = true
+	}
+	return set
 }
 
 // skillFilterNames returns the sorted allowed-tool list for error messages.
@@ -549,10 +612,17 @@ func (e *executor) activeDeferredNames() []string {
 	return out
 }
 
-// confirmToolCall evaluates the permission engine and, if required, asks the
-// configured UserConfirmation handler. It returns true when the call may proceed.
-func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallInfo) (bool, ConfirmScope, error) {
-	decision := e.permissions.Decide(info.ToolCall.Name, info.Args)
+// confirmToolCall evaluates the permission chain and, if required, asks the
+// configured UserConfirmation handler. It returns whether the call may
+// proceed, the confirm scope, and the reason when the call is blocked (fed
+// back to the model).
+func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallInfo) (bool, ConfirmScope, string, error) {
+	// A nil engine means no permission system was configured: allow.
+	if e.permissions == nil {
+		return true, ScopeOnce, "", nil
+	}
+	e.installGuardPolicies()
+	decision, policy, policyReason := e.permissions.DecideWithSource(info.ToolCall.Name, info.Args)
 
 	// Low-risk bash commands do not need interactive approval even when no rule
 	// explicitly allows them.
@@ -570,7 +640,10 @@ func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallI
 	allowed := decision == permissions.Allow
 	if decision == permissions.Deny {
 		blocked = true
-		blockReason = "denied by policy"
+		blockReason = policyReason
+		if blockReason == "" {
+			blockReason = "denied by policy (" + policy + ")"
+		}
 	}
 
 	decisionLabel := string(decision)
@@ -591,12 +664,12 @@ func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallI
 
 	switch decision {
 	case permissions.Allow:
-		return true, ScopeOnce, nil
+		return true, ScopeOnce, "", nil
 	case permissions.Deny:
-		return false, ScopeDeny, nil
+		return false, ScopeDeny, blockReason, nil
 	case permissions.Ask:
 		if e.cfg.UserConfirm == nil {
-			return false, ScopeDeny, nil
+			return false, ScopeDeny, "approval required but no confirmation handler is configured", nil
 		}
 		res, err := e.cfg.UserConfirm.ConfirmWithScope(ctx, info)
 		askBlockReason := ""
@@ -614,23 +687,38 @@ func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallI
 			BlockReason: askBlockReason,
 		})
 		if err != nil {
-			return false, ScopeDeny, err
+			return false, ScopeDeny, "", err
 		}
 		if res.Allow {
 			e.learnRule(info, res.Scope)
 		}
-		return res.Allow, res.Scope, nil
+		if !res.Allow {
+			return false, ScopeDeny, "denied by user", nil
+		}
+		return true, res.Scope, "", nil
 	default:
-		return true, ScopeOnce, nil
+		return true, ScopeOnce, "", nil
 	}
 }
 
+// learnRule records an approval according to its scope. Session scope stores
+// an exact-match rule in memory (never persisted); project/global scopes
+// persist a generalized pattern to the YAML rule files. switch_mode is never
+// learned: a remembered approval must not be able to bypass mode-transition
+// approval (require_approval_to_exit).
 func (e *executor) learnRule(info ToolCallInfo, scope ConfirmScope) {
+	tool := info.ToolCall.Name
+	if tool == switchModeToolName {
+		return
+	}
+	if scope == ScopeSession {
+		e.permissions.AddSessionRule(tool, info.Args)
+		return
+	}
 	if scope != ScopeProject && scope != ScopeGlobal {
 		return
 	}
 
-	tool := info.ToolCall.Name
 	pattern := "*"
 	if tool == "bash" {
 		cmd, _ := info.Args["command"].(string)

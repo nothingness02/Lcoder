@@ -5,15 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/checkpoint"
-	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/llm"
-	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/observability"
 	"github.com/lcoder/lcoder/pkg/permissions"
@@ -44,7 +41,14 @@ type ConfirmScope int
 const (
 	ScopeDeny ConfirmScope = iota
 	ScopeOnce
+	// ScopeSession approves the exact call for the rest of the session
+	// (in-memory, never persisted).
+	ScopeSession
+	// ScopeProject writes a generalized allow rule into the project's
+	// .lcoder/permissions.yaml (permanent, this machine only).
 	ScopeProject
+	// ScopeGlobal writes a generalized allow rule into the user-level
+	// permissions file (permanent, all projects).
 	ScopeGlobal
 )
 
@@ -99,9 +103,6 @@ type Config struct {
 	// turn. They run at each turn start; their output is injected for that turn
 	// only and discarded at the turn boundary.
 	ReminderProducers []ReminderProducer
-
-	// MemoryInjector prefetches relevant memory entries each turn.
-	MemoryInjector memory.MemoryInjector
 }
 
 // eventEmitter wraps the event bus and observability collector so subsystems
@@ -159,7 +160,15 @@ type Agent struct {
 	rc        *reminderCoordinator
 
 	contextSnapshotRecorder *observability.ContextSnapshotRecorder
-	memoryInjector          memory.MemoryInjector
+
+	// lastReminderMode is the mode the previous turn's reminder described. A
+	// mismatch means the mode just changed, which forces the full prompt and
+	// emits the release notice for the mode being left.
+	lastReminderMode string
+	// modeReminderTurns counts turns since the last full mode prompt, so the
+	// abbreviated form can be refreshed periodically rather than drifting out
+	// of the model's attention across a long tool loop.
+	modeReminderTurns int
 }
 
 // State describes the agent runtime state.
@@ -268,7 +277,6 @@ func New(cfg Config, llmClient *llm.Client, registry *tools.Registry, perms *per
 	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter, taskMgr: ag.taskMgr}
 	ag.cpMgr = newCheckpointManager(ag)
 	ag.rc = newReminderCoordinator(ag.taskMgr, cfg.ReminderProducers)
-	ag.memoryInjector = normalizeMemoryInjector(cfg.MemoryInjector)
 	return ag
 }
 
@@ -390,12 +398,6 @@ func (a *Agent) WithMode(mode string) Runner {
 		emitter = &eventEmitter{bus: a.bus, obs: a.obsCollector}
 	}
 
-	memoryInjector := a.memoryInjector
-	if inj, ok := memoryInjector.(*memory.Injector); ok {
-		memoryInjector = normalizeMemoryInjector(inj.WithManager(cfg.ContextManager))
-	}
-	cfg.MemoryInjector = memoryInjector
-
 	fresh := &Agent{
 		cfg:                     cfg,
 		mgr:                     cfg.ContextManager,
@@ -409,7 +411,12 @@ func (a *Agent) WithMode(mode string) Runner {
 		executor:                newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter, a.taskMgr),
 		taskMgr:                 a.taskMgr,
 		contextSnapshotRecorder: a.contextSnapshotRecorder,
-		memoryInjector:          memoryInjector,
+		// Carry the reminder bookkeeping across the switch. Left at zero,
+		// modeReminder would see no previous mode and skip the notice that the old
+		// mode's restrictions are lifted — the one thing a mode switch most needs to
+		// say, and which the switch_mode tool path does emit.
+		lastReminderMode:  a.lastReminderMode,
+		modeReminderTurns: a.modeReminderTurns,
 	}
 	fresh.cpMgr = newCheckpointManager(fresh)
 	fresh.rc = newReminderCoordinator(fresh.taskMgr, fresh.cfg.ReminderProducers)
@@ -452,22 +459,11 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 		a.refreshEphemeralReminders()
 
-		if a.memoryInjector != nil {
-			if userText := lastUserText(a.mgr.AllMessages()); userText != "" {
-				if err := a.memoryInjector.Prefetch(ctx, userText); err != nil {
-					if ctx.Err() == nil {
-						a.emit(ctx, events.ErrorEvent{
-							Base:    events.Base{Type: events.Error, Turn: turn},
-							Message: "memory prefetch: " + err.Error(),
-						})
-					}
-				}
-			}
-		}
-
 		a.maybeCompact(ctx, turn)
 
-		_, tools, modelRef, execMode := a.applyMode()
+		_, tools := a.applyMode()
+		modelRef := a.cfg.Model
+		execMode := a.cfg.ToolExecutionMode
 
 		assistantMsg, err := a.streamer.stream(
 			ctx,
@@ -506,19 +502,6 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			ToolResults: toolResults,
 		})
 
-		if sink, ok := a.memoryInjector.(memory.MemorySink); ok && sink != nil {
-			userText := lastUserText(a.mgr.AllMessages())
-			assistantText := assistantMsg.Text()
-			if err := sink.SyncTurn(ctx, userText, assistantText); err != nil {
-				if ctx.Err() == nil {
-					a.emit(ctx, events.ErrorEvent{
-						Base:    events.Base{Type: events.Error, Turn: turn},
-						Message: "memory sync_turn: " + err.Error(),
-					})
-				}
-			}
-		}
-
 		turn++
 		a.loopState.SetTurn(turn)
 
@@ -545,17 +528,6 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 	if a.contextSnapshotRecorder != nil {
 		if state, err := a.mgr.Snapshot(); err == nil {
 			_ = a.contextSnapshotRecorder.Record(state, "end", turn)
-		}
-	}
-
-	if sink, ok := a.memoryInjector.(memory.MemorySink); ok && sink != nil {
-		if err := sink.OnSessionEnd(ctx, memory.SessionSummary{SessionID: a.cfg.SessionID, TurnCount: turn}); err != nil {
-			if ctx.Err() == nil {
-				a.emit(ctx, events.ErrorEvent{
-					Base:    events.Base{Type: events.Error, Turn: turn},
-					Message: "memory session_end: " + err.Error(),
-				})
-			}
 		}
 	}
 
@@ -602,7 +574,13 @@ func (a *Agent) maybeCompact(ctx context.Context, turn int) {
 			Base:    events.Base{Type: events.Error, Turn: turn},
 			Message: "compaction: " + err.Error(),
 		})
-		return
+		// A durable-record failure is reported but the fold itself stands, so fall
+		// through and emit the commit event: the context really is smaller and the
+		// UI has to reflect that. Returning here would leave the display showing a
+		// window that no longer exists.
+		if !res.Committed {
+			return
+		}
 	}
 	if res.Committed && a.contextSnapshotRecorder != nil {
 		if state, err := a.mgr.Snapshot(); err == nil {
@@ -652,98 +630,84 @@ func (a *Agent) LatestAssistantMessage() (models.AgentMessage, bool) {
 	return models.AgentMessage{}, false
 }
 
-func (a *Agent) applyMode() (string, []models.ToolDefinition, models.ModelRef, models.ExecutionMode) {
-	var systemParts []string
-	if a.mgr != nil {
+// applyMode stages the active mode's reminder for the upcoming turn and
+// returns the tool definitions for it.
+//
+// The mode text is injected as an ephemeral reminder rather than written into
+// the system block, and the tool list is returned unfiltered. Both are
+// deliberate: Anthropic's cache prefix is ordered tools -> system -> messages,
+// so rewriting the system block on a switch_mode invalidated everything after
+// it, and filtering the tool array invalidated the widest layer of all —
+// re-billing the whole conversation as fresh input. Ephemeral reminders are
+// appended after the last cache breakpoint is computed (see
+// contextmgr.BuildTurnRequest), so the mode text costs only its own bytes and
+// leaves the cached prefix untouched.
+//
+// Mode tool restrictions are enforced at execution time in executor.execute
+// instead, matching how the skill layer already handles the same problem.
+func (a *Agent) applyMode() (string, []models.ToolDefinition) {
+	base := a.cfg.BaseSystemPrompt
+	if base == "" && a.mgr != nil {
 		if b, ok := a.mgr.GetBlock(contextmgr.BlockSystem, "system"); ok {
-			systemParts = []string{b.Text()}
+			base = b.Text()
 		}
 	}
 
 	tools := a.executor.baseToolDefinitions()
-	modelRef := a.cfg.Model
-	execMode := a.cfg.ToolExecutionMode
+	if a.mgr == nil {
+		return base, tools
+	}
+
+	// Evict before the ModeManager check, not after: a mode block restored from
+	// a checkpoint written before mode text became an ephemeral reminder must go
+	// even when no mode manager is configured, or it stays in the system prompt —
+	// and so in the cache prefix — for the rest of the session.
+	a.mgr.RemoveBlock(contextmgr.BlockMode, "mode")
 
 	if a.cfg.ModeManager == nil {
-		return strings.Join(systemParts, "\n\n"), tools, modelRef, execMode
+		return base, tools
 	}
 
+	if text := a.modeReminder(); text != "" {
+		a.mgr.AddEphemeralReminder(text)
+	}
+	return base, tools
+}
+
+// modeReminderFullRefreshTurns is how many assistant turns may pass before the
+// abbreviated reminder is replaced by the full mode prompt again.
+const modeReminderFullRefreshTurns = 5
+
+// modeReminder returns the reminder text for the upcoming turn: the full mode
+// prompt on entry and on periodic refresh, the abbreviated form in between, and
+// a one-shot release notice on the turn after leaving a restrictive mode.
+func (a *Agent) modeReminder() string {
 	mode := a.cfg.ModeManager.Get(a.cfg.Mode)
-	modeText := ""
-	if mode.SystemPrompt != "" {
-		modeText = "# Mode: " + mode.Name + "\n\n" + mode.SystemPrompt
+	prev := a.lastReminderMode
+	switched := prev != mode.Name
+	a.lastReminderMode = mode.Name
+	
+	var parts []string
+	if switched && prev != "" {
+		parts = append(parts, "You have switched from "+prev+" mode to "+mode.Name+
+			" mode. Any tool restrictions from "+prev+" mode no longer apply.")
 	}
-
-	switch a.mgr.ModePromptPriority() {
-	case config.ModePromptPrepend:
-		if modeText != "" {
-			if len(systemParts) > 0 && systemParts[0] != "" {
-				a.mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system", contextmgr.StabilityStatic, 100,
-					models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: modeText + "\n\n" + strings.Join(systemParts, "\n\n")})))
-			} else {
-				a.mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system", contextmgr.StabilityStatic, 100,
-					models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: modeText})))
-			}
-			a.mgr.RemoveBlock(contextmgr.BlockMode, "mode")
-			if b, ok := a.mgr.GetBlock(contextmgr.BlockSystem, "system"); ok {
-				systemParts = []string{b.Text()}
-			} else {
-				systemParts = nil
-			}
-		}
-	case config.ModePromptReplace:
-		if modeText != "" {
-			a.mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system", contextmgr.StabilityStatic, 100,
-				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: modeText})))
-			a.mgr.RemoveBlock(contextmgr.BlockMode, "mode")
-			systemParts = []string{modeText}
-		}
-	default: // Append (including zero value)
-		if modeText != "" {
-			modeBlock := contextmgr.NewBlock(contextmgr.BlockMode, "mode", contextmgr.StabilityStable, 90,
-				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: modeText}))
-			a.mgr.SetBlock(modeBlock)
-			systemParts = append(systemParts, modeText)
-		}
+	if mode.SystemPrompt == "" {
+		a.modeReminderTurns = 0
+		return strings.Join(parts, "\n\n")
 	}
-	if len(mode.AllowedTools) > 0 {
-		allowed := make(map[string]bool)
-		for _, p := range mode.AllowedTools {
-			allowed[p] = true
-		}
-		var filtered []models.ToolDefinition
-		for _, t := range tools {
-			if matchToolName(t.Name, allowed) {
-				filtered = append(filtered, t)
-			}
-		}
-		tools = filtered
+	
+	// Count this turn before testing the threshold, so the full text returns on
+	// the Nth turn after the last one rather than the N+1th.
+	a.modeReminderTurns++
+	text := mode.SystemPrompt
+	if switched || a.modeReminderTurns > modeReminderFullRefreshTurns {
+		a.modeReminderTurns = 1
+	} else if mode.SparsePrompt != "" {
+		text = mode.SparsePrompt
 	}
-	if len(mode.DeniedTools) > 0 {
-		denied := make(map[string]bool)
-		for _, p := range mode.DeniedTools {
-			denied[p] = true
-		}
-		var filtered []models.ToolDefinition
-		for _, t := range tools {
-			if !matchToolName(t.Name, denied) {
-				filtered = append(filtered, t)
-			}
-		}
-		tools = filtered
-	}
-	if mode.Model != "" {
-		modelRef.ID = mode.Model
-	}
-	if mode.Provider != "" {
-		modelRef.Provider = mode.Provider
-	}
-	if mode.ExecutionMode == "sequential" {
-		execMode = models.ExecutionSequential
-	} else if mode.ExecutionMode == "parallel" {
-		execMode = models.ExecutionParallel
-	}
-	return strings.Join(systemParts, "\n\n"), tools, modelRef, execMode
+	parts = append(parts, "# Mode: "+mode.Name+"\n\n"+text)
+	return strings.Join(parts, "\n\n")
 }
 
 func matchToolName(name string, patterns map[string]bool) bool {
@@ -780,30 +744,4 @@ func (a *Agent) shouldStop(ctx context.Context, msg models.AgentMessage, toolRes
 		return false
 	}
 	return stop
-}
-
-func lastUserText(msgs []models.AgentMessage) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == models.RoleUser {
-			return msgs[i].Text()
-		}
-	}
-	return ""
-}
-
-// normalizeMemoryInjector returns a nil interface value when inj holds a typed-nil
-// concrete pointer. This prevents the agent from storing a non-nil interface that
-// panics when methods are called.
-func normalizeMemoryInjector(inj memory.MemoryInjector) memory.MemoryInjector {
-	if inj == nil {
-		return nil
-	}
-	v := reflect.ValueOf(inj)
-	switch v.Kind() {
-	case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func, reflect.Interface:
-		if v.IsNil() {
-			return nil
-		}
-	}
-	return inj
 }

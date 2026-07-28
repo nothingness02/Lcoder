@@ -61,14 +61,39 @@ func (c *tuiConfirm) ConfirmWithScope(ctx context.Context, info agent.ToolCallIn
 	}
 }
 
+// confirmOption is one selectable answer in the permission prompt.
+type confirmOption struct {
+	label string
+	allow bool
+	scope agent.ConfirmScope
+}
+
 // confirmPanel renders an interactive permission prompt as a bottom strip.
 type confirmPanel struct {
 	visible  bool
 	selected int // index into options
-	options  []string
+	options  []confirmOption
 	ultra    bool
 	info     agent.ToolCallInfo
 	resp     chan confirmResult
+}
+
+// learnedPatternPreview shows the generalized rule a project/global approval
+// would write, making it visible that these options author a permanent rule
+// rather than approve a single call.
+func learnedPatternPreview(info agent.ToolCallInfo) string {
+	tool := info.ToolCall.Name
+	if tool == "bash" {
+		return tool + ": " + permissions.PatternForCommand(info.BashCommand())
+	}
+	path, _ := info.Args["path"].(string)
+	if path == "" {
+		path, _ = info.ToolCall.Arguments["path"].(string)
+	}
+	if path != "" {
+		return tool + ": " + path
+	}
+	return tool + ": *"
 }
 
 func (p *confirmPanel) show(info agent.ToolCallInfo, resp chan confirmResult) {
@@ -77,10 +102,15 @@ func (p *confirmPanel) show(info agent.ToolCallInfo, resp chan confirmResult) {
 	p.info = info
 	p.resp = resp
 	p.ultra = permissions.IsUltraDestructiveCommand(info.BashCommand())
-	if p.ultra {
-		p.options = []string{"Deny", "Once", "Project allow"}
-	} else {
-		p.options = []string{"Deny", "Once", "Project allow", "Global allow"}
+	preview := learnedPatternPreview(info)
+	p.options = []confirmOption{
+		{label: "Deny", allow: false, scope: agent.ScopeDeny},
+		{label: "Once", allow: true, scope: agent.ScopeOnce},
+		{label: "Session", allow: true, scope: agent.ScopeSession},
+		{label: "Project (" + preview + ")", allow: true, scope: agent.ScopeProject},
+	}
+	if !p.ultra {
+		p.options = append(p.options, confirmOption{label: "Global (" + preview + ")", allow: true, scope: agent.ScopeGlobal})
 	}
 }
 
@@ -111,16 +141,8 @@ func (p *confirmPanel) confirm() agent.ConfirmResult {
 	if !p.visible || len(p.options) == 0 {
 		return agent.ConfirmResult{Allow: false, Scope: agent.ScopeDeny}
 	}
-	switch p.options[p.selected] {
-	case "Once":
-		return agent.ConfirmResult{Allow: true, Scope: agent.ScopeOnce}
-	case "Project allow":
-		return agent.ConfirmResult{Allow: true, Scope: agent.ScopeProject}
-	case "Global allow":
-		return agent.ConfirmResult{Allow: true, Scope: agent.ScopeGlobal}
-	default:
-		return agent.ConfirmResult{Allow: false, Scope: agent.ScopeDeny}
-	}
+	opt := p.options[p.selected]
+	return agent.ConfirmResult{Allow: opt.allow, Scope: opt.scope}
 }
 
 func (p *confirmPanel) View(width int) string {
@@ -141,7 +163,7 @@ func (p *confirmPanel) View(width int) string {
 
 	rendered := make([]string, len(p.options))
 	for i, opt := range p.options {
-		rendered[i] = optionStyle(p.selected == i).Render(opt)
+		rendered[i] = optionStyle(p.selected == i).Render(opt.label)
 	}
 	options := lipgloss.JoinHorizontal(lipgloss.Left, rendered...)
 

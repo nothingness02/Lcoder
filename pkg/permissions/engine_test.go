@@ -27,7 +27,10 @@ func TestLoadProjectRules(t *testing.T) {
 	}
 }
 
-func TestProjectRuleOverridesGlobal(t *testing.T) {
+// Deny rules are absolute: a more specific allow from a later (higher
+// precedence) source cannot punch through a generic deny. To relax a deny,
+// the later source must override the SAME pattern.
+func TestDenyIsAbsoluteAcrossSources(t *testing.T) {
 	engine := NewEngine(Config{
 		Rules: map[string]RuleTable{
 			"bash": {"go *": Deny},
@@ -39,8 +42,27 @@ func TestProjectRuleOverridesGlobal(t *testing.T) {
 		},
 	})
 
+	if got := engine.Evaluate(Request{Tool: "bash", Command: "go test ./..."}); got != Deny {
+		t.Fatalf("deny rules must win over more specific allows, got %v", got)
+	}
+}
+
+// At the same pattern, a later source overrides an earlier one — this is how
+// a project relaxes a deny inherited from the global config.
+func TestSamePatternLaterSourceWins(t *testing.T) {
+	engine := NewEngine(Config{
+		Rules: map[string]RuleTable{
+			"bash": {"go *": Deny},
+		},
+	})
+	engine.AddSource("project", Config{
+		Rules: map[string]RuleTable{
+			"bash": {"go *": Allow},
+		},
+	})
+
 	if got := engine.Evaluate(Request{Tool: "bash", Command: "go test ./..."}); got != Allow {
-		t.Fatalf("expected project-specific allow, got %v", got)
+		t.Fatalf("project source should override the same pattern, got %v", got)
 	}
 }
 
