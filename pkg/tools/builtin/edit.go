@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/tools"
@@ -15,7 +16,6 @@ type Edit struct {
 	cwd string
 }
 
-
 // NewEdit creates an edit tool.
 func NewEdit(cwd string) tools.Executable {
 	return &Edit{cwd: cwd}
@@ -23,8 +23,11 @@ func NewEdit(cwd string) tools.Executable {
 
 func (e *Edit) Definition() models.ToolDefinition {
 	return models.ToolDefinition{
-		Name:        "edit",
-		Description: "Edit a single file using exact text replacement. Each oldText must match a unique, non-overlapping region.",
+		Name: "edit",
+		Description: "Edit a single file using exact text replacement. Read the file first and copy oldText exactly from the read output; " +
+			"do not edit from memory. Each oldText must match a unique region unless replaceAll is set. " +
+			"Line endings: pure CRLF files are matched in the LF view shown by read and written back as CRLF; " +
+			"files with mixed line endings are matched byte-exactly, with carriage returns shown by read as literal \\r.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -34,17 +37,21 @@ func (e *Edit) Definition() models.ToolDefinition {
 				},
 				"edits": map[string]any{
 					"type":        "array",
-					"description": "One or more targeted replacements",
+					"description": "One or more targeted replacements, applied in order",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"oldText": map[string]any{
 								"type":        "string",
-								"description": "Exact text to replace",
+								"description": "Exact text to replace, copied from the read output",
 							},
 							"newText": map[string]any{
 								"type":        "string",
 								"description": "Replacement text",
+							},
+							"replaceAll": map[string]any{
+								"type":        "boolean",
+								"description": "Replace every occurrence of oldText instead of requiring a unique match",
 							},
 						},
 						"required": []string{"oldText", "newText"},
@@ -63,8 +70,9 @@ const (
 )
 
 type editOp struct {
-	oldText string
-	newText string
+	oldText    string
+	newText    string
+	replaceAll bool
 }
 
 func parseEdits(args map[string]any) ([]editOp, error) {
@@ -73,30 +81,49 @@ func parseEdits(args map[string]any) ([]editOp, error) {
 		return nil, fmt.Errorf("missing edits")
 	}
 	out := make([]editOp, 0, len(editsRaw))
-	for _, raw := range editsRaw {
+	for i, raw := range editsRaw {
 		edit, ok := raw.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("invalid edit entry")
+			return nil, fmt.Errorf("edits[%d]: invalid edit entry", i)
 		}
 		oldText, ok := edit["oldText"].(string)
 		if !ok {
-			return nil, fmt.Errorf("edit missing oldText")
+			return nil, fmt.Errorf("edits[%d]: missing oldText", i)
+		}
+		if oldText == "" {
+			return nil, fmt.Errorf("edits[%d]: oldText must not be empty", i)
 		}
 		newText, ok := edit["newText"].(string)
 		if !ok {
-			return nil, fmt.Errorf("edit missing newText")
+			return nil, fmt.Errorf("edits[%d]: missing newText", i)
 		}
-		out = append(out, editOp{oldText: oldText, newText: newText})
+		if oldText == newText {
+			return nil, fmt.Errorf("edits[%d]: oldText and newText are identical; no changes to make", i)
+		}
+		replaceAll, _ := edit["replaceAll"].(bool)
+		out = append(out, editOp{oldText: oldText, newText: newText, replaceAll: replaceAll})
 	}
 	return out, nil
 }
 
+// applyEdits applies each edit in order against the model-view text. Every
+// failure message tells the model how to recover.
 func applyEdits(text string, edits []editOp) (string, error) {
-	for _, e := range edits {
-		if !containsOnce(text, e.oldText) {
-			return "", fmt.Errorf("oldText not found or not unique")
+	for i, e := range edits {
+		count := strings.Count(text, e.oldText)
+		switch {
+		case count == 0:
+			return "", fmt.Errorf(
+				"edits[%d]: oldText not found; the file contents may be out of date — read the file again and copy oldText exactly from the read output", i)
+		case count > 1 && !e.replaceAll:
+			return "", fmt.Errorf(
+				"edits[%d]: oldText is not unique (found %d occurrences); include more surrounding context to make it unique, or set replaceAll=true to replace every occurrence", i, count)
 		}
-		text = replaceOnce(text, e.oldText, e.newText)
+		if e.replaceAll {
+			text = strings.ReplaceAll(text, e.oldText, e.newText)
+		} else {
+			text = strings.Replace(text, e.oldText, e.newText, 1)
+		}
 	}
 	return text, nil
 }
@@ -113,25 +140,41 @@ func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) 
 		return models.ToolExecutionResult{}, err
 	}
 
+	info, err := os.Stat(path)
+	if err != nil {
+		return models.ToolExecutionResult{}, err
+	}
+	if info.IsDir() {
+		return models.ToolExecutionResult{}, fmt.Errorf("%s is not a file", path)
+	}
+
 	original, err := os.ReadFile(path)
 	if err != nil {
 		return models.ToolExecutionResult{}, err
 	}
+	if !utf8.Valid(original) {
+		return models.ToolExecutionResult{}, fmt.Errorf("%s is not a UTF-8 text file; edit only supports UTF-8", path)
+	}
 
-	// Stage 1: dry-run in memory.
-	newText, err := applyEdits(string(original), edits)
+	// Stage 1: dry-run in memory, in the model view shared with the read
+	// tool (pure CRLF files match as LF; mixed files match raw bytes).
+	style := detectLineEndingStyle(string(original))
+	view := toModelTextView(string(original), style)
+	newView, err := applyEdits(view, edits)
 	if err != nil {
 		return models.ToolExecutionResult{}, fmt.Errorf("%s: %w", path, err)
 	}
+	committed := materializeModelText(newView, style)
 
-	// Stage 2: commit with backup + atomic rename.
+	// Stage 2: commit with backup + atomic rename, preserving the original
+	// file's permission bits.
 	backupPath := path + backupSuffix
 	if err := os.WriteFile(backupPath, original, 0o600); err != nil {
 		return models.ToolExecutionResult{}, fmt.Errorf("backup failed: %w", err)
 	}
 
 	tmpPath := path + tmpSuffix
-	if err := os.WriteFile(tmpPath, []byte(newText), 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, []byte(committed), info.Mode().Perm()); err != nil {
 		_ = os.Remove(backupPath)
 		return models.ToolExecutionResult{}, fmt.Errorf("write temp failed: %w", err)
 	}
@@ -150,20 +193,6 @@ func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) 
 		},
 		Details: map[string]any{"path": path, "edits": len(edits)},
 	}, nil
-}
-
-func containsOnce(s, substr string) bool {
-	if substr == "" {
-		return false
-	}
-	return strings.Count(s, substr) == 1
-}
-
-func replaceOnce(s, old, new string) string {
-	if old == "" {
-		return s
-	}
-	return strings.Replace(s, old, new, 1)
 }
 
 var _ tools.Executable = (*Edit)(nil)

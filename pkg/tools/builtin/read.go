@@ -15,7 +15,6 @@ type Read struct {
 	cwd string
 }
 
-
 // NewRead creates a read tool.
 func NewRead(cwd string) tools.Executable {
 	return &Read{cwd: cwd}
@@ -29,8 +28,9 @@ func (r *Read) Definition() models.ToolDefinition {
 			"type": "object",
 			"properties": map[string]any{
 				"path": map[string]any{
-					"type":        "string",
-					"description": "Path to the file to read (relative or absolute)",
+					"type": "string",
+					"description": "Path to the file to read (relative or absolute). Line-ending view: pure CRLF files are shown with LF line endings; " +
+						"files with mixed line endings show carriage returns literally as \\r. The edit tool matches against this same view.",
 				},
 				"offset": map[string]any{
 					"type":        "integer",
@@ -83,7 +83,15 @@ func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) 
 		return models.ToolExecutionResult{}, err
 	}
 
-	text := string(data)
+	// Convert raw bytes into the model view shared with the edit tool: pure
+	// CRLF files are shown as LF; mixed line-ending files keep raw bytes with
+	// carriage returns made visible as literal `\r`.
+	raw := string(data)
+	style := detectLineEndingStyle(raw)
+	text := toModelTextView(raw, style)
+	if style == lineEndingMixed {
+		text = makeCarriageReturnsVisible(text)
+	}
 	lines := strings.Split(text, "\n")
 
 	limit := userLimit

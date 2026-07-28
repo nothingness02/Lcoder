@@ -252,8 +252,12 @@ func TestGrepLimitsMatches(t *testing.T) {
 	if !strings.Contains(text, "[truncated:") {
 		t.Fatal("expected truncation warning")
 	}
-	if result.Details["matches"] != maxGrepMatches {
-		t.Fatalf("expected %d matches, got %v", maxGrepMatches, result.Details["matches"])
+	// Details reports the total collected matches (the fallback backend caps
+	// collection at maxGrepMatches; ripgrep collects all and pages via
+	// offset/head_limit), so it must be at least the fallback cap.
+	matches, _ := result.Details["matches"].(int)
+	if matches < maxGrepMatches {
+		t.Fatalf("expected at least %d matches, got %v", maxGrepMatches, result.Details["matches"])
 	}
 }
 

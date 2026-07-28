@@ -84,3 +84,41 @@ func TestReadOffsetBeyondEndOfFile(t *testing.T) {
 		t.Fatalf("error should state total line count, got %q", err.Error())
 	}
 }
+
+func TestReadPureCRLFShownAsLF(t *testing.T) {
+	dir := tempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "win.txt"), []byte("a\r\nb\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	read := NewRead(dir)
+	result, err := read.Execute(context.Background(), "call_1", map[string]any{"path": "win.txt"})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	text := result.Content[0].(models.TextContent).Text
+	if strings.Contains(text, "\r") {
+		t.Fatalf("pure CRLF file should be shown with LF line endings, got %q", text)
+	}
+	if !strings.Contains(text, "a\nb") {
+		t.Fatalf("unexpected content: %q", text)
+	}
+}
+
+func TestReadMixedLineEndingsShowLiteralCR(t *testing.T) {
+	dir := tempDir(t)
+	// \r\n coexisting with a bare \n -> mixed -> carriage returns made visible.
+	if err := os.WriteFile(filepath.Join(dir, "mixed.txt"), []byte("a\r\nb\nc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	read := NewRead(dir)
+	result, err := read.Execute(context.Background(), "call_1", map[string]any{"path": "mixed.txt"})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	text := result.Content[0].(models.TextContent).Text
+	if !strings.Contains(text, `a\r`) {
+		t.Fatalf("carriage return should be shown literally as \r, got %q", text)
+	}
+}

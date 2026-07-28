@@ -14,9 +14,12 @@ const (
 	// marker so a runaway command cannot flood the context.
 	maxBashOutputChars = 30000
 
-	// grep skips files larger than this and caps total result lines.
-	maxGrepFileSizeBytes = 1 << 20 // 1 MiB
-	maxGrepMatches       = 500
+	// grep skips files larger than this and caps total result lines (fallback
+	// backend); individual content lines are capped so a minified file cannot
+	// dominate the output.
+	maxGrepFileSizeBytes    = 1 << 20 // 1 MiB
+	maxGrepMatches          = 500
+	maxGrepContentLineChars = 2000
 
 	// find caps the number of returned paths.
 	maxFindMatches = 1000

@@ -15,7 +15,6 @@ type Write struct {
 	cwd string
 }
 
-
 // NewWrite creates a write tool.
 func NewWrite(cwd string) tools.Executable {
 	return &Write{cwd: cwd}
@@ -58,10 +57,12 @@ func (w *Write) Execute(ctx context.Context, callID string, args map[string]any)
 		return models.ToolExecutionResult{}, err
 	}
 
-	// Backup existing file before overwriting.
+	// Backup existing file before overwriting, and keep its permission bits.
 	var hadBackup bool
+	mode := os.FileMode(0o644)
 	backupPath := path + backupSuffix
-	if _, statErr := os.Stat(path); statErr == nil {
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
 		original, err := os.ReadFile(path)
 		if err != nil {
 			return models.ToolExecutionResult{}, fmt.Errorf("read existing file for backup: %w", err)
@@ -73,7 +74,7 @@ func (w *Write) Execute(ctx context.Context, callID string, args map[string]any)
 	}
 
 	tmpPath := path + tmpSuffix
-	if err := os.WriteFile(tmpPath, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, []byte(content), mode); err != nil {
 		if hadBackup {
 			_ = os.Remove(backupPath)
 		}
