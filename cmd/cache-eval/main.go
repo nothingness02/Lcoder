@@ -214,24 +214,11 @@ func buildContextManager() *contextmgr.Manager {
 	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system", contextmgr.StabilityStatic, 100,
 		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: sysText})))
 
-	memoryText := generateMemoryText(2000)
-	mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockMemory, "memory", contextmgr.StabilityStable, 75, contextmgr.CacheHintBreakpoint,
-		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: memoryText})))
-
 	projectDocs := "Project conventions:\n- Use Go modules and keep functions focused.\n- Prefer parallel tool calls when operations are independent.\n- Write tests for every behavior change.\n- Never commit secrets."
-	mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockProjectDocs, "project_docs", contextmgr.StabilityStable, 80, contextmgr.CacheHintBreakpoint,
+	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockProjectDocs, "project_docs", contextmgr.StabilityStable, 80,
 		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: projectDocs})))
 
 	return mgr
-}
-
-func generateMemoryText(targetChars int) string {
-	entry := "The agent prefers concise replies and Chinese responses when possible. § "
-	var b strings.Builder
-	for b.Len() < targetChars {
-		b.WriteString(entry)
-	}
-	return b.String()
 }
 
 func runTurn(ctx context.Context, client *llm.Client, req models.TurnRequest) (*models.LLMUsage, string, error) {
@@ -265,7 +252,6 @@ type turnResult struct {
 
 func renderMarkdown(provider, model string, mgr *contextmgr.Manager, results []turnResult) string {
 	sysBlock, _ := mgr.GetBlock(contextmgr.BlockSystem, "system")
-	memBlock, _ := mgr.GetBlock(contextmgr.BlockMemory, "memory")
 	docBlock, _ := mgr.GetBlock(contextmgr.BlockProjectDocs, "project_docs")
 
 	var b strings.Builder
@@ -273,7 +259,6 @@ func renderMarkdown(provider, model string, mgr *contextmgr.Manager, results []t
 	fmt.Fprintf(&b, "- **Provider**: %s\n", provider)
 	fmt.Fprintf(&b, "- **Model**: %s\n", model)
 	fmt.Fprintf(&b, "- **System prompt chars**: %d\n", len(sysBlock.Text()))
-	fmt.Fprintf(&b, "- **Memory block chars**: %d\n", len(memBlock.Text()))
 	fmt.Fprintf(&b, "- **Project docs chars**: %d\n", len(docBlock.Text()))
 	fmt.Fprintf(&b, "- **Turns evaluated**: %d\n\n", len(results))
 

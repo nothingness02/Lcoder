@@ -9,7 +9,7 @@ import (
 )
 
 // stubSummarizer returns a fixed short summary, deterministically.
-func stubSummarizer(_ context.Context, _ []models.AgentMessage) (string, error) {
+func stubSummarizer(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
 	return "summary of older messages", nil
 }
 

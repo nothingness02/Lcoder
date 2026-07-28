@@ -94,11 +94,11 @@ func TestSummarizerUsesExtension(t *testing.T) {
 	}}
 	b, _ := newBridgeWithPeer(t, sum, proto.InitializeResult{Name: "a", Hooks: []string{proto.HookBeforeCompact}})
 	fallbackCalled := false
-	fallback := func(_ context.Context, _ []models.AgentMessage) (string, error) {
+	fallback := func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
 		fallbackCalled = true
 		return "fallback", nil
 	}
-	s, err := b.Summarizer(fallback)(context.Background(), []models.AgentMessage{models.UserMessage("hello")})
+	s, err := b.Summarizer(fallback)(context.Background(), []models.AgentMessage{models.UserMessage("hello")}, "")
 	if err != nil || s != "ext summary" || fallbackCalled {
 		t.Fatalf("s=%q err=%v fallbackCalled=%v", s, err, fallbackCalled)
 	}
@@ -106,9 +106,9 @@ func TestSummarizerUsesExtension(t *testing.T) {
 
 func TestSummarizerFallsBackWithoutHook(t *testing.T) {
 	b, _ := newBridgeWithPeer(t, nil, proto.InitializeResult{Name: "a"})
-	s, err := b.Summarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) {
+	s, err := b.Summarizer(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
 		return "fallback", nil
-	})(context.Background(), []models.AgentMessage{models.UserMessage("hi")})
+	})(context.Background(), []models.AgentMessage{models.UserMessage("hi")}, "")
 	if err != nil || s != "fallback" {
 		t.Fatalf("s=%q err=%v", s, err)
 	}
@@ -205,10 +205,10 @@ func TestSummarizerFallsBackOnEmptySummary(t *testing.T) {
 	}}
 	b, _ := newBridgeWithPeer(t, empty, proto.InitializeResult{Name: "a", Hooks: []string{proto.HookBeforeCompact}})
 	fallbackCalled := false
-	s, err := b.Summarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) {
+	s, err := b.Summarizer(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
 		fallbackCalled = true
 		return "fallback", nil
-	})(context.Background(), []models.AgentMessage{models.UserMessage("hi")})
+	})(context.Background(), []models.AgentMessage{models.UserMessage("hi")}, "")
 	if err != nil || s != "fallback" || !fallbackCalled {
 		t.Fatalf("s=%q err=%v fallbackCalled=%v", s, err, fallbackCalled)
 	}

@@ -162,7 +162,7 @@ func TestFoldOlderDegradesOnBreakerOpen(t *testing.T) {
 	budget := TokenBudget{MaxTotal: 400, ReserveOutput: 0} // EffectiveInput=400
 	m := NewManager(budget,
 		WithMinRecent(1),
-		WithSummarizer(SummarizeFunc(func(_ context.Context, _ []models.AgentMessage) (string, error) {
+		WithSummarizer(SummarizeFunc(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
 			return "", compaction.ErrCompactionSkipped
 		})))
 	m.SetSystemPrompt("sys")
@@ -182,8 +182,13 @@ func TestFoldOlderDegradesOnBreakerOpen(t *testing.T) {
 	if !res.Degraded {
 		t.Fatal("expected Degraded=true on breaker-open")
 	}
-	if res.Summary != "" {
-		t.Fatalf("expected empty summary on degraded path, got %q", res.Summary)
+	// 降级必须给出显式说明,而不是空摘要:空摘要会作为一条空 system 消息到达模型,
+	// 结构上宣称"此处有摘要"却不含任何信息,模型无法得知历史被截断。
+	if res.Summary == "" {
+		t.Fatal("degraded path must commit an explicit notice, not an empty summary")
+	}
+	if !strings.Contains(res.Summary, "Summary unavailable") {
+		t.Fatalf("degraded summary must say the summary is unavailable, got %q", res.Summary)
 	}
 
 	recent, ok := m.GetBlock(BlockRecent, "recent")
@@ -196,22 +201,29 @@ func TestFoldOlderDegradesOnBreakerOpen(t *testing.T) {
 	if len(recent.Messages) >= 20 {
 		t.Fatalf("degraded fold must shrink the recent block, kept %d", len(recent.Messages))
 	}
-	// 头部不得是摘要消息,也不得出现孤儿 tool_result。
+
+	// 头部必须是那条降级说明,且带 compacted 标记 —— SetMessages 靠它把摘要留在
+	// recent 块而不是当成真 system 消息覆盖系统提示。
 	head := recent.Messages[0]
-	if head.Role == models.RoleSystem {
-		if v, ok := head.Metadata["compacted"].(bool); ok && v {
-			t.Fatal("degraded path must not inject a summary message")
-		}
+	if head.Role != models.RoleSystem {
+		t.Fatalf("degraded fold must lead with the notice, got role %q", head.Role)
 	}
-	if head.Role == models.RoleToolResult {
-		t.Fatal("degraded fold must not leave an orphan tool_result at head")
+	if v, _ := head.Metadata["compacted"].(bool); !v {
+		t.Fatal("degraded notice must carry compacted=true")
+	}
+	if !strings.Contains(head.Text(), "Summary unavailable") {
+		t.Fatalf("head must be the degraded notice, got %q", head.Text())
+	}
+	// 说明之后紧跟保留尾部,不得出现孤儿 tool_result。
+	if len(recent.Messages) > 1 && recent.Messages[1].Role == models.RoleToolResult {
+		t.Fatal("degraded fold must not leave an orphan tool_result after the notice")
 	}
 }
 
 // split turn:历史与当前轮前缀分别摘要并合并,摘要器恰好被调用两次。
 func TestSummarizeForFoldSplitTurn(t *testing.T) {
 	var calls [][]models.AgentMessage
-	summarizer := SummarizeFunc(func(_ context.Context, msgs []models.AgentMessage) (string, error) {
+	summarizer := SummarizeFunc(func(_ context.Context, msgs []models.AgentMessage, _ string) (string, error) {
 		calls = append(calls, msgs)
 		if len(calls) == 1 {
 			return "HIST", nil
@@ -261,7 +273,7 @@ func TestFoldOlderHonorsContextCancellation(t *testing.T) {
 	budget := TokenBudget{MaxTotal: 400, ReserveOutput: 0} // EffectiveInput=400
 	m := NewManager(budget,
 		WithMinRecent(1),
-		WithSummarizer(SummarizeFunc(func(ctx context.Context, _ []models.AgentMessage) (string, error) {
+		WithSummarizer(SummarizeFunc(func(ctx context.Context, _ []models.AgentMessage, _ string) (string, error) {
 			<-ctx.Done()
 			return "", ctx.Err()
 		})))
@@ -301,5 +313,123 @@ func TestFoldOlderHonorsContextCancellation(t *testing.T) {
 		if msg.ID != beforeIDs[i] {
 			t.Fatalf("recent block msg %d changed on cancellation: id %q, want %q", i, msg.ID, beforeIDs[i])
 		}
+	}
+}
+
+// The sink exists so that "the context was folded" and "the fold was recorded"
+// cannot diverge. Before it, persistence lived in two event subscribers in other
+// packages, so this contract could not be tested at all — and a change to the
+// degraded-fold semantics silently invalidated both of them while every package
+// still passed.
+func TestFoldCallsSinkOnCommit(t *testing.T) {
+	var got []FoldResult
+	var liveAtCall [][]models.AgentMessage
+	m := NewManager(TokenBudget{MaxTotal: 400, ReserveOutput: 0},
+		WithMinRecent(1),
+		WithSummarizer(SummarizeFunc(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
+			return "SUMMARY", nil
+		})),
+		WithCompactionSink(func(res FoldResult, live []models.AgentMessage) error {
+			got = append(got, res)
+			liveAtCall = append(liveAtCall, append([]models.AgentMessage(nil), live...))
+			return nil
+		}),
+	)
+	m.SetSystemPrompt("sys")
+	m.ReplaceRecent(convoMsgs(20))
+
+	if _, _, err := m.MaybeCompactLeveled(context.Background()); err != nil {
+		t.Fatalf("MaybeCompactLeveled: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 sink call, got %d", len(got))
+	}
+	if !strings.Contains(got[0].Summary, "SUMMARY") {
+		t.Errorf("sink got summary %q", got[0].Summary)
+	}
+	if got[0].FirstKeptID == "" {
+		t.Error("sink must receive the cut boundary id: the compacted view is rebuilt from it")
+	}
+	// The sink runs after the fold is committed, so what it sees must already be
+	// the smaller context — that is what it has to record.
+	if len(liveAtCall[0]) >= 20 {
+		t.Errorf("sink saw %d messages: it must observe the post-fold context", len(liveAtCall[0]))
+	}
+}
+
+// A degraded fold really did drop the older span, so it must be recorded too.
+// Skipping it would leave the session's compacted view claiming those messages
+// are active, and a resume would replay them.
+func TestFoldCallsSinkOnDegraded(t *testing.T) {
+	var got []FoldResult
+	m := NewManager(TokenBudget{MaxTotal: 400, ReserveOutput: 0},
+		WithMinRecent(1),
+		WithSummarizer(SummarizeFunc(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
+			return "", compaction.ErrCompactionSkipped
+		})),
+		WithCompactionSink(func(res FoldResult, _ []models.AgentMessage) error {
+			got = append(got, res)
+			return nil
+		}),
+	)
+	m.SetSystemPrompt("sys")
+	m.ReplaceRecent(convoMsgs(20))
+
+	if _, _, err := m.MaybeCompactLeveled(context.Background()); err != nil {
+		t.Fatalf("MaybeCompactLeveled: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("degraded fold must still reach the sink, got %d calls", len(got))
+	}
+	if !got[0].Degraded {
+		t.Error("sink must see Degraded=true")
+	}
+	if got[0].Summary == "" {
+		t.Error("degraded fold must hand the sink its explicit notice, not an empty summary")
+	}
+}
+
+// A sink failure is surfaced to the caller but must not roll the fold back: the
+// context is already smaller, and re-inflating it risks overflowing the window
+// the fold was relieving.
+func TestFoldReportsSinkErrorWithoutRollback(t *testing.T) {
+	m := NewManager(TokenBudget{MaxTotal: 400, ReserveOutput: 0},
+		WithMinRecent(1),
+		WithSummarizer(SummarizeFunc(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
+			return "SUMMARY", nil
+		})),
+		WithCompactionSink(func(FoldResult, []models.AgentMessage) error {
+			return errors.New("disk full")
+		}),
+	)
+	m.SetSystemPrompt("sys")
+	m.ReplaceRecent(convoMsgs(20))
+
+	_, _, err := m.MaybeCompactLeveled(context.Background())
+	if err == nil {
+		t.Fatal("a sink failure must be reported, not swallowed")
+	}
+	if !strings.Contains(err.Error(), "record compaction") {
+		t.Errorf("error should name the failing step, got %v", err)
+	}
+	recent, _ := m.GetBlock(BlockRecent, "recent")
+	if len(recent.Messages) >= 20 {
+		t.Error("the fold must stand despite the sink failure")
+	}
+}
+
+// No sink configured is a supported configuration, not a crash.
+func TestFoldWithoutSink(t *testing.T) {
+	m := NewManager(TokenBudget{MaxTotal: 400, ReserveOutput: 0},
+		WithMinRecent(1),
+		WithSummarizer(SummarizeFunc(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
+			return "SUMMARY", nil
+		})),
+	)
+	m.SetSystemPrompt("sys")
+	m.ReplaceRecent(convoMsgs(20))
+
+	if _, _, err := m.MaybeCompactLeveled(context.Background()); err != nil {
+		t.Fatalf("fold without a sink must succeed: %v", err)
 	}
 }

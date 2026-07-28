@@ -129,9 +129,14 @@ type CompactionStartedEvent struct{ Base }
 // CompactionCommittedEvent signals that the context manager folded older
 // messages into a summary and committed the compacted window in place. The
 // persistence layer reacts by appending a CompactionEntry to the session
-// (append-only; raw messages are never discarded). Degraded=true means the
-// circuit breaker was open and older messages were truncated without a
-// summary — persistence must skip the entry in that case.
+// (append-only; raw messages are never discarded).
+//
+// Degraded=true means the circuit breaker was open, so the older span was
+// truncated without a real summary and Summary carries an explicit
+// summary-unavailable notice instead. Persistence must still record the entry:
+// the fold did drop those messages from the live context, and skipping the entry
+// would leave the session's compacted view claiming they are still active, so a
+// resume would replay them and undo the pressure the fold relieved.
 type CompactionCommittedEvent struct {
 	Base
 	Summary      string `json:"summary,omitempty"`

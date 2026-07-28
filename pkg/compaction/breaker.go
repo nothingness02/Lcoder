@@ -42,7 +42,7 @@ func NewCircuitBreaker(max int) *CircuitBreaker {
 // Wrap returns a SummarizeFunc that short-circuits when the breaker is OPEN and
 // otherwise delegates to inner, updating the failure counter from the outcome.
 func (cb *CircuitBreaker) Wrap(inner SummarizeFunc) SummarizeFunc {
-	return func(ctx context.Context, messages []models.AgentMessage) (string, error) {
+	return func(ctx context.Context, messages []models.AgentMessage, prior string) (string, error) {
 		cb.mu.Lock()
 		open := cb.failures >= cb.maxFailures
 		cb.mu.Unlock()
@@ -50,7 +50,7 @@ func (cb *CircuitBreaker) Wrap(inner SummarizeFunc) SummarizeFunc {
 			return "", ErrCompactionSkipped
 		}
 
-		summary, err := inner(ctx, messages)
+		summary, err := inner(ctx, messages, prior)
 
 		cb.mu.Lock()
 		if err != nil {

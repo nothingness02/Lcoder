@@ -356,3 +356,47 @@ func TestEffectiveMessagesForkAfterEntry(t *testing.T) {
 		t.Fatalf("forked view must include branch msg: %v", texts)
 	}
 }
+
+// A degraded fold (summarizer circuit open) drops the older span from the live
+// context and commits an explicit summary-unavailable notice instead of a real
+// summary. Persistence must record an entry for it all the same: without one the
+// session's compacted view still claims the dropped messages are active, so a
+// resume replays them and undoes the pressure the fold relieved.
+func TestDegradedFoldRecordsEntry(t *testing.T) {
+	dropped := []models.AgentMessage{
+		models.UserMessage("old 1"),
+		models.UserMessage("old 2"),
+		models.UserMessage("old 3"),
+	}
+	kept := models.UserMessage("kept")
+	sess := newTestSession(t, append(dropped, kept)...)
+
+	const notice = "[Summary unavailable] The 3 earliest messages were dropped."
+	if err := sess.AppendCompactionEntry(notice, kept.ID, 900); err != nil {
+		t.Fatalf("AppendCompactionEntry: %v", err)
+	}
+
+	// Raw history is append-only: nothing is rewritten or removed on disk.
+	if got := len(sess.ActiveMessages()); got != len(dropped)+1+1 {
+		t.Fatalf("raw history should keep every message plus the entry, got %d", got)
+	}
+
+	eff := sess.EffectiveMessages()
+	for _, m := range eff {
+		if strings.Contains(m.Text(), "old ") {
+			t.Fatalf("dropped message %q is still in the compacted view", m.Text())
+		}
+	}
+	if len(eff) == 0 {
+		t.Fatal("compacted view must not be empty")
+	}
+	if !strings.Contains(eff[0].Text(), "Summary unavailable") {
+		t.Fatalf("compacted view must lead with the degraded notice, got %q", eff[0].Text())
+	}
+	if v, _ := eff[0].Metadata["compacted"].(bool); !v {
+		t.Error("the notice must carry compacted=true so it stays in the recent block on reload")
+	}
+	if last := eff[len(eff)-1]; last.Text() != "kept" {
+		t.Fatalf("kept tail missing from the compacted view, got %q", last.Text())
+	}
+}

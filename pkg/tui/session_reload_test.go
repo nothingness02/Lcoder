@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/config"
@@ -260,13 +259,19 @@ func TestNewCommandCreatesSessionAndResetsState(t *testing.T) {
 	}
 }
 
-// TestModelPersistenceFollowsSessionSwitch verifies that the TUI's internal
-// event-based persistence handler writes to the currently active session, not
-// the session that was active at process start.
-func TestModelPersistenceFollowsSessionSwitch(t *testing.T) {
+// TestCompactionSinkFollowsSessionSwitch verifies that a committed fold is
+// recorded to the session currently active, not the one open at process start.
+// Compactions are persisted by the context manager's CompactionSink rather than
+// by an event subscriber, so what the sink must track is the model's session
+// swap — which it learns about through SetOnSessionChange.
+func TestCompactionSinkFollowsSessionSwitch(t *testing.T) {
 	prior1 := []models.AgentMessage{models.UserMessage("q1")}
 	m, _, store := newTestModelWithStore(t, prior1)
 	defer m.Close()
+
+	// Stand in for agentsetup.ActiveSession: the sink reads through this.
+	var active *session.Session
+	m.SetOnSessionChange(func(s *session.Session) { active = s })
 
 	sess2, err := store.Create("/project")
 	if err != nil {
@@ -277,16 +282,13 @@ func TestModelPersistenceFollowsSessionSwitch(t *testing.T) {
 	}
 	m.loadSession(sess2)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ev := events.CompactionCommittedEvent{
-		Base:         events.Base{Type: events.CompactionCommitted, Turn: 1},
-		Summary:      "folded older messages",
-		FirstKeptID:  "kept-id",
-		TokensBefore: 1234,
+	if active == nil || active.ID != sess2.ID {
+		t.Fatalf("session change was not reported: active=%v want %s", active, sess2.ID)
 	}
-	if err := m.bus.Emit(ctx, ev); err != nil {
-		t.Fatalf("emit compaction event: %v", err)
+
+	// What the sink does once the fold is committed.
+	if err := active.AppendCompactionEntry("folded older messages", "kept-id", 1234); err != nil {
+		t.Fatalf("AppendCompactionEntry: %v", err)
 	}
 
 	loaded, err := store.LoadByID("/project", sess2.ID)

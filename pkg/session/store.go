@@ -183,8 +183,8 @@ func (s *Store) MostRecent(cwd string) (*Session, error) {
 // When the active branch already carries a compaction entry, a runtime summary
 // message (Metadata["compacted"] == true) is skipped: the entry already
 // represents it, and persisting the raw summary would duplicate it in
-// EffectiveMessages. Branches without an entry (legacy sessions, degraded
-// folds) keep the old behavior and persist such summaries as normal messages.
+// EffectiveMessages. Branches without an entry (legacy sessions) keep the old
+// behavior and persist such summaries as normal messages.
 func (s *Session) AppendMissing(msgs []models.AgentMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

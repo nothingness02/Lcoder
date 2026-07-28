@@ -1,14 +1,11 @@
 package agentsetup
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
-	"github.com/lcoder/lcoder/pkg/memory"
 )
 
 func TestBuildSystemPrompt(t *testing.T) {
@@ -32,27 +29,6 @@ func TestBuildSystemPrompt(t *testing.T) {
 	}
 	if strings.Contains(p, "\n\n\n") {
 		t.Fatal("unexpected empty-block spacing in prompt")
-	}
-}
-
-func TestContextManagerBlocksSetCacheHint(t *testing.T) {
-	cfg := config.Config{Context: config.ContextConfig{MinRecent: 1}}
-	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "project context here", "skill block here", nil, nil)
-
-	pd, ok := mgr.GetBlock(contextmgr.BlockProjectDocs, "project_docs")
-	if !ok {
-		t.Fatal("missing project_docs block")
-	}
-	if pd.CacheHint != contextmgr.CacheHintBreakpoint {
-		t.Fatalf("project_docs block should have CacheHintBreakpoint, got %q", pd.CacheHint)
-	}
-
-	sk, ok := mgr.GetBlock(contextmgr.BlockSkills, "skills")
-	if !ok {
-		t.Fatal("missing skills block")
-	}
-	if sk.CacheHint != contextmgr.CacheHintBreakpoint {
-		t.Fatalf("skills block should have CacheHintBreakpoint, got %q", sk.CacheHint)
 	}
 }
 
@@ -85,80 +61,4 @@ func TestContextManagerBlocks(t *testing.T) {
 	}
 }
 
-func TestContextManagerMemoryBlocks(t *testing.T) {
-	tmp := t.TempDir()
-	home := filepath.Join(tmp, "home")
-	repo := filepath.Join(tmp, "repo")
-	if err := os.MkdirAll(filepath.Join(home, ".lcoder", "memory"), 0750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(repo, ".lcoder", "memory"), 0750); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
 
-	if err := os.WriteFile(filepath.Join(home, ".lcoder", "memory", "USER.md"), []byte("User prefers Chinese."), 0640); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, ".lcoder", "memory", "MEMORY.md"), []byte("Project uses Go modules."), 0640); err != nil {
-		t.Fatal(err)
-	}
-
-	store, err := memory.NewStore(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Config{Context: config.ContextConfig{MinRecent: 1}, Memory: config.MemoryConfig{Enabled: true}}
-	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "", "", nil, store)
-
-	if _, ok := mgr.GetBlock(contextmgr.BlockUserProfile, "user_profile"); !ok {
-		t.Fatal("missing user_profile block")
-	}
-	if _, ok := mgr.GetBlock(contextmgr.BlockMemory, "memory"); !ok {
-		t.Fatal("missing memory block")
-	}
-
-	merged := mgr.SystemPrompt()
-	if !strings.Contains(merged, "User prefers Chinese") || !strings.Contains(merged, "Go modules") {
-		t.Fatalf("system prompt should include memory text, got:\n%s", merged)
-	}
-}
-
-func TestContextManagerDynamicRecallSkipsStaticMemory(t *testing.T) {
-	tmp := t.TempDir()
-	home := filepath.Join(tmp, "home")
-	repo := filepath.Join(tmp, "repo")
-	if err := os.MkdirAll(filepath.Join(home, ".lcoder", "memory"), 0750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(repo, ".lcoder", "memory"), 0750); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-
-	if err := os.WriteFile(filepath.Join(home, ".lcoder", "memory", "USER.md"), []byte("User prefers Chinese."), 0640); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".lcoder", "memory", "MEMORY.md"), []byte("Global memory entry."), 0640); err != nil {
-		t.Fatal(err)
-	}
-
-	store, err := memory.NewStore(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Config{
-		Context: config.ContextConfig{MinRecent: 1},
-		Memory:  config.MemoryConfig{Enabled: true, DynamicRecall: true},
-	}
-	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "", "", nil, store)
-
-	if _, ok := mgr.GetBlock(contextmgr.BlockUserProfile, "user_profile"); !ok {
-		t.Fatal("missing user_profile block")
-	}
-	if _, ok := mgr.GetBlock(contextmgr.BlockMemory, "memory"); ok {
-		t.Fatal("static memory block should be omitted when dynamic recall is enabled")
-	}
-}

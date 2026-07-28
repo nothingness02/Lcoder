@@ -18,7 +18,13 @@ type Strategy interface {
 // SummarizeFunc generates a summary from a slice of messages.
 // In production this calls the LLM engine. The context carries the agent's
 // run cancellation so abort/Ctrl+C interrupts in-flight summarization.
-type SummarizeFunc func(ctx context.Context, messages []models.AgentMessage) (string, error)
+//
+// prior is the previous compaction's summary, or empty on the first fold. It is
+// passed separately rather than left among messages so repeated compactions
+// carry the earlier summary forward verbatim instead of summarizing it again:
+// a summary of a summary loses detail on every pass, and the original task
+// statement is what degrades first.
+type SummarizeFunc func(ctx context.Context, messages []models.AgentMessage, prior string) (string, error)
 
 // KeepRecent keeps the last N messages and summarizes the rest.
 type KeepRecent struct {
@@ -47,7 +53,7 @@ func (k *KeepRecent) Compact(ctx context.Context, messages []models.AgentMessage
 	older := messages[:len(messages)-k.KeepCount]
 	recent := messages[len(messages)-k.KeepCount:]
 
-	summaryText, err := summarize(ctx, older)
+	summaryText, err := summarize(ctx, older, "")
 	if err != nil {
 		return nil, fmt.Errorf("summarize: %w", err)
 	}
@@ -64,7 +70,7 @@ func (k *KeepRecent) Compact(ctx context.Context, messages []models.AgentMessage
 }
 
 // SimpleSummarize is a placeholder summarizer.
-func SimpleSummarize(_ context.Context, messages []models.AgentMessage) (string, error) {
+func SimpleSummarize(_ context.Context, messages []models.AgentMessage, _ string) (string, error) {
 	var texts []string
 	for _, m := range messages {
 		if m.Role == models.RoleUser || m.Role == models.RoleAssistant {

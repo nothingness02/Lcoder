@@ -82,16 +82,22 @@ const summarizerTruncatedSuffix = "\n...[input truncated]"
 // session_before_compact hook when an extension declares it, falling back to
 // the built-in summarizer otherwise or on hook failure.
 func (b *Bridge) Summarizer(fallback contextmgr.SummarizeFunc) contextmgr.SummarizeFunc {
-	return func(ctx context.Context, messages []models.AgentMessage) (string, error) {
+	return func(ctx context.Context, messages []models.AgentMessage, prior string) (string, error) {
 		conversation := compaction.SerializeConversation(messages, 2000)
 		if len(conversation) > summarizerMaxInputChars {
 			conversation = conversation[:summarizerMaxInputChars-len(summarizerTruncatedSuffix)] + summarizerTruncatedSuffix
+		}
+		// The prior summary is prepended to the serialized conversation because the
+		// hook protocol carries a single string. Without it a hook-provided summary
+		// would silently drop everything earlier folds established.
+		if p := strings.TrimSpace(prior); p != "" {
+			conversation = "<previous_summary>\n" + p + "\n</previous_summary>\n\n" + conversation
 		}
 		// TODO: tokensBefore is 0 — SummarizeFunc cannot supply it
 		if summary, ok := b.host.RunBeforeCompactHook(ctx, conversation, 0); ok && summary != "" {
 			return summary, nil
 		}
-		return fallback(ctx, messages)
+		return fallback(ctx, messages, prior)
 	}
 }
 

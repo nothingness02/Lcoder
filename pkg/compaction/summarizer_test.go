@@ -35,7 +35,7 @@ func TestLLMSummarizerExtractsSummary(t *testing.T) {
 		llmtest.Done(models.AssistantMessage("<analysis>noise</analysis><summary>did the thing</summary>"), nil),
 	))
 	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
-	out, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("hello")})
+	out, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("hello")}, "")
 	if err != nil {
 		t.Fatalf("summarize: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestLLMSummarizerExtractsSummary(t *testing.T) {
 func TestLLMSummarizerEmptyMessages(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(llmtest.Done(models.AssistantMessage("unused"), nil)))
 	summarize := NewLLMSummarizer(client, models.ModelRef{})
-	out, err := summarize(context.Background(), nil)
+	out, err := summarize(context.Background(), nil, "")
 	if err != nil {
 		t.Fatalf("expected no error for empty input, got %v", err)
 	}
@@ -58,7 +58,7 @@ func TestLLMSummarizerEmptyMessages(t *testing.T) {
 
 func TestLLMSummarizerNilClient(t *testing.T) {
 	summarize := NewLLMSummarizer(nil, models.ModelRef{})
-	if _, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("x")}); err == nil {
+	if _, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("x")}, ""); err == nil {
 		t.Fatal("expected error for nil client")
 	}
 }
@@ -66,7 +66,7 @@ func TestLLMSummarizerNilClient(t *testing.T) {
 func TestLLMSummarizerStreamError(t *testing.T) {
 	client := llmtest.Client(llmtest.Turn(llmtest.ErrorEvent("internal", "boom")))
 	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
-	if _, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("x")}); err == nil {
+	if _, err := summarize(context.Background(), []models.AgentMessage{models.UserMessage("x")}, ""); err == nil {
 		t.Fatal("expected error on stream error event")
 	}
 }
@@ -85,7 +85,7 @@ func TestLLMSummarizerSendsSerializedTruncatedInput(t *testing.T) {
 			Content: []models.ContentPart{models.TextContent{Text: big}},
 		}),
 	}
-	if _, err := summarize(context.Background(), msgs); err != nil {
+	if _, err := summarize(context.Background(), msgs, ""); err != nil {
 		t.Fatalf("summarize: %v", err)
 	}
 
@@ -117,7 +117,7 @@ func TestLLMSummarizerCapsWholeInput(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		msgs = append(msgs, models.UserMessage(strings.Repeat("u", 2000)))
 	}
-	if _, err := summarize(context.Background(), msgs); err != nil {
+	if _, err := summarize(context.Background(), msgs, ""); err != nil {
 		t.Fatalf("summarize: %v", err)
 	}
 
@@ -131,5 +131,83 @@ func TestLLMSummarizerCapsWholeInput(t *testing.T) {
 	}
 	if len(text) > summaryMaxInputChars {
 		t.Fatalf("serialized input %d chars exceeds hard cap %d", len(text), summaryMaxInputChars)
+	}
+}
+
+// Repeated compaction must carry the earlier summary forward in the request, and
+// must label it so the model merges into it rather than compressing it again.
+func TestLLMSummarizerSendsPriorSummary(t *testing.T) {
+	client, adapter := llmtest.NewScript(llmtest.Turn(
+		llmtest.Done(models.AssistantMessage("<summary>merged</summary>"), nil),
+	))
+	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
+
+	out, err := summarize(context.Background(),
+		[]models.AgentMessage{models.UserMessage("new work")}, "EARLIER SUMMARY")
+	if err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	if out != "merged" {
+		t.Fatalf("expected merged summary, got %q", out)
+	}
+
+	text := adapter.LastRequest().Messages[0].Text()
+	if !strings.Contains(text, "EARLIER SUMMARY") {
+		t.Fatal("prior summary missing from the request")
+	}
+	if !strings.Contains(text, "<previous_summary>") || !strings.Contains(text, "<new_messages>") {
+		t.Fatalf("prior and new material must be labelled separately, got %q", text)
+	}
+	if !strings.Contains(text, "new work") {
+		t.Fatal("new messages missing from the request")
+	}
+}
+
+// A fold with nothing new to summarize must not discard the accumulated summary.
+func TestLLMSummarizerEmptyMessagesKeepsPrior(t *testing.T) {
+	client := llmtest.Client(llmtest.Turn(llmtest.Done(models.AssistantMessage("unused"), nil)))
+	summarize := NewLLMSummarizer(client, models.ModelRef{})
+
+	out, err := summarize(context.Background(), nil, "EARLIER SUMMARY")
+	if err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	if out != "EARLIER SUMMARY" {
+		t.Fatalf("prior summary must survive an empty fold, got %q", out)
+	}
+}
+
+// The prior summary has its own char budget so a long transcript cannot squeeze
+// out the only surviving record of everything folded earlier.
+func TestLLMSummarizerCapsPriorSeparately(t *testing.T) {
+	client, adapter := llmtest.NewScript(llmtest.Turn(
+		llmtest.Done(models.AssistantMessage("<summary>ok</summary>"), nil),
+	))
+	summarize := NewLLMSummarizer(client, models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"})
+
+	prior := strings.Repeat("p", summaryPriorChars*2)
+	msgs := make([]models.AgentMessage, 0, 30)
+	for i := 0; i < 30; i++ {
+		msgs = append(msgs, models.UserMessage(strings.Repeat("u", 2000)))
+	}
+	if _, err := summarize(context.Background(), msgs, prior); err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+
+	text := adapter.LastRequest().Messages[0].Text()
+	if !strings.Contains(text, "<previous_summary>") {
+		t.Fatal("prior summary was dropped entirely under transcript pressure")
+	}
+	if !strings.Contains(text, "[input truncated]") {
+		t.Fatal("expected truncation markers")
+	}
+	// The two budgets have to compose: independently capping each one let the
+	// combined request run 25% past the hard cap.
+	if len(text) > summaryMaxInputChars {
+		t.Fatalf("combined input %d chars exceeds hard cap %d", len(text), summaryMaxInputChars)
+	}
+	// The prior must actually get its reserved slice, not a token remnant.
+	if got := strings.Index(text, "</previous_summary>") - len(priorOpenTag); got < summaryPriorChars/2 {
+		t.Fatalf("prior summary slice %d chars is far below its %d reservation", got, summaryPriorChars)
 	}
 }

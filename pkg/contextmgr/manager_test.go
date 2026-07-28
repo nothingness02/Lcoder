@@ -13,7 +13,7 @@ func TestManagerBuildTurnRequest(t *testing.T) {
 		MaxTotal:      4000,
 		TargetTotal:   3000,
 		ReserveOutput: 1000,
-	}, WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) {
+	}, WithSummarizer(func(_ context.Context, msgs []models.AgentMessage, _ string) (string, error) {
 		return "summary", nil
 	}))
 

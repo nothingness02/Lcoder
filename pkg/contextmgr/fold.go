@@ -3,6 +3,8 @@ package contextmgr
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/lcoder/lcoder/pkg/compaction"
 	"github.com/lcoder/lcoder/pkg/models"
@@ -10,6 +12,11 @@ import (
 
 // defaultKeepRecentTokens mirrors pi's keepRecentTokens default.
 const defaultKeepRecentTokens = 20000
+
+// summaryDisplayPrefix labels a committed summary in the live context. It is
+// stripped before the summary is carried into the next fold, so the label is not
+// re-summarized or nested on each pass.
+const summaryDisplayPrefix = "[Summary of earlier conversation]\n\n"
 
 // findCutPoint returns the index at which to cut msgs: [0:cut] is folded,
 // [cut:] is kept. It walks backward accumulating estimated tokens until the
@@ -97,11 +104,15 @@ func (m *Manager) findCutPoint(msgs []models.AgentMessage, tokenBudget int, allo
 
 // FoldResult describes a committed (or degraded) fold.
 type FoldResult struct {
-	Committed    bool
-	Summary      string // committed summary text; empty when Degraded
+	Committed bool
+	// Summary is the committed summary text. Never empty on a committed fold:
+	// when Degraded it carries an explicit "summary unavailable" notice instead,
+	// so the persisted compaction entry and the live context both say that the
+	// dropped span has no summary rather than appearing to have a blank one.
+	Summary      string
 	FirstKeptID  string // ID of the first kept message (cut boundary)
 	TokensBefore int    // estimated total prompt tokens before the fold
-	Degraded     bool   // true when the breaker is open: truncated without summary
+	Degraded     bool   // true when the breaker is open: truncated without a real summary
 	SplitTurn    bool   // true when the cut landed inside the last turn
 }
 
@@ -109,8 +120,10 @@ type FoldResult struct {
 // commits [summary, tail...] in place. The cut point comes from findCutPoint
 // with a per-level token budget. Split turns summarize history and turn
 // prefix separately and merge them. A circuit-breaker-open summarizer
-// (ErrCompactionSkipped) degrades to truncation without summary so context
-// pressure is still relieved. State is untouched on any other error.
+// (ErrCompactionSkipped) degrades to truncation with an explicit
+// summary-unavailable notice, so context pressure is relieved without leaving
+// the model to read the surviving tail as the whole conversation. State is
+// untouched on any other error.
 func (m *Manager) foldOlder(ctx context.Context, level CompactionLevel) (FoldResult, error) {
 	recent, ok := m.GetBlock(BlockRecent, "recent")
 	if !ok || len(recent.Messages) == 0 {
@@ -130,29 +143,104 @@ func (m *Manager) foldOlder(ctx context.Context, level CompactionLevel) (FoldRes
 		SplitTurn:    split,
 	}
 
-	summaryText, err := m.summarizeForFold(ctx, msgs, cut, split)
+	// Locate the previous summary across the WHOLE block, not just the folded
+	// span: the cut is chosen by token budget, so an existing summary can land in
+	// the kept tail. Left there it would survive alongside the new summary — two
+	// summaries in context, the stale one after the newer one — and the fold would
+	// have run with prior empty, silently discarding everything it recorded.
+	priorIdx, prior := findPriorSummary(msgs)
+	keptTail := msgs[cut:]
+	if priorIdx >= cut {
+		keptTail = withoutIndex(keptTail, priorIdx-cut)
+	}
+
+	summaryText, err := m.summarizeForFold(ctx, msgs, cut, split, prior)
 	if err != nil {
 		if errors.Is(err, compaction.ErrCompactionSkipped) {
-			// Degraded: drop the older span without a summary.
-			m.ReplaceRecent(append([]models.AgentMessage(nil), msgs[cut:]...))
+			// Degraded: drop the older span, but still say so in the context. An
+			// empty summary here would reach the model as a blank system message
+			// that structurally claims a summary exists while carrying nothing —
+			// worse than no summary, because the model cannot tell the history was
+			// truncated and reads the remaining tail as the whole conversation.
 			res.Degraded = true
-			return res, nil
+			res.Summary = degradedSummaryText(cut)
+			notice := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: res.Summary}).
+				WithMetadata("compacted", true)
+			m.ReplaceRecent(append([]models.AgentMessage{notice}, keptTail...))
+			return res, m.recordFold(res)
 		}
 		return FoldResult{}, err
 	}
 
-	res.Summary = "[Summary of earlier conversation]\n\n" + summaryText
+	res.Summary = summaryDisplayPrefix + summaryText
 	summary := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: res.Summary}).
 		WithMetadata("compacted", true)
-	m.ReplaceRecent(append([]models.AgentMessage{summary}, msgs[cut:]...))
-	return res, nil
+	m.ReplaceRecent(append([]models.AgentMessage{summary}, keptTail...))
+	return res, m.recordFold(res)
+}
+
+// recordFold hands a committed fold to the sink. It runs in the same call as the
+// fold itself so a change to what a fold means cannot leave the durable record
+// behind: both live here, one branch apart.
+func (m *Manager) recordFold(res FoldResult) error {
+	if m.sink == nil {
+		return nil
+	}
+	if err := m.sink(res, m.AllMessages()); err != nil {
+		return fmt.Errorf("record compaction: %w", err)
+	}
+	return nil
+}
+
+// degradedSummaryText is the placeholder committed when the summarizer is
+// unavailable. It states what was lost and that it is unrecoverable from
+// context, so the model asks or re-reads rather than assuming the surviving
+// tail is the whole conversation.
+func degradedSummaryText(dropped int) string {
+	return fmt.Sprintf(
+		"[Summary unavailable] The %d earliest messages of this conversation were "+
+			"dropped to free context, and the summarizer was unavailable, so no summary "+
+			"of them exists. Treat any earlier goal, decision, or file change as unknown "+
+			"rather than absent: re-read files or ask before relying on that history.",
+		dropped)
+}
+
+// findPriorSummary returns the index of the newest compaction summary in msgs
+// and its text stripped of the display prefix, or (-1, "") when there is none.
+func findPriorSummary(msgs []models.AgentMessage) (int, string) {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if !isCompactedSummary(msgs[i]) {
+			continue
+		}
+		return i, strings.TrimSpace(strings.TrimPrefix(msgs[i].Text(), summaryDisplayPrefix))
+	}
+	return -1, ""
+}
+
+// withoutIndex returns msgs with the element at idx removed. idx < 0 returns
+// msgs unchanged.
+func withoutIndex(msgs []models.AgentMessage, idx int) []models.AgentMessage {
+	if idx < 0 || idx >= len(msgs) {
+		return msgs
+	}
+	out := make([]models.AgentMessage, 0, len(msgs)-1)
+	out = append(out, msgs[:idx]...)
+	out = append(out, msgs[idx+1:]...)
+	return out
 }
 
 // summarizeForFold produces the summary body for the folded span. Split turns
 // summarize the pre-turn history and the in-turn prefix separately.
-func (m *Manager) summarizeForFold(ctx context.Context, msgs []models.AgentMessage, cut int, split bool) (string, error) {
+func (m *Manager) summarizeForFold(ctx context.Context, msgs []models.AgentMessage, cut int, split bool, prior string) (string, error) {
+	// The prior summary is excluded from the transcript wherever it sits: passed
+	// as prior it is merged forward, left inline it would be summarized again.
+	priorIdx, _ := findPriorSummary(msgs)
 	if !split {
-		return m.summarizer(ctx, msgs[:cut])
+		span := msgs[:cut]
+		if priorIdx >= 0 && priorIdx < cut {
+			span = withoutIndex(span, priorIdx)
+		}
+		return m.summarizer(ctx, span, prior)
 	}
 	lastUserIdx := -1
 	for i := len(msgs) - 1; i >= 0; i-- {
@@ -167,13 +255,17 @@ func (m *Manager) summarizeForFold(ctx context.Context, msgs []models.AgentMessa
 	}
 	var histSummary string
 	if turnStart > 0 {
-		s, err := m.summarizer(ctx, msgs[:turnStart])
+		hist := msgs[:turnStart]
+		if priorIdx >= 0 && priorIdx < turnStart {
+			hist = withoutIndex(hist, priorIdx)
+		}
+		s, err := m.summarizer(ctx, hist, prior)
 		if err != nil {
 			return "", err
 		}
 		histSummary = s
 	}
-	prefixSummary, err := m.summarizer(ctx, msgs[turnStart:cut])
+	prefixSummary, err := m.summarizer(ctx, msgs[turnStart:cut], "")
 	if err != nil {
 		return "", err
 	}

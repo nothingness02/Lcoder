@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ import (
 func TestAgentEmitsCompactionCommitted(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
-		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage, _ string) (string, error) { return "s", nil }),
 		contextmgr.WithMinRecent(2),
 	)
 	var recent []models.AgentMessage
@@ -47,7 +48,7 @@ func TestAgentEmitsCompactionCommitted(t *testing.T) {
 func TestAgentRecordsContextSnapshotOnCompaction(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
-		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage, _ string) (string, error) { return "s", nil }),
 		contextmgr.WithMinRecent(2),
 	)
 	var recent []models.AgentMessage
@@ -79,7 +80,7 @@ func TestAgentRecordsContextSnapshotOnCompaction(t *testing.T) {
 func TestAgentDoesNotRecordContextSnapshotWhenDisabled(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
-		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage, _ string) (string, error) { return "s", nil }),
 		contextmgr.WithMinRecent(2),
 	)
 	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockRecent, "recent", contextmgr.StabilityDynamic, 100, models.UserMessage("hi")))
@@ -102,7 +103,7 @@ func TestAgentDoesNotRecordContextSnapshotWhenDisabled(t *testing.T) {
 func TestAgentEmitsCompactionStartedBeforeCommit(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
-		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) { return "s", nil }),
 		contextmgr.WithMinRecent(2),
 	)
 	var recent []models.AgentMessage
@@ -146,7 +147,7 @@ func TestAgentEmitsCompactionStartedBeforeCommit(t *testing.T) {
 func TestAgentNoCompactionStartedWithoutPressure(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 1000},
-		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) { return "s", nil }),
 	)
 	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockRecent, "recent", contextmgr.StabilityDynamic, 100,
 		models.UserMessage("hi"), models.AssistantMessage("hello")))
@@ -171,7 +172,7 @@ func TestAgentNoCompactionStartedWithoutPressure(t *testing.T) {
 func TestAgentCompactionEventCarriesPayload(t *testing.T) {
 	mgr := contextmgr.NewManager(
 		contextmgr.TokenBudget{MaxTotal: 2000, TargetTotal: 100, ReserveOutput: 0},
-		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "s", nil }),
+		contextmgr.WithSummarizer(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) { return "s", nil }),
 		contextmgr.WithMinRecent(2),
 	)
 	var recent []models.AgentMessage
@@ -201,5 +202,50 @@ func TestAgentCompactionEventCarriesPayload(t *testing.T) {
 	}
 	if got.Degraded {
 		t.Fatal("healthy summarizer must not degrade")
+	}
+}
+
+// A durable-record failure must not hide the fold from the UI: the context
+// really is smaller, so the commit event still has to fire. Reporting only the
+// error would leave the display showing a window that no longer exists.
+func TestMaybeCompactEmitsCommitEvenWhenSinkFails(t *testing.T) {
+	mgr := contextmgr.NewManager(
+		contextmgr.TokenBudget{MaxTotal: 400, ReserveOutput: 0},
+		contextmgr.WithMinRecent(1),
+		contextmgr.WithSummarizer(contextmgr.SummarizeFunc(
+			func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
+				return "SUMMARY", nil
+			})),
+		contextmgr.WithCompactionSink(func(contextmgr.FoldResult, []models.AgentMessage) error {
+			return errors.New("disk full")
+		}),
+	)
+	mgr.SetSystemPrompt("sys")
+	var msgs []models.AgentMessage
+	for i := 0; i < 20; i++ {
+		msgs = append(msgs, models.UserMessage(strings.Repeat("x", 200)))
+	}
+	mgr.ReplaceRecent(msgs)
+
+	bus := events.New()
+	var committed, errored bool
+	bus.Subscribe(func(_ context.Context, ev events.Event) error {
+		switch ev.(type) {
+		case events.CompactionCommittedEvent:
+			committed = true
+		case events.ErrorEvent:
+			errored = true
+		}
+		return nil
+	})
+
+	ag := &Agent{cfg: Config{ContextManager: mgr}, mgr: mgr, bus: bus}
+	ag.maybeCompact(context.Background(), 1)
+
+	if !errored {
+		t.Error("the sink failure must be surfaced as an error event")
+	}
+	if !committed {
+		t.Error("the commit event must still fire: the fold stands despite the failed record")
 	}
 }

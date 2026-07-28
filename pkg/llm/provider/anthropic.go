@@ -376,8 +376,23 @@ func ephemeralCacheControl() map[string]any {
 	return map[string]any{"type": "ephemeral"}
 }
 
-// applyMessageCacheMarks adds ephemeral cache_control to the first text block of
-// each marked message (indices into the built Anthropic messages array).
+// cacheableBlockTypes lists the Anthropic content block types that accept a
+// cache_control marker. Thinking blocks notably do not — marking one is a 400.
+var cacheableBlockTypes = map[string]bool{
+	"text":        true,
+	"image":       true,
+	"document":    true,
+	"tool_use":    true,
+	"tool_result": true,
+}
+
+// applyMessageCacheMarks adds ephemeral cache_control to the LAST cacheable block
+// of each marked message (indices into the built Anthropic messages array).
+// Anthropic caches the prefix up to and including the marked block, so marking an
+// earlier block would leave the rest of that message uncached. Keying on the
+// first *text* block would be worse still: a pure tool_result message — the usual
+// tail inside an agent tool loop — has no text block, so the anchor would be
+// dropped silently and the whole transcript re-billed as uncached input.
 func applyMessageCacheMarks(msgs []map[string]any, idxs []int) {
 	for _, i := range idxs {
 		if i < 0 || i >= len(msgs) {
@@ -387,9 +402,9 @@ func applyMessageCacheMarks(msgs []map[string]any, idxs []int) {
 		if !ok {
 			continue
 		}
-		for _, b := range blocks {
-			if b["type"] == "text" {
-				b["cache_control"] = ephemeralCacheControl()
+		for j := len(blocks) - 1; j >= 0; j-- {
+			if t, _ := blocks[j]["type"].(string); cacheableBlockTypes[t] {
+				blocks[j]["cache_control"] = ephemeralCacheControl()
 				break
 			}
 		}

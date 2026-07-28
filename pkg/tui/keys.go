@@ -871,6 +871,9 @@ func (m *Model) loadSession(sess *session.Session) {
 	m.components = componentsFromBlocks(m.blocks)
 	m.tasks = tasksFromMessages(msgs)
 	m.session = sess
+	if m.onSessionChange != nil {
+		m.onSessionChange(sess)
+	}
 	m.runner.SetSession(sess)
 	m.agent.SetSessionID(sess.ID)
 	m.agent.SetMessages(sess.EffectiveMessages())

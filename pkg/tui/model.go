@@ -135,6 +135,11 @@ type Model struct {
 	completedTurns int
 	suggestion     string
 
+	// onSessionChange is notified whenever the active session is swapped, so the
+	// compaction sink records folds to the session actually in use rather than the
+	// one that happened to be open at startup.
+	onSessionChange func(*session.Session)
+
 	// inputHook intercepts plain user input before skill parsing/submission.
 	// Returns (newText, proceed, reason). Nil means no interception.
 	inputHook func(text string) (string, bool, string)
@@ -206,6 +211,17 @@ func (m *Model) SetCapabilities(caps []string) {
 	m.capabilities = caps
 }
 
+// SetOnSessionChange registers a callback fired when the active session changes.
+// It is invoked immediately with the current session so the caller starts in sync.
+func (m *Model) SetOnSessionChange(fn func(*session.Session)) {
+	m.onSessionChange = fn
+	if fn != nil {
+		if sess, ok := m.session.(*session.Session); ok {
+			fn(sess)
+		}
+	}
+}
+
 // SetInputHook installs the extension input hook.
 func (m *Model) SetInputHook(hook func(text string) (string, bool, string)) {
 	m.inputHook = hook
@@ -237,17 +253,11 @@ func (m *Model) persistFromEvent(ctx context.Context, ev events.Event) error {
 	if !ok {
 		return nil
 	}
-	switch e := ev.(type) {
-	case events.CompactionCommittedEvent:
-		// Append-only: record the compaction entry; raw messages stay on disk.
-		// Degraded folds (breaker open) carry no summary and persist nothing.
-		if !e.Degraded && e.Summary != "" {
-			_ = sess.AppendCompactionEntry(e.Summary, e.FirstKeptID, e.TokensBefore)
-			// Mirror the kept tail now: with the entry on disk, AppendMissing
-			// skips the runtime summary and appends only the not-yet-persisted
-			// kept messages, so a crash before run end cannot lose them.
-			_ = sess.AppendMissing(m.agent.AllMessages())
-		}
+	switch ev.(type) {
+	// Compactions are persisted by the context manager's CompactionSink
+	// (agentsetup.SessionCompactionSink), inside the same call that folds the
+	// context — not from here, where a missed event would silently leave the
+	// session claiming the folded messages are still active.
 	case events.TurnEndEvent, events.AgentEndEvent:
 		// Mirror the completed turn's assistant/tool messages into the session
 		// now. This handler runs synchronously inside the agent's TurnEnd

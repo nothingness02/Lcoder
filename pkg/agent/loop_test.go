@@ -234,7 +234,7 @@ func TestAgentWithModeSnapshot(t *testing.T) {
 			ReserveOutput: 8192,
 			MaxOutput:     16384,
 		},
-		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) {
+		contextmgr.WithSummarizer(func(_ context.Context, msgs []models.AgentMessage, _ string) (string, error) {
 			return "summary", nil
 		}),
 	)

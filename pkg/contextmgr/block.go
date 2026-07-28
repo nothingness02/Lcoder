@@ -13,16 +13,24 @@ type BlockKind string
 
 const (
 	BlockSystem      BlockKind = "system"       // Top-level system prompt
-	BlockMode        BlockKind = "mode"         // Mode-specific system prompt
 	BlockSkills      BlockKind = "skills"       // Activated skills
 	BlockProjectDocs BlockKind = "project_docs" // AGENTS.md / CLAUDE.md
-	BlockToolDefs    BlockKind = "tool_defs"    // Tool JSON schemas
-	BlockSummary     BlockKind = "summary"      // Summarized older messages
 	BlockRecent      BlockKind = "recent"       // Recent full messages
 	BlockRetrieval   BlockKind = "retrieval"    // RAG / code index results
-	BlockMemory      BlockKind = "memory"       // Agent personal notes
-	BlockUserProfile BlockKind = "user_profile" // User profile
+
+	// BlockMode is retained for one reason only: evicting a mode block left in a
+	// checkpoint written before mode text moved to an ephemeral reminder. Nothing
+	// writes it. Without the eviction in Agent.applyMode such a block would stay
+	// in the system prompt — and therefore the cache prefix — for the whole
+	// session, since no code path would ever replace it.
+	BlockMode BlockKind = "mode"
 )
+
+// Summarized history is not a block kind: Manager.foldOlder commits the summary
+// into the recent block as a message carrying compacted=true metadata, so it
+// stays in conversation order relative to the tail it summarizes. Tool schemas
+// are likewise not a block — they travel in TurnRequest.Tools, ahead of the
+// system prompt in the provider's cache prefix.
 
 // Stability indicates how likely a block is to change between turns.
 type Stability string
@@ -108,7 +116,7 @@ func (b *Block) Text() string {
 // IsSystemBlock reports whether the block should be merged into the system prompt.
 func IsSystemBlock(b *Block) bool {
 	switch b.Kind {
-	case BlockSystem, BlockMode, BlockSkills, BlockProjectDocs, BlockMemory, BlockUserProfile:
+	case BlockSystem, BlockMode, BlockSkills, BlockProjectDocs:
 		return true
 	}
 	return false
@@ -119,12 +127,9 @@ func IsSystemBlock(b *Block) bool {
 func DefaultBlockOrder() []BlockKind {
 	return []BlockKind{
 		BlockSystem,
-		BlockMode,
+		BlockMode, // legacy checkpoints only; see the BlockMode comment
 		BlockSkills,
 		BlockProjectDocs,
-		BlockMemory,
-		BlockUserProfile,
-		BlockSummary,
 		BlockRetrieval,
 		BlockRecent,
 	}

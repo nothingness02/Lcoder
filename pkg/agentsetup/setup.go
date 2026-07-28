@@ -7,13 +7,13 @@ package agentsetup
 
 import (
 	"os"
+	"sync"
 
 	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/compaction"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/llm"
-	"github.com/lcoder/lcoder/pkg/memory"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -48,7 +48,88 @@ func BuildSystemPrompt() string {
 // project-docs, skills, and recent blocks. A summarizer is always attached so
 // that checkpoint restore has a wired manager and compaction can run when the
 // budget policy asks for it.
-func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking string, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage, memStore *memory.Store) *contextmgr.Manager {
+// CompactionRecorder is the slice of the session store that a committed fold has
+// to reach. Declared here as an interface so agentsetup does not depend on
+// pkg/session, and so tests can record folds without a session on disk.
+type CompactionRecorder interface {
+	// AppendCompactionEntry records the fold itself: the summary text and the id
+	// of the first kept message, from which the compacted view is rebuilt.
+	AppendCompactionEntry(summary, firstKeptEntryID string, tokensBefore int) error
+	// AppendMissing mirrors messages not yet on disk, deduped by id.
+	AppendMissing(msgs []models.AgentMessage) error
+}
+
+// ActiveSession holds the session a committed fold should be written to. The TUI
+// swaps sessions mid-run (/sessions, /new), so the sink reads through this rather
+// than capturing whichever session was open when the manager was built.
+//
+// Set is called from the UI goroutine and the sink reads it from the agent loop,
+// so both go through the mutex.
+type ActiveSession struct {
+	mu  sync.Mutex
+	rec CompactionRecorder
+}
+
+// NewActiveSession returns a holder seeded with the starting session.
+func NewActiveSession(rec CompactionRecorder) *ActiveSession {
+	return &ActiveSession{rec: rec}
+}
+
+// Set replaces the session that subsequent folds are recorded to.
+func (a *ActiveSession) Set(rec CompactionRecorder) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.rec = rec
+}
+
+// Get returns the session folds are currently recorded to.
+func (a *ActiveSession) Get() CompactionRecorder {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.rec
+}
+
+// SessionCompactionSink returns the sink that persists a committed fold. It runs
+// inside foldOlder, so the durable record cannot drift from the in-memory fold
+// the way a separate event subscription could.
+//
+// The recorder is resolved per fold rather than captured: the TUI can switch the
+// active session mid-run (/sessions, /new), and a sink bound to the session that
+// happened to be open at startup would write the fold to the wrong file.
+//
+// Degraded folds are recorded too: their summary is the explicit
+// summary-unavailable notice, and the older span really was dropped from the live
+// context, so without an entry the session's compacted view would still claim
+// those messages are active and a resume would replay them.
+func SessionCompactionSink(active func() CompactionRecorder) contextmgr.CompactionSink {
+	if active == nil {
+		return nil
+	}
+	return func(res contextmgr.FoldResult, live []models.AgentMessage) error {
+		if res.Summary == "" {
+			return nil
+		}
+		rec := active()
+		if rec == nil {
+			return nil
+		}
+		if err := rec.AppendCompactionEntry(res.Summary, res.FirstKeptID, res.TokensBefore); err != nil {
+			return err
+		}
+		// With the entry on disk, AppendMissing skips the runtime summary message
+		// and appends only the not-yet-persisted kept tail, so a crash before the
+		// next turn boundary cannot lose it.
+		return rec.AppendMissing(live)
+	}
+}
+
+func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking string, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage, sink contextmgr.CompactionSink) *contextmgr.Manager {
 	opts := []contextmgr.Option{
 		contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(cfg.Context.MinRecent)),
 		contextmgr.WithMinRecent(cfg.Context.MinRecent),
@@ -58,6 +139,9 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking st
 	}
 	if thinking != "" {
 		opts = append(opts, contextmgr.WithThinking(thinking))
+	}
+	if sink != nil {
+		opts = append(opts, contextmgr.WithCompactionSink(sink))
 	}
 
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{
@@ -75,26 +159,13 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking st
 		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: systemText})))
 
 	if contextText != "" {
-		mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockProjectDocs, "project_docs", contextmgr.StabilityStable, 80, contextmgr.CacheHintBreakpoint,
+		mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockProjectDocs, "project_docs", contextmgr.StabilityStable, 80,
 			models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: contextText})))
 	}
 
 	if skillsBlock != "" {
-		mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockSkills, "skills", contextmgr.StabilityStable, 90, contextmgr.CacheHintBreakpoint,
+		mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSkills, "skills", contextmgr.StabilityStable, 90,
 			models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: skillsBlock})))
-	}
-
-	if memStore != nil && cfg.Memory.Enabled {
-		if userText, err := memStore.UserText(); err == nil && userText != "" {
-			mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockUserProfile, "user_profile", contextmgr.StabilityStable, 70, contextmgr.CacheHintBreakpoint,
-				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: userText})))
-		}
-		if !cfg.Memory.DynamicRecall {
-			if memoryText, err := memStore.MemoryText(); err == nil && memoryText != "" {
-				mgr.SetBlock(contextmgr.NewBlockWithCacheHint(contextmgr.BlockMemory, "memory", contextmgr.StabilityStable, 75, contextmgr.CacheHintBreakpoint,
-					models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: memoryText})))
-			}
-		}
 	}
 
 	if len(activeMessages) > 0 {

@@ -22,6 +22,25 @@ const summaryToolResultChars = 2000
 // chars/token), keeping the summarization request far below any model window.
 const summaryMaxInputChars = 48000
 
+// summaryPriorChars reserves part of summaryMaxInputChars for the
+// carried-forward summary, so a long transcript can never squeeze out the
+// accumulated summary — that is the only copy of everything folded in earlier
+// passes. The transcript takes the remainder, keeping the combined input inside
+// the whole-input cap.
+const summaryPriorChars = 12000
+
+// summaryInputMinTranscriptChars floors the transcript slice so a pathologically
+// long prior summary still leaves room for the new messages being folded.
+const summaryInputMinTranscriptChars = 4000
+
+// Tags labelling the two halves of an iterative summarization input.
+const (
+	priorOpenTag  = "<previous_summary>\n"
+	priorCloseTag = "\n</previous_summary>\n\n"
+	newOpenTag    = "<new_messages>\n"
+	newCloseTag   = "\n</new_messages>"
+)
+
 // summaryInputTruncatedSuffix marks that the serialized input was cut to fit
 // the whole-input cap.
 const summaryInputTruncatedSuffix = "\n...[input truncated]"
@@ -49,33 +68,63 @@ Write the durable summary that REPLACES the earlier messages. Be specific and co
 8. Next steps — the immediate next actions.
 9. User preferences — explicit constraints or style the user asked for.
 Preserve exact identifiers (paths, symbols, flags). Do not invent facts. Omit empty sections.
-</summary>`
+</summary>
+
+When the input contains a <previous_summary> block, it is the summary of an EARLIER compaction of this same conversation, and <new_messages> holds only what happened since. Your output must be a single merged summary covering both, written as one continuous account rather than two halves. Facts in the previous summary are already condensed and cannot be recovered from anywhere else: carry them forward, and drop one only when the new messages show it is now wrong or resolved. The original goal and the user's stated constraints must survive every pass verbatim — they are the first thing lost to repeated summarization and the most expensive to lose.`
 
 // NewLLMSummarizer returns a SummarizeFunc that asks the LLM engine to compact
 // older messages into a dual-stage summary, keeping only the <summary> block.
 // The returned function matches contextmgr.SummarizeFunc without importing it.
 func NewLLMSummarizer(client *llm.Client, model models.ModelRef) SummarizeFunc {
-	return func(ctx context.Context, messages []models.AgentMessage) (string, error) {
+	return func(ctx context.Context, messages []models.AgentMessage, prior string) (string, error) {
 		if client == nil {
 			return "", fmt.Errorf("llm summarizer: nil client")
 		}
 		if len(messages) == 0 {
+			// A repeated fold can legitimately have nothing new to summarize. The
+			// prior summary must still survive: returning a placeholder here would
+			// discard everything the earlier folds established.
+			if strings.TrimSpace(prior) != "" {
+				return prior, nil
+			}
 			return "No earlier messages.", nil
 		}
 
 		ctx, cancel := context.WithTimeout(ctx, summaryTimeout)
 		defer cancel()
 
+		// The prior summary gets a reserved slice of the input budget and the
+		// transcript gets the rest, so a long transcript cannot squeeze out the only
+		// surviving record of earlier folds — and the two together still respect the
+		// whole-input cap.
+		p := strings.TrimSpace(prior)
+		if len(p) > summaryPriorChars {
+			p = p[:summaryPriorChars-len(summaryInputTruncatedSuffix)] + summaryInputTruncatedSuffix
+		}
+		wrapper := 0
+		if p != "" {
+			wrapper = len(priorOpenTag) + len(priorCloseTag) + len(newOpenTag) + len(newCloseTag) + len(p)
+		}
+		transcriptCap := summaryMaxInputChars - wrapper
+		if transcriptCap < summaryInputMinTranscriptChars {
+			transcriptCap = summaryInputMinTranscriptChars
+		}
+
 		serialized := SerializeConversation(messages, summaryToolResultChars)
-		if len(serialized) > summaryMaxInputChars {
-			serialized = serialized[:summaryMaxInputChars-len(summaryInputTruncatedSuffix)] + summaryInputTruncatedSuffix
+		if len(serialized) > transcriptCap {
+			serialized = serialized[:transcriptCap-len(summaryInputTruncatedSuffix)] + summaryInputTruncatedSuffix
+		}
+
+		userText := serialized
+		if p != "" {
+			userText = priorOpenTag + p + priorCloseTag + newOpenTag + serialized + newCloseTag
 		}
 
 		req := models.TurnRequest{
 			Model:        model,
 			SystemPrompt: summaryInstruction,
 			Messages: []models.AgentMessage{
-				models.NewAgentMessage(models.RoleUser, models.TextContent{Text: serialized}),
+				models.NewAgentMessage(models.RoleUser, models.TextContent{Text: userText}),
 			},
 		}
 

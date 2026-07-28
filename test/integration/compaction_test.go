@@ -347,7 +347,7 @@ func TestCompactionMechanisms(t *testing.T) {
 		// (a) Direct breaker behavior.
 		cb := compaction.NewCircuitBreaker(0) // default max = 3
 		boom := errors.New("boom")
-		failing := compaction.SummarizeFunc(func(_ context.Context, _ []models.AgentMessage) (string, error) { return "", boom })
+		failing := compaction.SummarizeFunc(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) { return "", boom })
 		wrapped := cb.Wrap(failing)
 		for i := 0; i < 3; i++ {
 			if _, err := wrapped(context.Background(), nil); !errors.Is(err, boom) {
@@ -364,7 +364,7 @@ func TestCompactionMechanisms(t *testing.T) {
 		mgr := contextmgr.NewManager(budget,
 			contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(2)),
 			contextmgr.WithMinRecent(2),
-			contextmgr.WithSummarizer(contextmgr.SummarizeFunc(func(_ context.Context, _ []models.AgentMessage) (string, error) {
+			contextmgr.WithSummarizer(contextmgr.SummarizeFunc(func(_ context.Context, _ []models.AgentMessage, _ string) (string, error) {
 				return "", boom
 			})))
 		mgr.SetSystemPrompt("you are a test agent")

@@ -3,10 +3,10 @@ package contextmgr
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
-	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -87,7 +87,29 @@ type TokenEstimator func(messages []models.AgentMessage) int
 
 // SummarizeFunc generates a summary from messages. The context carries run
 // cancellation; summarizers must honor it.
-type SummarizeFunc func(ctx context.Context, messages []models.AgentMessage) (string, error)
+//
+// prior is the previous compaction's summary text, or empty on the first fold.
+// foldOlder extracts it from the span being folded and passes it here instead of
+// leaving it inline, so a repeated fold merges into the earlier summary rather
+// than summarizing it again.
+type SummarizeFunc func(ctx context.Context, messages []models.AgentMessage, prior string) (string, error)
+
+// CompactionSink durably records a committed fold. It is called by foldOlder
+// immediately after the fold is committed to the live context, while still
+// holding the same call — so "the context was folded" and "the fold was
+// recorded" cannot diverge.
+//
+// This is deliberately a callback rather than an event subscription. The fold is
+// destructive in memory: the older span is gone once ReplaceRecent runs. If the
+// durable record is missed, the session's compacted view still claims those
+// messages are active and a resume replays them, undoing the pressure the fold
+// relieved. An event subscription makes that a delivery concern spread across
+// packages; a sink makes it one branch next to the code that does the folding.
+//
+// A sink error is reported to the caller of MaybeCompactLeveled but does not
+// roll back the in-memory fold: the context is already smaller, and re-inflating
+// it would risk overflowing the window that the fold was relieving.
+type CompactionSink func(FoldResult, []models.AgentMessage) error
 
 // Manager manages structured context blocks within a token budget.
 type Manager struct {
@@ -100,8 +122,7 @@ type Manager struct {
 	keepRecent int
 	// keepRecentTokens is the token budget for the kept tail at proactive
 	// pressure; tighter levels derive from it in keepTokensForLevel.
-	keepRecentTokens   int
-	modePromptPriority config.ModePromptPriority
+	keepRecentTokens int
 
 	// ephemeralReminders are injected into the next BuildTurnRequest only and
 	// never persisted to a block — see ephemeral.go.
@@ -118,6 +139,9 @@ type Manager struct {
 
 	// thinking is the resolved thinking value carried on turn requests.
 	thinking string
+
+	// sink durably records committed folds; nil means folds are not persisted.
+	sink CompactionSink
 }
 
 // Option configures a Manager.
@@ -170,16 +194,9 @@ func WithThinking(v string) Option {
 	return func(m *Manager) { m.thinking = v }
 }
 
-// WithModePromptPriority sets how the mode system prompt is combined with the
-// base system prompt.
-func WithModePromptPriority(p config.ModePromptPriority) Option {
-	return func(m *Manager) { m.modePromptPriority = p }
-}
-
-// ModePromptPriority returns how the mode system prompt is combined with the
-// base system prompt.
-func (m *Manager) ModePromptPriority() config.ModePromptPriority {
-	return m.modePromptPriority
+// WithCompactionSink sets the durable recorder for committed folds.
+func WithCompactionSink(s CompactionSink) Option {
+	return func(m *Manager) { m.sink = s }
 }
 
 // NewManager creates a context manager with the given budget.
@@ -360,18 +377,22 @@ func (m *Manager) BuildTurnRequest(model models.ModelRef, tools []models.ToolDef
 		messageIdx += len(b.Messages)
 	}
 
-	// Always mark the last user message as a cache breakpoint if available.
-	// Computed BEFORE injecting ephemeral reminders so the breakpoint anchors the
-	// last STABLE user turn — ephemeral content changes every turn and must never
-	// anchor the cache, or it would bust the cached prefix on every request.
-	if policy != CachePolicyNone {
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == models.RoleUser {
-				breakpoints = append(breakpoints, i)
-				break
-			}
-		}
+	// Anchor the tail on the last stable message so everything accumulated during
+	// the turn — the model's tool calls and their results — lands inside the
+	// cached prefix. Anchoring on the last *user* message instead would leave the
+	// growing tool_use/tool_result tail outside the cache, re-billing it as fresh
+	// input on every step of a tool loop.
+	//
+	// Computed BEFORE injecting ephemeral reminders: ephemeral content changes
+	// every turn, so anchoring on it would bust the cached prefix each request.
+	if policy != CachePolicyNone && len(messages) > 0 {
+		breakpoints = append(breakpoints, len(messages)-1)
 	}
+
+	// Anthropic caps a request at 4 cache_control blocks, so duplicate or
+	// unordered indices waste that budget and can push a valid request over the
+	// limit. Normalize before handing them to the provider.
+	breakpoints = normalizeBreakpoints(breakpoints)
 
 	// Inject ephemeral system-reminders as a trailing synthetic user message.
 	// They live only in this request: never stored in any block, so they vanish
@@ -386,12 +407,21 @@ func (m *Manager) BuildTurnRequest(model models.ModelRef, tools []models.ToolDef
 	systemPrompt := strings.Join(systemParts, "\n\n")
 	inputTokens := stableTokens + m.EstimateTokens(messages)
 
+	// cache_hint_policy: none must reach the provider. Without it the adapter
+	// still marks the system block, the last tool definition, and a fallback
+	// tail message, so the policy would only suppress the breakpoints computed
+	// here and caching would stay on.
+	cacheMode := "auto"
+	if policy == CachePolicyNone {
+		cacheMode = "none"
+	}
+
 	return models.TurnRequest{
 		Model:            model,
 		SystemPrompt:     systemPrompt,
 		Messages:         messages,
 		Tools:            tools,
-		Cache:            "auto",
+		Cache:            cacheMode,
 		CacheBreakpoints: breakpoints,
 		Thinking:         m.thinking,
 		Generation:       models.GenerationConfig{MaxTokens: m.budget.ResolveMaxTokens(inputTokens)},
@@ -472,7 +502,22 @@ func isCompactedSummary(msg models.AgentMessage) bool {
 
 // Clone returns a deep copy of the manager with independent blocks.
 func (m *Manager) Clone() *Manager {
-	other := NewManager(m.budget, WithEstimator(m.estimator), WithSummarizer(m.summarizer), WithWindowPolicy(m.policy), WithModePromptPriority(m.modePromptPriority))
+	// Every configured field must be carried over, not just the wired services:
+	// the only caller is Agent.WithMode, so anything omitted here is silently
+	// reset by a mode switch — a clone that drops cachePolicy would turn caching
+	// back to default mid-session, and one that drops thinking would change how
+	// the next request is generated.
+	other := NewManager(m.budget,
+		WithEstimator(m.estimator),
+		WithSummarizer(m.summarizer),
+		WithWindowPolicy(m.policy),
+		WithCacheHintPolicy(m.cachePolicy),
+		WithMinRecent(m.keepRecent),
+		WithKeepRecentTokens(m.keepRecentTokens),
+		WithThinking(m.thinking),
+	)
+	other.ephemeralReminders = append([]string(nil), m.ephemeralReminders...)
+	other.lastUsage, other.hasUsage = m.lastUsage, m.hasUsage
 	for _, b := range m.blocks {
 		copied := NewBlock(b.Kind, b.Name, b.Stability, b.Priority)
 		copied.Messages = append([]models.AgentMessage(nil), b.Messages...)
@@ -513,6 +558,24 @@ func (m *Manager) Stats() map[string]int {
 	// off real tokens when available, else the heuristic estimate.
 	stats["compaction_level"] = int(m.budget.PressureLevel(m.currentTotalTokens()))
 	return stats
+}
+
+// normalizeBreakpoints sorts breakpoint indices ascending and drops duplicates.
+// The prefix anchor and the tail anchor collapse onto the same index whenever the
+// conversation holds a single message, and duplicates would each consume one of
+// the provider's limited cache_control slots.
+func normalizeBreakpoints(bps []int) []int {
+	if len(bps) < 2 {
+		return bps
+	}
+	sort.Ints(bps)
+	out := bps[:1]
+	for _, b := range bps[1:] {
+		if b != out[len(out)-1] {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // DefaultEstimator uses a rough 4-char-per-token heuristic.

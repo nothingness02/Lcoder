@@ -51,19 +51,3 @@ func resolveProviders(in map[string]ProviderConn) map[string]ProviderConn {
 	}
 	return out
 }
-
-// resolveMemoryProviders expands {env:VAR} references in memory provider config.
-func resolveMemoryProviders(in []MemoryProviderConfig) []MemoryProviderConfig {
-	out := make([]MemoryProviderConfig, len(in))
-	for i, p := range in {
-		p.Config.Endpoint = expandEnvRefs(p.Config.Endpoint)
-		p.Config.APIKey = expandEnvRefs(p.Config.APIKey)
-		headers := make(map[string]string, len(p.Config.Headers))
-		for k, v := range p.Config.Headers {
-			headers[k] = expandEnvRefs(v)
-		}
-		p.Config.Headers = headers
-		out[i] = p
-	}
-	return out
-}

@@ -50,6 +50,9 @@ func init() {
 					return nil
 				}
 				m.session = sess
+				if m.onSessionChange != nil {
+					m.onSessionChange(sess)
+				}
 				m.runner.SetSession(sess)
 				m.agent.SetSessionID(sess.ID)
 				m.agent.SetMessages(nil)

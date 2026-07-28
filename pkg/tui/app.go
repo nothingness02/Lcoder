@@ -27,12 +27,16 @@ func SetInputHook(hook func(text string) (string, bool, string)) {
 }
 
 // Run starts the TUI application.
-func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, capabilities []string, llmClient *llm.Client, cfg config.Config, needsProviderSetup bool, loadedSkillCatalog ...skills.SkillMeta) error {
+// onSessionChange, when non-nil, is notified whenever the active session is
+// swapped (/sessions, /new) so the compaction sink records folds to the session
+// actually in use.
+func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, capabilities []string, llmClient *llm.Client, cfg config.Config, needsProviderSetup bool, onSessionChange func(*session.Session), loadedSkillCatalog ...skills.SkillMeta) error {
 	checkpointDir := filepath.Join(session.DefaultDir(), "checkpoints")
 	checkpointStore := checkpoint.NewFileStore(checkpointDir)
 	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, httpTools, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, needsProviderSetup, loadedSkillCatalog...)
 	model.SetCapabilities(capabilities)
 	model.SetInputHook(runInputHook)
+	model.SetOnSessionChange(onSessionChange)
 	defer model.Close()
 
 	// Detect terminal background ONCE before bubbletea grabs stdin (the OSC 11

@@ -30,6 +30,63 @@ func TestAnthropicMessagesSystemBecomesUser(t *testing.T) {
 	}
 }
 
+// TestApplyMessageCacheMarksToolResult is the core prompt-cache regression: in an
+// agent tool loop the tail message is a pure tool_result with no text block, so
+// marking only the first text block silently dropped the anchor and re-billed the
+// whole transcript as uncached input on every step.
+func TestApplyMessageCacheMarksToolResult(t *testing.T) {
+	msgs := []map[string]any{
+		{"role": "user", "content": []map[string]any{
+			{"type": "tool_result", "tool_use_id": "t1", "content": "file body"},
+		}},
+	}
+	applyMessageCacheMarks(msgs, []int{0})
+	blocks := msgs[0]["content"].([]map[string]any)
+	if blocks[0]["cache_control"] == nil {
+		t.Fatalf("tool_result block must carry cache_control, got %v", blocks[0])
+	}
+}
+
+// TestApplyMessageCacheMarksLastBlock pins the marker to the LAST cacheable block
+// of a message. Anthropic caches the prefix up to and including the marked block,
+// so marking an earlier block leaves the rest of that message uncached.
+func TestApplyMessageCacheMarksLastBlock(t *testing.T) {
+	msgs := []map[string]any{
+		{"role": "assistant", "content": []map[string]any{
+			{"type": "text", "text": "let me read that file"},
+			{"type": "tool_use", "id": "t1", "name": "read_file", "input": map[string]any{}},
+		}},
+	}
+	applyMessageCacheMarks(msgs, []int{0})
+	blocks := msgs[0]["content"].([]map[string]any)
+	if blocks[1]["cache_control"] == nil {
+		t.Fatalf("last block must carry cache_control, got %v", blocks[1])
+	}
+	if blocks[0]["cache_control"] != nil {
+		t.Fatalf("only the last block should be marked, got %v", blocks[0])
+	}
+}
+
+// TestApplyMessageCacheMarksSkipsThinking guards the wire contract: Anthropic
+// rejects cache_control on a thinking block, so a trailing thinking block must
+// fall back to the previous cacheable block rather than produce a 400.
+func TestApplyMessageCacheMarksSkipsThinking(t *testing.T) {
+	msgs := []map[string]any{
+		{"role": "assistant", "content": []map[string]any{
+			{"type": "text", "text": "answer"},
+			{"type": "thinking", "thinking": "reasoning trace"},
+		}},
+	}
+	applyMessageCacheMarks(msgs, []int{0})
+	blocks := msgs[0]["content"].([]map[string]any)
+	if blocks[1]["cache_control"] != nil {
+		t.Fatalf("thinking block must not be marked, got %v", blocks[1])
+	}
+	if blocks[0]["cache_control"] == nil {
+		t.Fatalf("expected fallback to the text block, got %v", blocks[0])
+	}
+}
+
 func TestAnthropicStreamTextThinkingUsage(t *testing.T) {
 	body := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\n" +
 		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\"}}\n\n" +

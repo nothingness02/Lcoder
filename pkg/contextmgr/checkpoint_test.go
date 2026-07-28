@@ -12,7 +12,7 @@ func TestManagerSnapshotRestore(t *testing.T) {
 	original := NewManager(TokenBudget{
 		MaxTotal:    4000,
 		TargetTotal: 3000,
-	}, WithEstimator(DefaultEstimator), WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) {
+	}, WithEstimator(DefaultEstimator), WithSummarizer(func(_ context.Context, msgs []models.AgentMessage, _ string) (string, error) {
 		return "summary", nil
 	}), WithWindowPolicy(&KeepRecentInBudget{}))
 
@@ -24,7 +24,7 @@ func TestManagerSnapshotRestore(t *testing.T) {
 		t.Fatalf("snapshot: %v", err)
 	}
 
-	fresh := NewManager(TokenBudget{}, WithEstimator(DefaultEstimator), WithSummarizer(func(_ context.Context, msgs []models.AgentMessage) (string, error) {
+	fresh := NewManager(TokenBudget{}, WithEstimator(DefaultEstimator), WithSummarizer(func(_ context.Context, msgs []models.AgentMessage, _ string) (string, error) {
 		return "summary", nil
 	}), WithWindowPolicy(&KeepRecentInBudget{}))
 
