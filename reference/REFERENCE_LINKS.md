@@ -15,6 +15,7 @@
 | **Kocoro** | https://github.com/Kocoro-lab/Kocoro.git | 与 Shannon 同源的 agent 项目 |
 |**hermess**|https://github.com/NousResearch/hermes-agent.git|hermess agent 开源的自主型agent|
 |**pi_subagents**|https://github.com/nicobailon/pi-subagents.git|pi_subagents的extension 设计|
+|**kimi_code**|https://github.com/MoonshotAI/kimi-code.git|kimi_Code kimi旗下的code agent|
 ## code graph
 |**code graph**|https://github.com/colbymchenry/codegraph.git|
 ## 其他参考
