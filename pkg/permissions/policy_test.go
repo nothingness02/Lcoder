@@ -178,3 +178,15 @@ func TestSessionApprovalMatchesPathTarget(t *testing.T) {
 		t.Fatalf("other paths must not be covered, got %v", got)
 	}
 }
+
+// Equal-length patterns: Ask beats Allow deterministically, never map order.
+func TestTieBreakAskBeatsAllow(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		engine := NewEngine(Config{Rules: map[string]RuleTable{
+			"bash": {"git push * main": Allow, "git push * mai?": Ask},
+		}})
+		if got := engine.Evaluate(Request{Tool: "bash", Command: "git push origin main"}); got != Ask {
+			t.Fatalf("equal-length tie must resolve to Ask, got %v", got)
+		}
+	}
+}

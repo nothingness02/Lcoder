@@ -212,3 +212,12 @@ func TestSessionApprovalCanonicalizesPaths(t *testing.T) {
 		t.Fatalf("other files must not be covered, got %v", got)
 	}
 }
+
+func TestMatchCommandBackslash(t *testing.T) {
+	if !MatchCommand("make *", `make C:\temp\x`) {
+		t.Error("backslash paths must match command globs on Windows-style input")
+	}
+	if !MatchCommand(`rm C:\temp\*`, `rm C:\temp\x`) {
+		t.Error("backslash pattern should match backslash target")
+	}
+}

@@ -86,10 +86,12 @@ func segmentMatch(pattern, segment string) bool {
 // string. "*" and "?" cross any character including path separators; "**"
 // behaves like "*".
 func MatchCommand(pattern, target string) bool {
-	// The placeholder trick makes "/" an ordinary character so "*" matches
-	// across it (same approach as the ultra-destructive matcher).
+	// The placeholder trick makes both slash kinds ordinary characters so "*"
+	// matches across them (same approach as the ultra-destructive matcher).
+	// Windows command lines routinely contain backslash paths.
 	const placeholder = "\x00"
-	p := strings.ReplaceAll(pattern, "**", "*")
+	p := filepath.ToSlash(strings.ReplaceAll(pattern, "**", "*"))
+	target = filepath.ToSlash(target)
 	matched, err := filepath.Match(
 		strings.ReplaceAll(p, "/", placeholder),
 		strings.ReplaceAll(target, "/", placeholder))

@@ -49,13 +49,57 @@ type ruleSource struct {
 	origin int // higher wins on tie
 }
 
-// Engine evaluates permission requests through an ordered policy chain (see
-// policy.go). User rule sources feed the rule policies; guard policies
-// installed via SetGuardPolicies run ahead of the built-in chain.
-type Engine struct {
+// ruleStore holds the ordered rule sources shared by an engine and its
+// forks. Learned rules (LoadProjectRules / LoadGlobalLearnedRules) land here
+// so every in-process agent sees them immediately.
+type ruleStore struct {
+	mu         sync.RWMutex
 	sources    []ruleSource
 	nextOrigin int
+}
+
+// SessionApprovalStore holds exact-match approvals shared by an engine and
+// its forks: an approval one agent grants is honored by every agent in the
+// process — it is the same trust conversation with the same user.
+type SessionApprovalStore struct {
+	mu    sync.RWMutex
+	rules map[string]map[string]bool // tool -> exact target -> approved
+}
+
+func (s *SessionApprovalStore) add(tool, target string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rules == nil {
+		s.rules = make(map[string]map[string]bool)
+	}
+	if s.rules[tool] == nil {
+		s.rules[tool] = make(map[string]bool)
+	}
+	s.rules[tool][target] = true
+}
+
+func (s *SessionApprovalStore) has(tool, target string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rules[tool][target]
+}
+
+func (s *SessionApprovalStore) clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rules = nil
+}
+
+// Engine evaluates permission requests through an ordered policy chain (see
+// policy.go). Rule sources and session approvals live in shared stores;
+// guard policies and unsafe mode are per-instance, so a Forked engine can
+// carry a different harness surface (mode/skill) over the same rules.
+type Engine struct {
+	rules   *ruleStore
+	session *SessionApprovalStore
+
 	unsafeMode bool
+	guardsMu   sync.RWMutex
 	guards     []Policy
 
 	// cwd/homeDir give the engine the session's path context so path rules
@@ -63,9 +107,6 @@ type Engine struct {
 	// pathVariants). Empty means pure lexical matching (tests, headless use).
 	cwd     string
 	homeDir string
-
-	sessionMu    sync.RWMutex
-	sessionRules map[string]map[string]bool // tool -> exact target -> approved
 }
 
 // NewEngine creates a permission engine from config.
@@ -73,9 +114,27 @@ func NewEngine(cfg Config) *Engine {
 	if cfg.Rules == nil {
 		cfg.Rules = make(map[string]RuleTable)
 	}
-	e := &Engine{nextOrigin: 1}
+	e := &Engine{
+		rules:   &ruleStore{nextOrigin: 1},
+		session: &SessionApprovalStore{},
+	}
 	e.AddSource("config", cfg)
 	return e
+}
+
+// Fork returns a child engine that shares rule sources and session approvals
+// with its parent but owns its guard policies. In-process subagents each get
+// a fork: the child's executor installs its own mode/skill guards without
+// clobbering the parent's, while rule learning and session approvals stay
+// visible process-wide.
+func (e *Engine) Fork() *Engine {
+	return &Engine{
+		rules:      e.rules,
+		session:    e.session,
+		unsafeMode: e.unsafeMode,
+		cwd:        e.cwd,
+		homeDir:    e.homeDir,
+	}
 }
 
 // SetUnsafeMode enables or disables the permission engine bypass.
@@ -93,7 +152,16 @@ func (e *Engine) UnsafeMode() bool {
 // surface restrictions) that must hold regardless of unsafe mode or user
 // rules, so they are always evaluated first.
 func (e *Engine) SetGuardPolicies(policies ...Policy) {
+	e.guardsMu.Lock()
+	defer e.guardsMu.Unlock()
 	e.guards = policies
+}
+
+// guardPolicies returns a snapshot of the installed guard policies.
+func (e *Engine) guardPolicies() []Policy {
+	e.guardsMu.RLock()
+	defer e.guardsMu.RUnlock()
+	return append([]Policy(nil), e.guards...)
 }
 
 // SetPathContext gives the engine the session's working directory and home
@@ -112,25 +180,13 @@ func (e *Engine) SetPathContext(cwd, homeDir string) {
 // approving "/repo/a.go" also covers a later "a.go" spelling of the same
 // file — but never a different file.
 func (e *Engine) AddSessionRule(tool string, args map[string]any) {
-	target := e.sessionTarget(RequestFor(tool, args))
-	e.sessionMu.Lock()
-	defer e.sessionMu.Unlock()
-	if e.sessionRules == nil {
-		e.sessionRules = make(map[string]map[string]bool)
-	}
-	if e.sessionRules[tool] == nil {
-		e.sessionRules[tool] = make(map[string]bool)
-	}
-	e.sessionRules[tool][target] = true
+	e.session.add(tool, e.sessionTarget(RequestFor(tool, args)))
 }
 
 // hasSessionRule reports whether the exact (tool, target) pair was approved
 // earlier in this session.
 func (e *Engine) hasSessionRule(req Request) bool {
-	target := e.sessionTarget(req)
-	e.sessionMu.RLock()
-	defer e.sessionMu.RUnlock()
-	return e.sessionRules[req.Tool][target]
+	return e.session.has(req.Tool, e.sessionTarget(req))
 }
 
 // sessionTarget normalizes the match target for session rules: commands
@@ -148,18 +204,26 @@ func (e *Engine) sessionTarget(req Request) string {
 
 // ClearSessionRules drops all session approvals (e.g. on session reset).
 func (e *Engine) ClearSessionRules() {
-	e.sessionMu.Lock()
-	defer e.sessionMu.Unlock()
-	e.sessionRules = nil
+	e.session.clear()
 }
 
-// AddSource appends a rule source. Later sources win on specificity tie.
+// AddSource appends a rule source, replacing any earlier source with the
+// same name (learned-rule reloads must not accumulate full copies). Later
+// sources win on specificity tie.
 func (e *Engine) AddSource(name string, cfg Config) {
 	if cfg.Rules == nil {
 		cfg.Rules = make(map[string]RuleTable)
 	}
-	e.sources = append(e.sources, ruleSource{name: name, rules: cfg, origin: e.nextOrigin})
-	e.nextOrigin++
+	e.rules.mu.Lock()
+	defer e.rules.mu.Unlock()
+	for i, src := range e.rules.sources {
+		if src.name == name {
+			e.rules.sources[i].rules = cfg
+			return
+		}
+	}
+	e.rules.sources = append(e.rules.sources, ruleSource{name: name, rules: cfg, origin: e.rules.nextOrigin})
+	e.rules.nextOrigin++
 }
 
 // LoadProjectRules loads rules from a project-local YAML file.
@@ -295,9 +359,11 @@ func (e *Engine) EvaluateWithSource(req Request) (decision Decision, policy, rea
 }
 
 func (e *Engine) mergedRules(tool string) (RuleTable, bool) {
+	e.rules.mu.RLock()
+	defer e.rules.mu.RUnlock()
 	merged := make(RuleTable)
 	found := false
-	for _, src := range e.sources {
+	for _, src := range e.rules.sources {
 		if table, ok := src.rules.Rules[tool]; ok {
 			found = true
 			for pattern, decision := range table {

@@ -21,9 +21,11 @@ type Policy interface {
 //
 //  1. guards (installed via SetGuardPolicies — mode/skill surface
 //     constraints; they hold regardless of unsafe mode or user rules)
-//  2. unsafePolicy — unsafe mode bypasses rules (ultra-destructive still asks)
-//  3. denyRulesPolicy — user deny rules are absolute: no allow/ask rule,
-//     however specific, can override a matching deny
+//  2. unsafePolicy — unsafe mode bypasses rules (ultra-destructive still
+//     asks). Note it sits ABOVE deny: unsafe is an explicit everything-goes
+//     switch, except for the ultra-destructive list.
+//  3. denyRulesPolicy — user deny rules are absolute over ask/allow rules:
+//     no allow/ask rule, however specific, can override a matching deny
 //  4. sessionApprovalPolicy — exact-match approvals granted earlier in this
 //     session; placed after deny (deny stays absolute) and before static
 //     ask/allow rules (a session approval beats a static ask rule)
@@ -33,8 +35,9 @@ type Policy interface {
 //     denied, so an omitted config cannot silently allow destructive ops
 //  7. fallbackAllowPolicy — everything else is allowed
 func (e *Engine) chain() []Policy {
-	policies := make([]Policy, 0, len(e.guards)+6)
-	policies = append(policies, e.guards...)
+	guards := e.guardPolicies()
+	policies := make([]Policy, 0, len(guards)+6)
+	policies = append(policies, guards...)
 	policies = append(policies,
 		unsafePolicy{engine: e},
 		denyRulesPolicy{engine: e},
@@ -148,7 +151,16 @@ func (p userRulesPolicy) Decide(req Request) (Decision, string, bool) {
 		if m.decision != Ask && m.decision != Allow {
 			continue
 		}
-		if best == nil || len(m.pattern) > len(best.pattern) {
+		switch {
+		case best == nil:
+			m := m
+			best = &m
+		case len(m.pattern) > len(best.pattern):
+			m := m
+			best = &m
+		case len(m.pattern) == len(best.pattern) && m.decision == Ask && best.decision == Allow:
+			// Deterministic tie-break: the conservative decision wins, so the
+			// outcome never depends on map iteration order.
 			m := m
 			best = &m
 		}

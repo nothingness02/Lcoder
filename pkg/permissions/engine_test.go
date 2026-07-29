@@ -165,3 +165,55 @@ func TestDeny(t *testing.T) {
 		t.Fatal("expected allow for main.go")
 	}
 }
+
+// A forked engine shares rule sources and session approvals with its parent
+// but owns its guard policies — the property in-process subagents rely on.
+func TestForkSharesRulesButNotGuards(t *testing.T) {
+	parent := NewEngine(Config{
+		Rules: map[string]RuleTable{"bash": {"*": Ask}},
+	})
+	child := parent.Fork()
+
+	// Session approvals flow parent -> child and child -> parent.
+	parent.AddSessionRule("bash", map[string]any{"command": "make build"})
+	if got := child.Evaluate(Request{Tool: "bash", Command: "make build"}); got != Allow {
+		t.Fatalf("child should see the parent's session approval, got %v", got)
+	}
+	child.AddSessionRule("bash", map[string]any{"command": "make test"})
+	if got := parent.Evaluate(Request{Tool: "bash", Command: "make test"}); got != Allow {
+		t.Fatalf("parent should see the child's session approval, got %v", got)
+	}
+
+	// Rules learned by the child (a new source) are visible to the parent.
+	child.AddSource("project", Config{
+		Rules: map[string]RuleTable{"write": {"*": Allow}},
+	})
+	if got := parent.Evaluate(Request{Tool: "write", Path: "a.go"}); got != Allow {
+		t.Fatalf("parent should see sources added via the child, got %v", got)
+	}
+
+	// Guards are per-instance: the child's deny guard does not affect the parent.
+	child.SetGuardPolicies(staticPolicy{name: "mode-guard", tool: "bash", decision: Deny})
+	if got := child.Evaluate(Request{Tool: "bash", Command: "ls"}); got != Deny {
+		t.Fatalf("child guard should deny, got %v", got)
+	}
+	if got := parent.Evaluate(Request{Tool: "bash", Command: "ls"}); got == Deny {
+		t.Fatal("child guard must not leak into the parent engine")
+	}
+}
+
+func TestForkInheritsPathContextAndUnsafeMode(t *testing.T) {
+	dir := t.TempDir()
+	parent := NewEngine(DefaultConfig())
+	parent.SetPathContext(dir, "")
+	parent.SetUnsafeMode(true)
+
+	child := parent.Fork()
+	if !child.UnsafeMode() {
+		t.Fatal("fork should inherit unsafe mode")
+	}
+	child.AddSessionRule("write", map[string]any{"path": "a.txt"})
+	if got := child.Evaluate(Request{Tool: "write", Path: filepath.Join(dir, "a.txt")}); got != Allow {
+		t.Fatalf("fork should inherit path context (canonical session target), got %v", got)
+	}
+}
