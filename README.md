@@ -2,278 +2,256 @@
 
 [English Version](README_EN.md)
 
-一个极简、可扩展的 SWE agent 运行时框架。
+**Lcoder** 是一个面向软件工程的 AI coding agent —— 纯 Go 实现、单二进制、零外部依赖。
 
-- **核心语言**：Go
-- **LLM 引擎**：进程内 Go 实现（手写 OpenAI 兼容与 Anthropic 的 HTTP+SSE 适配器）
-- **扩展工具**：HTTP 工具与 MCP 服务器（stdio、SSE、Streamable HTTP）
-- **交互界面**：基于 `charmbracelet/bubbletea` 的终端 TUI
-- **会话存储**：JSONL，支持分支（`parent_id`）
+## 为什么选择 Lcoder
+
+| 特性 | Lcoder | 其他 agent |
+|------|:---:|:---:|
+| **路径安全守卫** | ✅ 敏感文件检测 + workspace 边界 | 多数无此机制 |
+| **单二进制部署** | ✅ `go build` 即可，无需 Node/Python | 多数需要 Node.js 运行时 |
+| **多模式 Agent** | ✅ code / plan / explore / review | 多数仅单一模式 |
+| **会话分支** | ✅ 任意消息分叉、克隆、重试 | 少数支持 |
+| **检查点恢复** | ✅ 崩溃自动保存，会话可精确恢复 | 多数不支持 |
+| **上下文压缩** | ✅ 分层压缩 + 缓存命中策略 | 多数仅简单截断 |
+| **权限引擎** | ✅ 四级决策链 + 审核日志 | 参差不齐 |
+| **可观测性** | ✅ Prometheus / HTML / SQLite / Markdown | 多数无内建支持 |
+| **子 Agent 集群** | ✅ 并行子 agent + swarm 模式 | 少数支持 |
+| **延迟工具加载** | ✅ tool_search 按需展开 | 多数全量下发 schema |
+| **扩展系统** | ✅ MCP + HTTP 工具 + 扩展桥 | MCP 支持参差不齐 |
 
 ## 快速开始
 
-### 1. 编译 Go CLI
-
 ```bash
+# 编译（无需任何运行时依赖）
 go build -o lcoder ./cmd/lcoder
-```
 
-### 2. 配置
-
-```bash
+# 配置
 mkdir -p ~/.lcoder
 cp configs/lcoder.yaml ~/.lcoder/config.yaml
-# 编辑 ~/.lcoder/config.yaml，并通过环境变量设置 API key：
-# OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
+
+# 设置 API key（任选其一）
+export OPENAI_API_KEY="sk-..."       # OpenAI 兼容
+export ANTHROPIC_API_KEY="sk-ant-..." # Anthropic
+export DEEPSEEK_API_KEY="sk-..."     # DeepSeek
+
+# 开始使用
+./lcoder "列出当前项目结构"
+./lcoder                   # 交互式 TUI
 ```
 
-### 3. 运行
+## 核心能力
 
-单次对话：
+### 🛡️ 路径安全
+
+对标 Kimi Code 的安全架构。所有文件工具（read/write/edit/ls/grep/find）在执行前统一经过路径安全守卫：
+
+- **敏感文件阻断**：`.env`、SSH 私钥、credentials 永远不可被 agent 读写
+- **workspace 边界**：`../` 相对路径逃逸被拒绝，外部访问必须显式使用绝对路径
+- **权限之前执行**：守卫在权限引擎之前运行，敏感操作不打扰用户
+
+### 🧠 多模式 Agent
+
+四种内建模式，每种有独立的 system prompt 和工具约束：
+
+| 模式 | 用途 | 工具限制 |
+|------|------|:---:|
+| `code` | 日常编码实现 | 全工具 |
+| `plan` | 设计方案、分析需求 | 仅只读 + todo_write |
+| `explore` | 代码库探索和理解 | 仅只读 |
+| `review` | 代码审查 | 仅只读 |
 
 ```bash
-./lcoder -p "列出当前目录的文件"
-# 或直接使用位置参数
-./lcoder "列出当前目录的文件"
+./lcoder --mode plan "设计用户认证方案"
+./lcoder --mode review "审查 pkg/agent/loop.go"
 ```
 
-继续会话：
+支持自定义模式（`.lcoder/modes/*.yaml`），可配置独立 provider/model、工具规则、退出审批。
+
+### 📦 技能系统
+
+将领域知识封装为可复用的 Markdown 技能包：
 
 ```bash
-./lcoder -c                              # 继续最近一次会话
-./lcoder --session <id> -p "继续"        # 恢复指定会话
+.lcoder/skills/
+├── security-review/SKILL.md   # 安全审查流程
+├── api-design/SKILL.md        # API 设计规范
+└── db-migration/SKILL.md      # 数据库迁移指南
 ```
 
-交互式 TUI：
+技能可以有 `allowed_tools` 约束，激活后临时限制 agent 工具面。
+
+### 🔀 会话分支
+
+每条消息记录 `parent_id`，一个 JSONL 文件即一棵对话树：
 
 ```bash
-./lcoder          # 或 ./lcoder tui
-./lcoder tui --session <id>
+./lcoder fork --session <id> --message <msg-id>   # 从任意消息分叉
+./lcoder clone --session <id>                     # 克隆当前分支
+./lcoder -c                                       # 继续最近会话
 ```
 
-TUI 快捷键：
-- `Enter` 发送消息
-- `Shift+Enter` 换行
-- `Ctrl+O` 展开/折叠工具调用结果（完整输出 + 参数）
-- `Ctrl+T` 切换任务侧边栏
-- `Ctrl+M` 切换扩展面板（HTTP 工具 / MCP 服务器）
-- `Ctrl+S` 会话选择器
-- `Ctrl+B` 从最近一条 assistant 消息分叉
-- `Ctrl+R` 重试最近一条 assistant 消息
-- `Ctrl+L` 清空聊天
-- `PgUp/PgDn` 或鼠标滚轮滚动历史
-- `Ctrl+C` / `Esc` 退出
+### 💾 检查点
 
-输入时的斜杠命令：
-- `/mcp` 管理已配置的 MCP 服务器（重连 / 关闭）
-- `/modes` 切换 agent 模式
-- `/tasks` 切换任务侧边栏
-- `/tools` 展开/折叠所有工具结果
-- `/help` 列出所有命令
+崩溃时自动保存轻量级运行快照（模式、模型、turn 计数、上下文预算等）。恢复时精确还原状态，无需重放消息历史。
 
-列出模型：
+### 📊 上下文管理
 
-```bash
-./lcoder models
+分级上下文组织 + 智能压缩：
+
+```
+[system prompt] [mode prompt] [skills] [project docs] [recent messages]
+                                                          ↑
+                                          TokenBudget 内动态分配
 ```
 
-列出 agent 模式（默认模式已嵌入，可在任意目录使用）：
+- 分层压缩：system / project 为稳定层，recent 为滑动窗口
+- `CompactThreshold` 触发主动压缩，而非等到预算耗尽
+- `CacheHintPolicy` 与 Anthropic prompt cache 深度集成
+- 支持 `DropThreshold` 在极端压力下丢弃旧消息
 
-```bash
-./lcoder modes
-```
+### 🔧 延迟工具加载
 
-使用指定模式运行：
-
-```bash
-./lcoder --mode plan -p "设计认证模块"
-./lcoder --mode review -p "Review pkg/agent/loop.go"
-```
-
-## 项目上下文
-
-Lcoder 会从当前目录向上遍历到文件系统根目录，加载遇到的 `AGENTS.md` 和 `CLAUDE.md`，并追加到 system prompt。
-
-它也会从 `.lcoder/skills/<name>/SKILL.md` 或 `~/.lcoder/skills/<name>/SKILL.md` 加载 Markdown 技能并注入 system prompt。
-
-## 技能
-
-技能是位于 `.lcoder/skills/<name>/SKILL.md` 或 `~/.lcoder/skills/<name>/SKILL.md` 的 Markdown 包。
-
-列出已发现的技能：
-
-```bash
-./lcoder skills
-```
-
-`configs/skills/security-review/` 提供了一个示例技能。
-
-## 会话
-
-会话以 JSONL 形式存储在 `~/.lcoder/sessions/<project-hash>/`。每条消息记录 `parent_id`，因此单个会话文件即可表示一棵树的分支。
-
-```bash
-./lcoder sessions                                  # 列出会话
-./lcoder -c                                        # 继续最近一次会话
-./lcoder --session <id>                            # 恢复会话
-./lcoder fork --session <id> --message <msg-id>    # 从某条消息分叉
-./lcoder clone --session <id>                      # 克隆当前分支
-```
-
-## 安全默认值
-
-Lcoder 默认以最小权限运行。具有破坏性的工具初始为 "ask" 模式，每次调用都需要确认，也可以按项目或全局放行。
-
-- `write` 与 `edit` 默认对每个路径都**询问**。
-- `bash` 默认**询问**。内置少量白名单命令（如 `ls`、`pwd`、`echo`、`git status`、`git log`、`git diff`、`git branch`）无需提示即可执行。
-- 交互式批准时可选择：
-  - **once** — 仅允许本次调用
-  - **project** — 记到 `<repo>/.lcoder/permissions.yaml`
-  - **global** — 记到 `~/.lcoder/permissions/global.yaml`
-- 使用 `--unsafe` 可绕过权限引擎；但 `rm -rf /` 等极端危险命令仍需要确认。
-- 每次权限决策都会写入审计日志，包括 `--unsafe` 生效时的 `unsafe-allow`。
-
-规则使用 glob 匹配，更具体的模式优先。示例见 `configs/lcoder.yaml`。
-
-## 可观测性
-
-Lcoder 将可观测数据写入 `~/.lcoder/observability/sessions/<session-id>.jsonl`。
-
-```bash
-./lcoder stats <id>              # 会话统计
-./lcoder trace <id>              # 人类可读的 trace
-./lcoder export <id>             # 导出为 HTML（默认）
-./lcoder export <id> --format sqlite -o report.db
-./lcoder export <id> --format prometheus -o metrics.txt
-./lcoder metrics                 # 在 :9090 启动 Prometheus 指标端点
-./lcoder metrics 9091            # 在 :9091 启动
-```
-
-观测指标包括：
-
-- LLM 调用次数、input/output/total tokens、cache tokens、cost
-- 工具执行次数、耗时、错误数
-- 每轮耗时
-- 会话总耗时
-
-## 扩展工具
-
-Lcoder 支持两种扩展机制：
-
-1. **HTTP 工具** — 向本地或远程端点发送 POST 请求。
-2. **MCP 服务器** — 通过 stdio、SSE 或 Streamable HTTP 连接 Model Context Protocol 服务器。
-
-示例 `~/.lcoder/config.yaml`：
+当工具数量庞大时（大量 MCP 工具），仅下发核心工具完整 schema + `tool_search`：
 
 ```yaml
-http_tools:
-  - name: deploy
-    endpoint: http://localhost:9001/deploy
-    description: Deploy to staging
-    parameters:
-      type: object
-      properties:
-        service: { type: string }
-      required: [service]
-    execution_mode: parallel
-    headers:
-      Authorization: Bearer ${DEPLOY_TOKEN}
-
-mcp_servers:
-  - name: filesystem
-    transport: stdio
-    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."]
-
-  - name: remote-sse
-    transport: sse
-    url: http://localhost:3000
-    headers:
-      Authorization: Bearer ${REMOTE_MCP_TOKEN}
-    timeout: 60
-
-  - name: remote-http
-    transport: streamable-http
-    url: https://mcp.example.com/v1
-    headers:
-      Authorization: Bearer ${REMOTE_MCP_TOKEN}
-    timeout: 60
+context:
+  deferred_tools: true
+  core_tools: ["read", "write", "edit", "bash", "ls", "grep", "find"]
 ```
 
-`transport` 字段必填。MCP 工具在 agent 工具列表中显示为 `{serverName}_{toolName}`。
+模型通过 `tool_search` 按需查找并用 `tool_activate` 加载。节省首 token 延迟和 provider cache 前缀。
 
-TUI 中可用 `/mcp` 查看并重连服务器。
+### 🐝 子 Agent 集群
 
-## 工具超时
+```json
+{
+  "agent": "code",
+  "items": [
+    "修复 handler.go 的 bug",
+    "给 service.go 加单元测试",
+    "更新 api 文档"
+  ]
+}
+```
 
-耗时工具支持由 LLM 控制的超时：
+- **并行模式**：多个子 agent 并发执行，结果聚合到父 agent
+- **Swarm 模式**：批次独占，适合大规模并行任务
+- 子 agent 继承父 agent 的权限和会话
 
-- `bash` 提供 `timeout` 参数（秒，默认 **120**）。
-- MCP 工具在服务器未自行定义时，暴露可选的 `timeout_seconds` 参数（默认 **120**）。
-- 若 LLM 未指定参数，则使用默认值。
+### 📈 可观测性
 
-## 代码智能（MCP / codegraph）
+多格式导出，覆盖 LLM 调用、工具执行、延迟等全套指标：
 
-Lcoder 不内置代码索引，而是通过 MCP 接入外部代码智能工具。推荐搭配 [codegraph](https://github.com/colbymchenry/codegraph)：它用 tree-sitter 把仓库解析成符号/关系图（SQLite + FTS5），并通过 MCP 暴露 `codegraph_explore`（自然语言/关键词 → 相关符号源码、调用路径、影响面）、`codegraph_search`、`codegraph_files` 等只读工具。
+```bash
+./lcoder stats <id>                           # 会话统计
+./lcoder trace <id>                           # 可读 trace
+./lcoder export <id>                          # HTML 报告
+./lcoder export <id> --format sqlite -o.db    # SQLite 数据库
+./lcoder export <id> --format prometheus -o.txt
+./lcoder metrics                              # Prometheus 端点 (:9090)
+```
 
-使用方式：
+### 🔐 权限引擎
 
-1. 安装 codegraph（自带 Node runtime 的独立二进制，见项目 README）。
-2. 在仓库根目录执行一次 `codegraph init` 建立索引（之后其 serve 进程内的 watcher 会自动增量更新）。
-3. 在 `~/.lcoder/config.yaml` 中注册 MCP 服务器：
+四级决策链，每次决策都有审计日志：
 
+```
+guard policies → unsafe → deny rules → session approval → user rules → dangerous-default → fallback
+```
+
+- write / edit / bash 默认 ask，白名单内命令免审批
+- 审批作用域：once / project（记入 `.lcoder/permissions.yaml`）/ global
+- 每条权限决策写入审计日志，包括 unsafe 模式标记
+- Glob 模式匹配，更具体的规则优先
+
+### 🔌 扩展系统
+
+三种扩展机制协同工作：
+
+**MCP 服务器**（stdio / SSE / Streamable HTTP）：
 ```yaml
 mcp_servers:
   - name: codegraph
     transport: stdio
     command: ["codegraph", "serve", "--mcp", "--path", "."]
-    env:
-      CODEGRAPH_NO_DAEMON: "1"   # 单进程直连，生命周期由 lcoder 管理
-      CODEGRAPH_TELEMETRY: "0"   # 关闭匿名遥测
 ```
 
-连接后，agent 在探索符号、调用链、影响面时会优先使用这些 MCP 工具（explore/plan/review 模式的 prompt 已按此引导）。
+**HTTP 工具**：
+```yaml
+http_tools:
+  - name: deploy
+    endpoint: http://localhost:9001/deploy
+    parameters:
+      type: object
+      properties:
+        service: { type: string }
+```
 
-## SWE-bench Lite 评测
+**扩展桥**（子进程通信，实现自定义工具）：
+```yaml
+extensions:
+  bridges:
+    - name: my-bridge
+      command: ["./my-tool", "serve"]
+```
 
-`eval/swe-bench-lite/` 提供了面向 SWE-bench Lite 的专用评测框架。它在 Docker 容器中运行 Lcoder，测量初次与反馈后的修复率，并生成 HTML/Markdown 汇总报告，包括 token 消耗、缓存命中率、工具链路、核心模块性能等指标。
+### ⏱️ 工具超时
 
-详见 `eval/swe-bench-lite/README.md`（中文）或 `eval/swe-bench-lite/README_EN.md`（英文）。
+耗时工具支持 LLM 可控超时，防止挂起：
+
+- `bash`：`timeout` 参数（默认 120 秒）
+- MCP 工具：`timeout_seconds` 参数（默认 120 秒）
+
+## 交互界面
+
+```bash
+./lcoder          # 交互式 TUI
+./lcoder -p "..." # 单次对话
+./lcoder -c       # 继续会话
+```
+
+TUI 快捷键：
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Enter` | 发送消息 |
+| `Shift+Enter` | 换行 |
+| `Ctrl+O` | 展开/折叠工具输出 |
+| `Ctrl+T` | 任务侧边栏 |
+| `Ctrl+B` | 从最后一条消息分叉 |
+| `Ctrl+R` | 重试最后一条消息 |
+| `Ctrl+S` | 会话选择器 |
+| `Ctrl+L` | 清空聊天 |
+| `Ctrl+M` | 扩展面板 |
+| `PgUp/PgDn` | 滚动 |
+
+斜杠命令：`/mcp` `/modes` `/tasks` `/tools` `/help`
 
 ## 架构
 
 ```
 cmd/lcoder/main.go
- └─ prepareAgent: 配置 → LLM 客户端 → 工具注册表 → MCP 注册表
-                 → 会话存储 → 可观测性 → 模式管理器 → 上下文管理器 → Agent
- └─ runRoot: 单次 / JSON / TUI 模式分发，SIGINT/SIGTERM 时写 ReasonCrash checkpoint
+ └─ prepareAgent   配置 → LLM → 工具/MCP注册 → 会话存储 → 可观测性 → 模式 → 上下文 → Agent
+ └─ runRoot        单次/JSON/TUI 分发，崩溃时写 checkpooint
 
-pkg/agent
- ├─ loop.go            编排多轮对话：drain steering → compact → 流式生成 → 执行工具 → 持久化 checkpoint
- ├─ streamer.go        构建 turn 请求、流式接收 LLM 事件、组装 assistant 消息
- ├─ executor.go        验证、权限检查、执行工具调用；负责 deferred tool 提升
- └─ state.go           运行时状态、turn 计数、steering/follow-up 队列、abort
-
-pkg/contextmgr
- └─ Manager            将对话组织为 system/mode/skills/project_docs/recent 等 block
-                       BuildTurnRequest 在 TokenBudget 内选块、计算 cache 断点、注入临时提醒、 MaybeCompactLeveled
-
-pkg/llm
- ├─ engine             路由与重试
- ├─ catalog            模型目录、窗口与能力发现
- ├─ provider           OpenAI 兼容 / Anthropic 的 HTTP+SSE 适配器
- └─ client.go          面向 agent 的客户端门面
-
-pkg/tools
- └─ Registry           收集工具定义；内置工具在 pkg/tools/builtin，HTTP/MCP 工具从配置注册；支持 deferred 加载
-
-pkg/events            事件总线：TurnStart/End、MessageStart/End、ToolExecutionStart/End、CompactionCommitted 等
-pkg/session           JSONL 会话存储，基于 parent_id 重建活动分支
-pkg/checkpoint        轻量级运行时快照（模式、模型、turn、上下文预算/策略、steering 队列等），不存完整消息
-pkg/tui               基于 Bubble Tea 的终端 UI，订阅同一事件总线并处理权限 Ask
-pkg/config            koanf 加载 ~/.lcoder/config.yaml，支持环境变量覆盖
+pkg/agent          多轮编排：steering → compact → streaming → tool exec → checkpoint
+pkg/contextmgr     分层上下文：system/mode/skills/project/recent → token 预算内动态分配
+pkg/llm            引擎路由/重试 + OpenAI/Anthropic 适配器 + 模型目录
+pkg/tools          工具注册表 + 内置工具 + 延迟加载 + HTTP/MCP 工具
+pkg/agent/hooks    敏感文件检测 + bash 风险分级
+pkg/permissions    四级权限决策链 + glob 匹配 + 规则持久化
+pkg/session        JSONL 分支存储
+pkg/checkpoint     轻量运行时快照
+pkg/tui            Bubble Tea TUI，事件总线驱动
+pkg/events         事件总线
+pkg/observability  JSONL/Prometheus/HTML/SQLite/Markdown 导出
+pkg/config         koanf 配置加载，环境变量覆盖
 ```
 
-更详细的项目约定见 `.claude/CLAUDE.md`，设计笔记与报告见 `docs/`。
+## SWE-bench Lite 评测
+
+`eval/swe-bench-lite/` 提供 Docker 容器内评测框架，测量初次与反馈后修复率，生成含 token、缓存命中、工具链、模块耗时等指标的 HTML/Markdown 报告。
 
 ## 许可证
 

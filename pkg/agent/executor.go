@@ -15,6 +15,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/tools/builtin"
 	"github.com/lcoder/lcoder/pkg/permissions/bashrisk"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
@@ -22,6 +23,10 @@ import (
 )
 
 const switchModeToolName = "switch_mode"
+
+// swarmExclusivityMessage is the corrective feedback for a mixed batch.
+const swarmExclusivityMessage = "subagent swarm mode (prompt_template + items) must be the ONLY tool call in your response. " +
+	"This call was not executed. Call it alone, wait for its result, then continue with other tools."
 
 func switchModeDefinition() models.ToolDefinition {
 	return models.ToolDefinition{
@@ -62,6 +67,19 @@ type executor struct {
 
 	dedupMu sync.Mutex
 	dedup   map[string]models.AgentMessage
+
+	// learnMu serializes rule learning: SaveRule is read-modify-write on a
+	// YAML file and must not interleave across parallel approvals.
+	learnMu sync.Mutex
+
+	// batchLen is the size of the tool-call batch currently being executed;
+	// it backs the swarm-exclusivity veto (parallel/chain subagent calls
+	// must be the only call in a response).
+	batchLen int
+
+	// modeMu guards cfg.Mode: handleSwitchMode writes it while the mode
+	// guard and the TUI read it from other goroutines.
+	modeMu sync.RWMutex
 }
 
 // newExecutor creates an executor with an initialized activeDeferred map.
@@ -77,9 +95,7 @@ func newExecutor(cfg *Config, mgr *contextmgr.Manager, registry *tools.Registry,
 	}
 	// Mode/skill surface constraints run as guard policies ahead of the
 	// built-in permission chain.
-	if permissions != nil {
-		permissions.SetGuardPolicies(modeGuardPolicy{ex: ex}, skillGuardPolicy{ex: ex})
-	}
+	ex.installGuardPolicies()
 	return ex
 }
 
@@ -98,10 +114,17 @@ func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.Ag
 	e.dedupMu.Lock()
 	e.dedup = make(map[string]models.AgentMessage)
 	e.dedupMu.Unlock()
+	e.batchLen = len(calls)
 
 	sequential := execMode == models.ExecutionSequential
 	if !sequential {
 		for _, call := range calls {
+			// switch_mode mutates agent state (the mode every other call's
+			// guard reads), so a batch containing it must run sequentially.
+			if call.Name == switchModeToolName {
+				sequential = true
+				break
+			}
 			if exec, ok := e.registry.Get(call.Name); ok {
 				if exec.Definition().ExecutionMode == models.ExecutionSequential {
 					sequential = true
@@ -195,6 +218,18 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		return e.handleSwitchMode(ctx, turn, assistantMsg, call)
 	}
 
+	// Swarm exclusivity: a swarm subagent call (prompt_template + items) is
+	// itself the concurrency unit and must be the only tool call in the
+	// response (kimi-code's AgentSwarmExclusiveDeny). Mixed batches break
+	// ordering assumptions, shared concurrency budgets, and result
+	// attribution, so the call is refused with a corrective message; other
+	// calls proceed.
+	if e.batchLen > 1 && call.Name == "subagent" {
+		if _, swarm := args["items"]; swarm {
+			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(swarmExclusivityMessage), true)
+		}
+	}
+
 	// Mode/skill tool-surface restrictions are enforced inside the permission
 	// chain (guard policies, see guard_policies.go) rather than by filtering
 	// the tool schemas: schema filtering would rebuild the tools array on
@@ -206,6 +241,20 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 	// tool_result is fed back so the LLM can self-correct next turn.
 	if exec, ok := e.registry.Get(call.Name); ok {
 		if err := tools.ValidateArgs(exec.Definition(), args); err != nil {
+			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(err.Error()), true)
+		}
+	}
+
+	// Path security guard: resolves and validates file paths BEFORE the
+	// permission check (mirrors Kimi Code's resolveExecution phase). Sensitive
+	// files and relative-path workspace escapes are denied here so the model
+	// receives an actionable error without ever triggering a user approval
+	// prompt. The guard only validates; it does not rewrite args — each tool
+	// still resolves its path via resolveInCwd as before.
+	if rawPath, ok := args["path"].(string); ok && rawPath != "" {
+		toolOp := pathOpForTool(call.Name)
+		cwd, _ := os.Getwd()
+		if _, err := builtin.ResolvePathAccess(rawPath, cwd, toolOp); err != nil {
 			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(err.Error()), true)
 		}
 	}
@@ -366,10 +415,20 @@ func (e *executor) skillAllows(name string) bool {
 
 // currentMode returns the active mode's config.
 func (e *executor) currentMode() ModeConfig {
+	e.modeMu.RLock()
+	defer e.modeMu.RUnlock()
 	if e.cfg.ModeManager == nil {
 		return ModeConfig{Name: e.cfg.Mode}
 	}
 	return e.cfg.ModeManager.Get(e.cfg.Mode)
+}
+
+// currentModeName returns the active mode name, lock-protected for readers
+// outside the run loop (e.g. the TUI status bar).
+func (e *executor) currentModeName() string {
+	e.modeMu.RLock()
+	defer e.modeMu.RUnlock()
+	return e.cfg.Mode
 }
 
 // modeDenies reports whether the active mode forbids a tool. The reason names
@@ -550,7 +609,9 @@ func (e *executor) handleSwitchMode(ctx context.Context, turn int, assistantMsg 
 		result = models.NewToolExecutionResultError("unknown mode: " + target)
 		isError = true
 	} else {
+		e.modeMu.Lock()
 		e.cfg.Mode = target
+		e.modeMu.Unlock()
 		result = models.NewToolExecutionResultText("Switched to " + target + " mode")
 	}
 
@@ -625,8 +686,10 @@ func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallI
 	decision, policy, policyReason := e.permissions.DecideWithSource(info.ToolCall.Name, info.Args)
 
 	// Low-risk bash commands do not need interactive approval even when no rule
-	// explicitly allows them.
-	if decision == permissions.Ask && info.ToolCall.Name == "bash" {
+	// explicitly allows them. The downgrade only applies to fallback asks from
+	// user rules — never to ultra-destructive commands escalated by unsafe
+	// mode, nor to explicit asks from mode rules, which are deliberate.
+	if decision == permissions.Ask && policy == "user-rule" && info.ToolCall.Name == "bash" {
 		cmd, _ := info.Args["command"].(string)
 		cwd, _ := os.Getwd()
 		report := bashrisk.Classify(cmd, cwd)
@@ -727,16 +790,25 @@ func (e *executor) learnRule(info ToolCallInfo, scope ConfirmScope) {
 		pattern = path
 	}
 
+	e.learnMu.Lock()
+	defer e.learnMu.Unlock()
+
 	var target string
+	var reload func(string) error
 	if scope == ScopeProject {
 		cwd, _ := os.Getwd()
 		target = filepath.Join(cwd, ".lcoder", "permissions.yaml")
-		_ = e.permissions.LoadProjectRules(target)
+		reload = e.permissions.LoadProjectRules
 	} else {
 		target = paths.LCoderHome("permissions", "global.yaml")
-		_ = e.permissions.LoadGlobalLearnedRules(target)
+		reload = e.permissions.LoadGlobalLearnedRules
 	}
-	_ = permissions.SaveRule(target, tool, pattern, permissions.Allow)
+	// Persist first, then reload: the just-learned rule takes effect in this
+	// session immediately, not on the next approval.
+	if err := permissions.SaveRule(target, tool, pattern, permissions.Allow); err != nil {
+		return
+	}
+	_ = reload(target)
 }
 
 func isCacheableTool(name string) bool {
@@ -745,6 +817,19 @@ func isCacheableTool(name string) bool {
 		return true
 	}
 	return false
+}
+
+// pathOpForTool maps a tool name to the PathOperation used for error messages.
+// Mirrors Kimi Code's per-tool operation annotation.
+func pathOpForTool(toolName string) builtin.PathOperation {
+	switch toolName {
+	case "write", "edit":
+		return builtin.OpWrite
+	case "grep", "find":
+		return builtin.OpSearch
+	default:
+		return builtin.OpRead
+	}
 }
 
 func dedupKey(name string, args map[string]any) string {
