@@ -321,8 +321,7 @@ Use `pkg/agent/hooks.CompositeBeforeToolCall` to chain hooks:
 
 ```go
 combined := hooks.CompositeBeforeToolCall(
-    hooks.SensitiveFileCheck(...),
-    hooks.BashDenylist(...),
+    hooks.ShellBeforeToolCall(cfg.BeforeToolCall, sessionID),
     myCustomHook,
 )
 ```
@@ -331,21 +330,20 @@ The first result with `Block: true` wins; remaining hooks are skipped.
 
 ### 5.4 Enabling Hooks via Configuration
 
-Some hooks can be enabled directly in `~/.lcoder/config.yaml`:
+All hooks are shell commands configured in `~/.lcoder/config.yaml`:
 
 ```yaml
 hooks:
-  audit:
+  before_tool_call:
     enabled: true
-  sensitive_file_check:
+    command: "python3 ~/.lcoder/hooks/guard.py"
+    timeout: 30
+  after_tool_result:
     enabled: true
-    patterns: ["*.env", "*.key", "*.pem"]
-  bash_denylist:
-    enabled: true
-    patterns: ["rm -rf /", "mkfs.*"]
+    command: "python3 ~/.lcoder/hooks/log.py"
 ```
 
-`makeBeforeToolCall` in `cmd/lcoder/main.go` turns this configuration into a hook chain.
+Shell commands receive JSON context on stdin; exit 0 = allow, exit 2 = block.
 
 ## 6. How to Write a Custom Observability Exporter
 

@@ -321,8 +321,7 @@ func main() {}
 
 ```go
 combined := hooks.CompositeBeforeToolCall(
-    hooks.SensitiveFileCheck(...),
-    hooks.BashDenylist(...),
+    hooks.ShellBeforeToolCall(cfg.BeforeToolCall, sessionID),
     myCustomHook,
 )
 ```
@@ -331,21 +330,20 @@ combined := hooks.CompositeBeforeToolCall(
 
 ### 5.4 通过配置启用 Hook
 
-部分 hook 可以直接在 `~/.lcoder/config.yaml` 中配置：
+Hook 通过 `~/.lcoder/config.yaml` 配置，所有 hook 都是 shell 命令：
 
 ```yaml
 hooks:
-  audit:
+  before_tool_call:
     enabled: true
-  sensitive_file_check:
+    command: "python3 ~/.lcoder/hooks/guard.py"
+    timeout: 30
+  after_tool_result:
     enabled: true
-    patterns: ["*.env", "*.key", "*.pem"]
-  bash_denylist:
-    enabled: true
-    patterns: ["rm -rf /", "mkfs.*"]
+    command: "python3 ~/.lcoder/hooks/log.py"
 ```
 
-`cmd/lcoder/main.go` 中的 `makeBeforeToolCall` 会把这些配置转换成 hook 链。
+Shell 命令通过 stdin 接收 JSON 上下文，退出码 0=允许、2=拒绝。
 
 ## 6. 如何编写自定义 Observability Exporter
 

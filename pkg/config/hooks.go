@@ -1,17 +1,10 @@
 package config
 
 // HookConfig holds declarative hook configuration.
+// All hooks are shell commands that receive JSON context on stdin:
+// exit 0 = allow, exit 2 = block (stderr is the reason).
 type HookConfig struct {
-	Audit AuditHookConfig `yaml:"audit"`
-
-	// Deprecated: use before_tool_call shell hook instead.
-	SensitiveFileCheck SensitiveFileCheckHookConfig `yaml:"sensitive_file_check"`
-	// Deprecated: use before_tool_call shell hook instead.
-	BashDenylist BashDenylistHookConfig `yaml:"bash_denylist"`
-
-	// Shell command hooks — unified hook mechanism. All hooks are shell
-	// commands that receive JSON context on stdin and signal their decision
-	// via exit code (0 = allow, 2 = block). Mirrors Kimi Code's hook system.
+	Audit           AuditHookConfig `yaml:"audit"`
 	BeforeToolCall  ShellHookConfig `yaml:"before_tool_call"`
 	AfterToolResult ShellHookConfig `yaml:"after_tool_result"`
 	BeforeCompact   ShellHookConfig `yaml:"before_compact"`
@@ -19,10 +12,10 @@ type HookConfig struct {
 }
 
 // ShellHookConfig runs a shell command as a hook.
-// The command receives JSON context on stdin and must exit:
+// The command receives JSON context on stdin. Exit code semantics:
 //
-//	0 — allow (stdout is logged, stderr is discarded)
-//	2 — block (stderr becomes the reason shown to the model)
+//	0 — allow (stdout logged, stderr discarded)
+//	2 — block (stderr becomes reason shown to model)
 //	other — allow with warning
 //
 // Timeout defaults to 30 seconds.
@@ -35,20 +28,6 @@ type ShellHookConfig struct {
 // AuditHookConfig enables or disables audit logging.
 type AuditHookConfig struct {
 	Enabled bool `yaml:"enabled"`
-}
-
-// SensitiveFileCheckHookConfig blocks access to sensitive paths.
-// Deprecated: use before_tool_call with a shell script instead.
-type SensitiveFileCheckHookConfig struct {
-	Enabled  bool     `yaml:"enabled"`
-	Patterns []string `yaml:"patterns"`
-}
-
-// BashDenylistHookConfig blocks dangerous bash substrings.
-// Deprecated: use before_tool_call with a shell script instead.
-type BashDenylistHookConfig struct {
-	Enabled  bool     `yaml:"enabled"`
-	Patterns []string `yaml:"patterns"`
 }
 
 // ToolExtensionConfig describes an externally provided tool: a JSON

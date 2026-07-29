@@ -9,42 +9,39 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-func TestFromConfig(t *testing.T) {
+func TestFromConfig_ShellHookEnabled(t *testing.T) {
 	cfg := config.HookConfig{
-		SensitiveFileCheck: config.SensitiveFileCheckHookConfig{
-			Enabled:  true,
-			Patterns: []string{"*.env"},
+		BeforeToolCall: config.ShellHookConfig{
+			Enabled: true,
+			Command: "exit 2",
 		},
 	}
 	h := FromConfig(cfg, "test-session")
 	info := agent.ToolCallInfo{
-		ToolCall: models.ToolCallContent{Name: "read", ID: "1"},
-		Args:     map[string]any{"path": "secrets.env"},
+		ToolCall: models.ToolCallContent{Name: "write", ID: "1"},
+		Args:     map[string]any{"path": "main.go"},
 	}
 	result, err := h(context.Background(), info)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result == nil || !result.Block {
-		t.Fatal("expected block")
+		t.Fatal("expected block from exit-2 shell hook")
 	}
 }
 
-func TestFromConfigDisabled(t *testing.T) {
+func TestFromConfig_ShellHookDisabled(t *testing.T) {
 	cfg := config.HookConfig{}
 	h := FromConfig(cfg, "test-session")
-	if h == nil {
-		t.Fatal("expected non-nil hook")
-	}
 	info := agent.ToolCallInfo{
 		ToolCall: models.ToolCallContent{Name: "read", ID: "1"},
-		Args:     map[string]any{"path": "foo.txt"},
+		Args:     map[string]any{"path": "main.go"},
 	}
 	result, err := h(context.Background(), info)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result != nil {
-		t.Fatal("expected nil when disabled")
+		t.Fatal("expected nil when no hooks configured")
 	}
 }

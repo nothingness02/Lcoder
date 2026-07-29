@@ -1179,23 +1179,25 @@ memory:
 
 ### 15.9 Hooks
 
+所有 hook 都是 shell 命令，通过 stdin 接收 JSON 上下文。退出码 0=允许，2=拒绝（stderr 为拒绝原因），超时默认 30 秒。
+
 ```yaml
 hooks:
-  audit:
+  before_tool_call:
     enabled: true
-  sensitive_file_check:
+    command: "python3 ~/.lcoder/hooks/guard.py"
+    timeout: 30
+  after_tool_result:
     enabled: true
-    patterns: ["*.env", "*.key", "*.pem"]
-  bash_denylist:
-    enabled: true
-    patterns: ["rm -rf /", "mkfs.*"]
+    command: "python3 ~/.lcoder/hooks/log.py"
 ```
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `audit` | map | 启用审计日志。 |
-| `sensitive_file_check` | map | 检查敏感文件访问。 |
-| `bash_denylist` | map | bash 命令黑名单。 |
+| `before_tool_call` | map | 每次工具调用前执行。 |
+| `after_tool_result` | map | 每次工具调用后执行。 |
+| `before_compact` | map | 上下文压缩前执行。 |
+| `on_stop` | map | agent 停止时执行。 |
 
 ### 15.10 扩展
 

@@ -170,16 +170,15 @@ permissions:
 #     url: https://mcpmarket.cn/mcp/<your-mcp-id>
 #     timeout: 60
 
-# Declarative hooks.
+# Shell command hooks.
 # hooks:
-#   audit:
+#   before_tool_call:
 #     enabled: true
-#   sensitive_file_check:
+#     command: "python3 ~/.lcoder/hooks/guard.py"
+#     timeout: 30
+#   after_tool_result:
 #     enabled: true
-#     patterns: ["*.env", "*.key", "*.pem"]
-#   bash_denylist:
-#     enabled: true
-#     patterns: ["rm -rf /", "mkfs.*"]
+#     command: "python3 ~/.lcoder/hooks/log.py"
 
 # Installed packages and Go extensions.
 # packages:

@@ -1174,23 +1174,25 @@ See Chapter 11.
 
 ### 15.9 Hooks
 
+All hooks are shell commands receiving JSON context on stdin. Exit 0 = allow, exit 2 = block (stderr is the reason), timeout defaults to 30s.
+
 ```yaml
 hooks:
-  audit:
+  before_tool_call:
     enabled: true
-  sensitive_file_check:
+    command: "python3 ~/.lcoder/hooks/guard.py"
+    timeout: 30
+  after_tool_result:
     enabled: true
-    patterns: ["*.env", "*.key", "*.pem"]
-  bash_denylist:
-    enabled: true
-    patterns: ["rm -rf /", "mkfs.*"]
+    command: "python3 ~/.lcoder/hooks/log.py"
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `audit` | map | Enable audit logging. |
-| `sensitive_file_check` | map | Check sensitive file access. |
-| `bash_denylist` | map | Bash command denylist. |
+| `before_tool_call` | map | Execute before every tool call. |
+| `after_tool_result` | map | Execute after every tool result. |
+| `before_compact` | map | Execute before context compaction. |
+| `on_stop` | map | Execute when agent would stop. |
 
 ### 15.10 Extensions
 
