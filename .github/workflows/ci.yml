@@ -28,7 +28,5 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25.4"
-      - name: Build extension-hook
-        run: cd examples/extension-hook && go build ./...
-      - name: Build extension-exporter
-        run: cd examples/extension-exporter && go build ./...
+      - name: Build sensitive-guard example
+        run: cd examples/sensitive-guard && go build ./...

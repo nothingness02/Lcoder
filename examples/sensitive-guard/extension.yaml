@@ -1,0 +1,5 @@
+name: sensitive-guard
+version: "0.1.0"
+command: ["go", "run", "."]
+env:
+  BLOCK_PATTERNS: ".env,id_rsa,credentials"
