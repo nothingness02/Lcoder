@@ -43,6 +43,9 @@ func NewSessionPicker(store SessionStore, cwd, mode string, sess *session.Sessio
 	items := []list.Item{}
 	if sessions, err := store.List(cwd); err == nil {
 		for _, s := range sessions {
+			if s.IsSubagentJournal() {
+				continue
+			}
 			items = append(items, SessionItem{session: s})
 		}
 	}
@@ -70,6 +73,13 @@ func NewSessionPicker(store SessionStore, cwd, mode string, sess *session.Sessio
 // Hide closes the picker.
 func (m *SessionPickerModel) Hide() {
 	m.visible = false
+}
+
+// SetWidth adjusts the list to the bottom-strip width.
+func (m *SessionPickerModel) SetWidth(w int) {
+	if w > 0 {
+		m.list.SetWidth(w)
+	}
 }
 
 // Visible returns whether the picker is shown.

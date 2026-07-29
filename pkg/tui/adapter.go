@@ -38,6 +38,9 @@ func toComponent(b block) components.BlockComponent {
 			b.elapsed,
 		)
 		comp.SetExpanded(b.expanded)
+		comp.SetSubagentActivity(b.subagentLines, b.subagentTail, b.subagentLive)
+		comp.SetSubagentChildren(subagentChildRows(b))
+		comp.SetChip(b.toolChip)
 		return comp
 	}
 	return components.NewSystemLogComponent(b.id, b.raw)
@@ -50,4 +53,24 @@ func componentsFromBlocks(blocks []block) []components.BlockComponent {
 		out[i] = toComponent(b)
 	}
 	return out
+}
+
+// subagentChildRows converts a block's per-child state into component rows,
+// preserving spawn order.
+func subagentChildRows(b block) []components.SubagentChildRow {
+	if len(b.subagentOrder) == 0 {
+		return nil
+	}
+	rows := make([]components.SubagentChildRow, 0, len(b.subagentOrder))
+	for _, id := range b.subagentOrder {
+		child := b.subagentChildren[id]
+		rows = append(rows, components.SubagentChildRow{
+			Profile: child.profile,
+			Status:  child.status,
+			Tools:   child.tools,
+			Started: child.started,
+			Elapsed: child.elapsed,
+		})
+	}
+	return rows
 }

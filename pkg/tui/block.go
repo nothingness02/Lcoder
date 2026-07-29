@@ -28,6 +28,28 @@ type block struct {
 	toolRunning bool
 	elapsed     time.Duration
 	toolResult  string // full tool output shown in the Ctrl+O expanded view
+	toolChip    string // compact result statistic shown in the header (e.g. "12 lines")
+
+	// subagent extras: nested activity mirrored from a child agent (see
+	// events.SubagentActivityEvent). lines are completed activity entries;
+	// tail is the in-flight text delta stream; live while the child runs.
+	subagentLines []string
+	subagentTail  string
+	subagentLive  bool
+
+	// subagentChildren tracks per-child state for the group display (kimi's
+	// AgentGroup): populated from mirrored activity keyed by agent id.
+	subagentChildren map[string]*subagentChild
+	subagentOrder    []string
+}
+
+// subagentChild is one row in the subagent group display.
+type subagentChild struct {
+	profile string
+	status  string // "running" | "completed" | "timeout" | "failed"
+	tools   int
+	started time.Time
+	elapsed time.Duration
 }
 
 type blockUsage struct {

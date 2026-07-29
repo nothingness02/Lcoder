@@ -283,8 +283,9 @@ func TestContextPctShownAfterAgentEnd(t *testing.T) {
 	if m.contextPct != 40 {
 		t.Fatalf("contextPct = %d, want 40", m.contextPct)
 	}
-	if view := stripANSI(m.statusLineView()); !strings.Contains(view, "ctx 40%") {
-		t.Fatalf("status line should show ctx%%, got %q", view)
+	view := stripANSI(m.statusLineView())
+	if !strings.Contains(view, "context: 40% (39.1k/97.7k)") {
+		t.Fatalf("status line should show kimi-style context usage, got %q", view)
 	}
 }
 

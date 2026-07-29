@@ -4,27 +4,19 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/task"
 )
 
-// taskSidebarWidth is the fixed outer width (including border) of the task
-// sidebar. Below this much terminal width the sidebar is suppressed entirely.
-const taskSidebarWidth = 28
-
-// taskSidebarVisible reports whether the sidebar should render: there are tasks,
-// the user hasn't hidden it, and the terminal is wide enough to avoid cramping.
+// taskSidebarVisible reports whether the task strip should render above the
+// composer: there are tasks and the user hasn't hidden it.
 func (m *Model) taskSidebarVisible() bool {
 	return len(m.tasks) > 0 && !m.taskSidebarHidden && m.width >= 60
 }
 
-// mainContentWidth is the width available to the conversation/composer once the
-// task sidebar (if visible) has taken its fixed column.
+// mainContentWidth is the width available to the conversation/composer. The
+// task list renders as a bottom strip now, so no column is subtracted.
 func (m *Model) mainContentWidth() int {
-	if m.taskSidebarVisible() {
-		return m.width - taskSidebarWidth
-	}
 	return m.width
 }
 
@@ -73,26 +65,29 @@ func taskGlyph(s task.Status) string {
 	}
 }
 
-// renderTaskSidebar draws the fixed-width bordered task panel of the given outer
-// height. Each task is one line "glyph text"; a "done/total" footer closes it.
-func renderTaskSidebar(tasks []task.Task, height int) string {
-	inner := taskSidebarWidth - 2 // left/right border columns
-	lines := []string{styleAccent().Render("Tasks"), ""}
-	for _, t := range tasks {
-		text := truncateCells(t.Text, inner-2, "…") // leave room for "glyph "
+// taskStripMaxItems caps the tasks shown in the strip; the rest collapse
+// into an overflow count (kimi-code's TodoPanel).
+const taskStripMaxItems = 5
+
+// renderTaskStrip draws the task list as a bottom strip above the composer
+// (kimi-code's TodoPanel): a header, up to taskStripMaxItems items, and an
+// overflow/count footer.
+func renderTaskStrip(tasks []task.Task, width int) string {
+	var lines []string
+	lines = append(lines, styleAccent().Bold(true).Render("Tasks"))
+	shown := tasks
+	if len(shown) > taskStripMaxItems {
+		shown = shown[:taskStripMaxItems]
+	}
+	for _, t := range shown {
+		text := truncateCells(t.Text, width-8, "…")
 		lines = append(lines, taskGlyph(t.Status)+" "+text)
 	}
-	done, _, _ := task.Counts(tasks)
-	lines = append(lines, "", styleDim().Render(fmt.Sprintf("%d/%d 完成", done, len(tasks))))
-
-	boxHeight := height - 2 // top/bottom border rows
-	if boxHeight < 1 {
-		boxHeight = 1
+	done, pending, inProgress := task.Counts(tasks)
+	if extra := len(tasks) - len(shown); extra > 0 {
+		lines = append(lines, styleDim().Render(fmt.Sprintf("… +%d more (%d done · %d pending · %d in progress)", extra, done, pending, inProgress)))
+	} else {
+		lines = append(lines, styleDim().Render(fmt.Sprintf("%d/%d 完成", done, len(tasks))))
 	}
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorFaint).
-		Width(inner).
-		Height(boxHeight)
-	return box.Render(strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }

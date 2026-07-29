@@ -103,11 +103,14 @@ type Model struct {
 	totalCost  float64
 	errMsg     string
 
-	// contextPct caches context budget usage (0-100) for the status line.
+	// contextPct caches context budget usage (0-100) for the status line,
+	// with the raw token counts behind it (used/limit).
 	// Stats() walks blocks and estimates tokens, so it must not run per-frame;
 	// refreshed at turn/compaction boundaries via updateContextStats. -1 when
 	// unknown (no budget limit reported yet).
-	contextPct int
+	contextPct       int
+	contextUsedTok   int
+	contextLimitTok  int
 
 	// compacting is set between CompactionStarted and the next terminal event
 	// (commit/error/message/agent-end); the status line shows an indicator.
@@ -116,7 +119,7 @@ type Model struct {
 	// capabilities of the active model, shown in /status (from the catalog).
 	capabilities []string
 
-	skills      []skills.SkillMeta
+	skills      *skills.Catalog
 	modeManager *agent.ModeManager
 
 	// Provider-config wizard dependencies and state.
@@ -135,6 +138,10 @@ type Model struct {
 	completedTurns int
 	suggestion     string
 
+	// skillsBlockUpdater refreshes the agent's skills context block after a
+	// runtime skill toggle (wired from app.go, which owns the agent).
+	skillsBlockUpdater func(content string)
+
 	// onSessionChange is notified whenever the active session is swapped, so the
 	// compaction sink records folds to the session actually in use rather than the
 	// one that happened to be open at startup.
@@ -146,7 +153,7 @@ type Model struct {
 }
 
 // NewModel keeps the exact signature the call sites and tests rely on.
-func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store SessionStore, cwd, sessionID, model, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, checkpointStore checkpoint.Store, needsProviderSetup bool, loadedSkillCatalog ...skills.SkillMeta) *Model {
+func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store SessionStore, cwd, sessionID, model, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, checkpointStore checkpoint.Store, needsProviderSetup bool, skillCatalog *skills.Catalog) *Model {
 	// Theme override: honor explicit "light"/"dark", else auto-detect.
 	switch themeStyle {
 	case "light":
@@ -174,7 +181,7 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		extPanel:           ExtensionsPanelModel{HTTPTools: httpTools, MCPServers: mcpServers(mcpRegistry)},
 		model:              model,
 		themeStyle:         themeStyle,
-		skills:             loadedSkillCatalog,
+		skills:             skillCatalog,
 		modeManager:        modeManager,
 		llmClient:          llmClient,
 		cfg:                cfg,
@@ -183,6 +190,8 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		header:             headerInfo{model: model, cwd: cwd, version: "0.1"},
 		focusedBlockIndex:  -1,
 		contextPct:         -1,
+		contextUsedTok:     0,
+		contextLimitTok:    0,
 	}
 	// Restore the display from the agent's already-loaded context window so a
 	// session reloaded at startup shows its prior conversation (and task
@@ -213,6 +222,12 @@ func (m *Model) SetCapabilities(caps []string) {
 
 // SetOnSessionChange registers a callback fired when the active session changes.
 // It is invoked immediately with the current session so the caller starts in sync.
+// SetSkillsBlockUpdater wires the skills-block refresh used by the skills
+// management panel.
+func (m *Model) SetSkillsBlockUpdater(fn func(content string)) {
+	m.skillsBlockUpdater = fn
+}
+
 func (m *Model) SetOnSessionChange(fn func(*session.Session)) {
 	m.onSessionChange = fn
 	if fn != nil {

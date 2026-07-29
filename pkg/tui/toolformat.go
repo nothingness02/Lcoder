@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/lcoder/lcoder/pkg/models"
 )
 
 // toolResultEntry is the minimal record formatToolSummary needs.
@@ -69,4 +71,52 @@ func FormatArgsPlain(args map[string]any) string {
 		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// chipForTool computes a compact result statistic for the tool header
+// (kimi-code's header chip): line counts for file/shell tools, match counts
+// for search tools, edit counts for edit. Empty when nothing meaningful.
+func chipForTool(name string, result models.ToolExecutionResult) string {
+	text := result.Text()
+	lines := 0
+	for _, ln := range strings.Split(text, "\n") {
+		if strings.TrimSpace(ln) != "" {
+			lines++
+		}
+	}
+	detail := func(key string) (int, bool) {
+		if result.Details == nil {
+			return 0, false
+		}
+		v, ok := result.Details[key].(int)
+		return v, ok
+	}
+	switch name {
+	case "bash", "read", "write":
+		return countLabel(lines, "lines")
+	case "ls":
+		return countLabel(lines, "entries")
+	case "grep":
+		if v, ok := detail("matches"); ok {
+			return countLabel(v, "matches")
+		}
+		return countLabel(lines, "lines")
+	case "find":
+		if v, ok := detail("matches"); ok {
+			return countLabel(v, "files")
+		}
+		return countLabel(lines, "files")
+	case "edit":
+		if v, ok := detail("edits"); ok {
+			return countLabel(v, "edits")
+		}
+	}
+	return ""
+}
+
+func countLabel(n int, unit string) string {
+	if n <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d %s", n, unit)
 }

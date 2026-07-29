@@ -54,7 +54,7 @@ system_prompt: you review
 	bus := events.New()
 	ag := &fakeAgent{}
 	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, mm, nil, config.Config{}, nil, false)
+	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, mm, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 24
 	m.state = stateInput
@@ -143,10 +143,10 @@ Review the code for risks.
 		t.Fatal(err)
 	}
 
-	loaded := []skills.SkillMeta{
-		{Name: "security-review", Description: "Review code", Source: source},
-	}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, loaded...)
+	loaded := skills.NewCatalog([]skills.ScopedMeta{
+		{SkillMeta: skills.SkillMeta{Name: "security-review", Description: "Review code", Source: source}},
+	})
+	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, loaded)
 	m.width = 80
 	m.height = 24
 	m.state = stateInput
@@ -176,7 +176,7 @@ func TestCmdPanelMCPOpensAndReconnectShortcut(t *testing.T) {
 	bus := events.New()
 	ag := &fakeAgent{}
 	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, reg, nil, nil, config.Config{}, nil, false)
+	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, reg, nil, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 24
 	m.state = stateInput
@@ -217,7 +217,7 @@ func TestCmdPanelMCPCloseShortcut(t *testing.T) {
 	bus := events.New()
 	ag := &fakeAgent{}
 	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, reg, nil, nil, config.Config{}, nil, false)
+	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, reg, nil, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 24
 	m.state = stateInput

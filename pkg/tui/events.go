@@ -108,7 +108,101 @@ func (m *Model) handleEvent(ev events.Event) {
 		// bottomRegion), not as a transcript block, so they don't get buried in
 		// the scrollback and clear on the next prompt.
 		m.errMsg = e.Message
+
+	case events.SubagentActivityEvent:
+		m.handleSubagentActivity(e)
+
+	case events.BackgroundNoticeEvent:
+		m.addSystem(e.Text)
 	}
+}
+
+// handleSubagentActivity routes one mirrored child-agent activity event into
+// the tool block of the parent's subagent call, rendering it as nested
+// activity (kimi-code's nested subagent display). Events whose parent tool
+// call is not on screen are dropped silently.
+func (m *Model) handleSubagentActivity(e events.SubagentActivityEvent) {
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		b := &m.blocks[i]
+		if b.kind != components.BlockTool || b.id != e.ParentToolCallID {
+			continue
+		}
+		child := m.subagentChildFor(b, e.AgentID, e.Profile)
+		switch e.Kind {
+		case events.SubagentStarted:
+			b.subagentLive = true
+		case events.SubagentText:
+			b.subagentTail += e.Text
+		case events.SubagentToolStart:
+			m.flushSubagentTail(b)
+			b.subagentLines = append(b.subagentLines, "→ "+e.Text)
+			child.tools++
+		case events.SubagentToolEnd:
+			m.flushSubagentTail(b)
+			b.subagentLines = append(b.subagentLines, "✓ "+e.Text)
+		case events.SubagentTurn:
+			m.flushSubagentTail(b)
+			b.subagentLines = append(b.subagentLines, "· turn "+e.Text)
+		case events.SubagentFailed:
+			m.flushSubagentTail(b)
+			b.subagentLines = append(b.subagentLines, "✗ "+e.Text)
+			settleSubagentChild(child, "failed")
+		case events.SubagentCompleted:
+			m.flushSubagentTail(b)
+			status := e.Text
+			if status == "" {
+				status = "completed"
+			}
+			settleSubagentChild(child, status)
+			if allSubagentChildrenSettled(b) {
+				b.subagentLive = false
+			}
+		}
+		m.components[i] = toComponent(m.blocks[i])
+		m.rebuildViewport()
+		return
+	}
+}
+
+// subagentChildFor returns (creating if needed) the per-child state row for
+// an agent id within a tool block.
+func (m *Model) subagentChildFor(b *block, agentID, profile string) *subagentChild {
+	if b.subagentChildren == nil {
+		b.subagentChildren = make(map[string]*subagentChild)
+	}
+	child, ok := b.subagentChildren[agentID]
+	if !ok {
+		child = &subagentChild{profile: profile, status: "running", started: time.Now()}
+		b.subagentChildren[agentID] = child
+		b.subagentOrder = append(b.subagentOrder, agentID)
+	}
+	return child
+}
+
+// settleSubagentChild marks a child finished with a final status.
+func settleSubagentChild(child *subagentChild, status string) {
+	child.status = status
+	child.elapsed = time.Since(child.started)
+}
+
+// allSubagentChildrenSettled reports whether every child in the block has a
+// final status.
+func allSubagentChildrenSettled(b *block) bool {
+	for _, child := range b.subagentChildren {
+		if child.status == "running" {
+			return false
+		}
+	}
+	return true
+}
+
+// flushSubagentTail moves the in-flight text tail into a completed line.
+func (m *Model) flushSubagentTail(b *block) {
+	if b.subagentTail == "" {
+		return
+	}
+	b.subagentLines = append(b.subagentLines, b.subagentTail)
+	b.subagentTail = ""
 }
 
 // streamLiveMaxBytes caps the in-flight assistant text that is re-rendered as
@@ -201,6 +295,7 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 			m.blocks[i].toolResult = text
 			m.blocks[i].toolErr = isError
 			m.blocks[i].toolRunning = false
+			m.blocks[i].toolChip = chipForTool(name, result)
 			if !m.blocks[i].toolStart.IsZero() {
 				m.blocks[i].elapsed = time.Since(m.blocks[i].toolStart)
 			}
@@ -209,7 +304,7 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 			return
 		}
 	}
-	m.appendBlock(block{kind: components.BlockTool, id: id, toolName: name, toolResult: text, toolErr: isError})
+	m.appendBlock(block{kind: components.BlockTool, id: id, toolName: name, toolResult: text, toolErr: isError, toolChip: chipForTool(name, result)})
 }
 
 // blocksFromMessages rebuilds the block history from a stored conversation.

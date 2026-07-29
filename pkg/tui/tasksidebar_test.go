@@ -38,13 +38,15 @@ func TestTaskSidebarVisible(t *testing.T) {
 }
 
 func TestMainContentWidth(t *testing.T) {
+	// The task list renders as a bottom strip now, so the main content width
+	// is always the full terminal width regardless of tasks.
 	m := &Model{width: 100, tasks: sampleTasks()}
-	if got := m.mainContentWidth(); got != 100-taskSidebarWidth {
-		t.Fatalf("main width with sidebar = %d, want %d", got, 100-taskSidebarWidth)
+	if got := m.mainContentWidth(); got != 100 {
+		t.Fatalf("main width = %d, want 100", got)
 	}
 	m.tasks = nil
 	if got := m.mainContentWidth(); got != 100 {
-		t.Fatalf("main width without sidebar = %d, want 100", got)
+		t.Fatalf("main width without tasks = %d, want 100", got)
 	}
 }
 
@@ -87,16 +89,27 @@ func TestTasksFromMessages(t *testing.T) {
 	}
 }
 
-func TestRenderTaskSidebar(t *testing.T) {
-	out := renderTaskSidebar(sampleTasks(), 20)
+func TestRenderTaskStrip(t *testing.T) {
+	out := renderTaskStrip(sampleTasks(), 40)
 	if !strings.Contains(out, "Tasks") {
-		t.Fatalf("sidebar missing header: %q", out)
+		t.Fatalf("strip missing header: %q", out)
 	}
 	if !strings.Contains(out, "read auth") || !strings.Contains(out, "split handler") {
-		t.Fatalf("sidebar missing task text: %q", out)
+		t.Fatalf("strip missing task text: %q", out)
 	}
 	if !strings.Contains(out, "1/2") {
-		t.Fatalf("sidebar missing done/total footer: %q", out)
+		t.Fatalf("strip missing done/total footer: %q", out)
+	}
+}
+
+func TestRenderTaskStripOverflow(t *testing.T) {
+	tasks := make([]task.Task, 8)
+	for i := range tasks {
+		tasks[i] = task.Task{Text: "task", Status: task.StatusPending}
+	}
+	out := renderTaskStrip(tasks, 40)
+	if !strings.Contains(out, "+3 more") {
+		t.Fatalf("strip should collapse overflow, got %q", out)
 	}
 }
 

@@ -34,12 +34,26 @@ func (m *Model) bottomHeight() int {
 }
 
 // bottomRegion renders the composer, optional slash menu, suggestion, and status.
+// Interactive panels (permission confirm, session picker, extensions, provider)
+// occupy the region instead of the composer — kimi-code's editor-replacement
+// pattern: the transcript stays visible above, every panel lives in the same
+// place, framed by the same top border.
 func (m *Model) bottomRegion() string {
 	var sections []string
 
-	if m.state == stateConfirm {
-		sections = append(sections, m.confirm.View(m.mainWidth))
-		return strings.Join(sections, "\n")
+	switch m.state {
+	case stateConfirm:
+		return m.confirm.View(m.mainWidth)
+	case stateSessionPicker:
+		return panelFrame(m.mainWidth, m.picker.View())
+	case stateExtensions:
+		return panelFrame(m.mainWidth, m.extPanel.View(m.mainWidth-4, m.height/3))
+	case stateProvider:
+		return panelFrame(m.mainWidth, m.renderProviderPanel())
+	}
+
+	if m.taskSidebarVisible() {
+		sections = append(sections, panelFrame(m.mainWidth, renderTaskStrip(m.tasks, m.mainWidth)))
 	}
 
 	if m.menuVisible {
@@ -92,16 +106,31 @@ func (m *Model) modeLabel() string {
 	return "ready"
 }
 
-// contextRight builds the right-aligned status segment (ctx% + model + cost).
+// contextRight builds the right-aligned status segment. Context usage leads
+// in kimi-code's shape: `context: 42% (86.5k/200k)`, then model and cost.
 func (m *Model) contextRight() string {
 	seg := m.model
 	if m.contextPct >= 0 {
-		seg = fmt.Sprintf("ctx %d%% · %s", m.contextPct, seg)
+		seg = fmt.Sprintf("context: %d%% (%s/%s) · %s",
+			m.contextPct, abbrevTokens(m.contextUsedTok), abbrevTokens(m.contextLimitTok), seg)
 	}
 	if m.totalCost > 0 {
 		seg += fmtCost(m.totalCost)
 	}
 	return styleDim().Render(seg)
+}
+
+// abbrevTokens renders a token count with 1024-based k/M suffixes
+// (kimi-code's formatTokenCount: 86.5k / 977k / 1.5M).
+func abbrevTokens(n int) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1fM", float64(n)/float64(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1fk", float64(n)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }
 
 // updateContextStats refreshes the cached context budget usage from the agent.
@@ -121,6 +150,19 @@ func (m *Model) updateContextStats() {
 		return
 	}
 	m.contextPct = stats["total"] * 100 / drop
+	m.contextUsedTok = stats["total"]
+	m.contextLimitTok = drop
+}
+
+// panelFrame wraps a bottom-strip panel in the shared top-border frame.
+func panelFrame(width int, content string) string {
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderTop(true).
+		BorderForeground(colorAccent).
+		Padding(0, 1).
+		Width(width).
+		Render(content)
 }
 
 // View implements tea.Model.
@@ -128,21 +170,11 @@ func (m Model) View() string {
 	switch m.state {
 	case stateStartup:
 		return m.startupView()
-	case stateSessionPicker:
-		return m.picker.View()
-	case stateExtensions:
-		return m.extPanel.View(m.width, m.height)
-	case stateProvider:
-		return m.renderProviderPanel()
 	}
 
 	top := m.viewport.View()
 	bottom := m.bottomRegion()
-	main := lipgloss.JoinVertical(lipgloss.Left, top, bottom)
-	if m.taskSidebarVisible() {
-		return lipgloss.JoinHorizontal(lipgloss.Top, main, renderTaskSidebar(m.tasks, m.height))
-	}
-	return main
+	return lipgloss.JoinVertical(lipgloss.Left, top, bottom)
 }
 
 // startupView renders the animated brand banner over an empty body.

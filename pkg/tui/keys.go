@@ -9,6 +9,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/session"
+	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tui/components"
@@ -715,15 +716,61 @@ func (m *Model) openModePanel() {
 	m.updateSizes()
 }
 
+// openSkillManagePanel shows the skills management panel with per-skill
+// enable/disable toggles. State is read live from the catalog.
+func (m *Model) openSkillManagePanel() {
+	entries := m.skills.Entries()
+	if len(entries) == 0 {
+		m.showTextPanel("skills", styleDim().Render("no skills loaded"))
+		return
+	}
+	var items []cmdPanelItem
+	for _, e := range entries {
+		label := "[x] " + e.Name
+		desc := e.Description
+		if m.skills.IsDisabled(e.Name) {
+			label = "[ ] " + e.Name
+			desc = desc + " (disabled)"
+		}
+		items = append(items, cmdPanelItem{label: label, desc: desc, value: e.Name})
+	}
+	m.cmdPanel = cmdPanel{visible: true, kind: cmdPanelSelect, title: "skills (enter: toggle · esc: close)", items: items, action: actionToggleSkill}
+	m.updateSizes()
+}
+
+// toggleSkillDisabled flips a skill's enabled state, persists it, refreshes
+// the agent's skills block, and lifts the tool restriction when the disabled
+// skill was active.
+func (m *Model) toggleSkillDisabled(name string) {
+	off := !m.skills.IsDisabled(name)
+	m.skills.SetDisabled(name, off)
+
+	var disabled []string
+	for _, e := range m.skills.Entries() {
+		if m.skills.IsDisabled(e.Name) {
+			disabled = append(disabled, e.Name)
+		}
+	}
+	_ = skills.SaveDisabledFile(paths.LCoderHome("skills.yaml"), disabled)
+
+	if m.skillsBlockUpdater != nil {
+		m.skillsBlockUpdater(m.skills.Block())
+	}
+	if off {
+		m.agent.ClearSkillFilter()
+	}
+}
+
 // openSkillPanel shows the loaded skills as a selection box.
 func (m *Model) openSkillPanel() {
-	if len(m.skills) == 0 {
+	entries := m.skills.Entries()
+	if len(entries) == 0 {
 		m.showTextPanel("skill", styleDim().Render("no skills loaded"))
 		return
 	}
 	var items []cmdPanelItem
-	for _, s := range m.skills {
-		items = append(items, cmdPanelItem{label: s.Name, desc: s.Description, value: s.Name})
+	for _, e := range entries {
+		items = append(items, cmdPanelItem{label: e.Name, desc: e.Description, value: e.Name})
 	}
 	m.cmdPanel = cmdPanel{visible: true, kind: cmdPanelSelect, title: "skill", items: items, action: actionTriggerSkill}
 	m.updateSizes()
@@ -785,6 +832,10 @@ func (m *Model) execCmdPanel() (*Model, tea.Cmd) {
 			err := m.mcpRegistry.Reconnect(name)
 			return mcpActionMsg{name: name, op: "reconnect", err: err}
 		}
+	case actionToggleSkill:
+		m.toggleSkillDisabled(p.items[p.selected].value)
+		m.openSkillManagePanel() // re-render with updated state
+		return m, nil
 	case actionApplyAccent:
 		name := p.items[p.selected].value
 		for _, preset := range accentPresets {
@@ -895,6 +946,7 @@ func (m *Model) openSessionPicker() {
 		cur = s
 	}
 	m.picker = NewSessionPicker(m.store, m.cwd, "select", cur)
+	m.picker.SetWidth(m.mainWidth - 4)
 	m.state = stateSessionPicker
 }
 

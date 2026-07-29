@@ -149,7 +149,7 @@ func TestFirstLaunchAutoOpensPanel(t *testing.T) {
 	bus := events.New()
 	store := &fakeSessionStore{}
 	m := NewModel(bus, &fakeAgent{}, &fakeSession{ID: "x"}, store, ".", "x",
-		"openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, true /* needsProviderSetup */)
+		"openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, true /* needsProviderSetup */, nil)
 	defer m.Close()
 
 	if m.state != stateProvider || !m.provPanel.visible {

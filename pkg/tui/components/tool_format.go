@@ -70,7 +70,7 @@ func toolPreview(content string, head, tail, maxWidth int) string {
 		omitted := len(lines) - head - tail
 		sampled := make([]string, 0, head+tail+1)
 		sampled = append(sampled, lines[:head]...)
-		sampled = append(sampled, fmt.Sprintf("… +%d more …", omitted))
+		sampled = append(sampled, fmt.Sprintf("… +%d more (ctrl+o to expand)", omitted))
 		sampled = append(sampled, lines[len(lines)-tail:]...)
 		lines = sampled
 	}

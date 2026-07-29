@@ -17,7 +17,7 @@ func BenchmarkRebuildViewportManyMessages(b *testing.B) {
 	ag := &fakeAgent{}
 	store := &fakeSessionStore{}
 	sess := &fakeSession{ID: "bench"}
-	m := NewModel(bus, ag, sess, store, ".", "bench", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false)
+	m := NewModel(bus, ag, sess, store, ".", "bench", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
 	defer m.Close()
 
 	for i := 0; i < 1000; i++ {
