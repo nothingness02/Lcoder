@@ -2,183 +2,169 @@
 
 [中文版本](README.md)
 
-**Lcoder** is a software-engineering AI coding agent — pure Go, single binary, zero external runtime dependencies.
+**Lcoder** is an AI coding agent built in pure Go — single binary, zero dependencies, terminal-native.
+
+> 🎯 **Best experience: interactive TUI.** Run `./lcoder` for a complete coding conversation — real-time streaming, tool-call visualization, session branching, and permission approval, all inside your terminal.
+
+## Quick Start
+
+```bash
+# Build (only Go toolchain required — no Node, no Python)
+go build -o lcoder ./cmd/lcoder
+
+# Set your API key
+export ANTHROPIC_API_KEY="sk-ant-..."   # Anthropic (recommended)
+export OPENAI_API_KEY="sk-..."          # OpenAI-compatible
+export DEEPSEEK_API_KEY="sk-..."        # DeepSeek
+
+# Launch interactive TUI
+./lcoder
+```
+
+`~/.lcoder/config.yaml` is created automatically on first run. Press `Enter` to start chatting.
+
+### Other Usage
+
+```bash
+./lcoder -p "List files in the current directory"   # One-shot (for scripting)
+./lcoder -c                                         # Resume last session
+./lcoder --mode plan -p "Design auth module"        # Specific mode
+```
+
+## TUI Guide
+
+Lcoder's terminal interface is built around "conversation-driven programming." Describe what you need in natural language — the agent reads code, edits files, and runs commands automatically. You approve critical operations along the way.
+
+### Layout
+
+```
+┌─ Lcoder · code · claude-sonnet-4-20250514 ── session: 3 ── turn: 12 ── 22K ─┐
+│                                                                              │
+│  You: Add rate-limiting middleware to handler.go                               │
+│                                                                              │
+│  Lcoder: Let me check the existing handler and project layout first.          │
+│  │   read handler.go                                           expand ▼      │
+│  │   ls pkg/middleware/                                                       │
+│  │   write pkg/middleware/ratelimit.go    ✓ Wrote 1,247 bytes                │
+│  │   Rate limiter created. Register it in handler.go to activate.            │
+│                                                                              │
+│  ▸ Type a message...                                       Ctrl+H help       │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Keybindings
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Send message |
+| `Shift+Enter` | Newline |
+| `Ctrl+O` | Expand/collapse tool details |
+| `Ctrl+T` | Task progress panel |
+| `Ctrl+B` | Fork new session from last reply |
+| `Ctrl+R` | Retry last reply |
+| `Ctrl+S` | Browse & switch sessions |
+| `Ctrl+M` | MCP / HTTP extensions panel |
+| `Ctrl+L` | Clear session |
+| `PgUp` / `PgDn` | Scroll history |
+
+### Slash Commands
+
+Type these in the input box:
+
+| Command | Action |
+|---------|--------|
+| `/modes` | Switch agent mode (code / plan / explore / review) |
+| `/mcp` | Manage MCP server connections |
+| `/tasks` | Toggle task sidebar |
+| `/tools` | Expand/collapse all tool results |
+| `/help` | Show help |
 
 ## Why Lcoder
 
 | Feature | Lcoder | Others |
 |---------|:---:|:---:|
-| **Path Security Guard** | ✅ Sensitive-file detection + workspace boundary enforcement | Rare |
-| **Single Binary** | ✅ `go build` — no Node, no Python | Most require Node.js |
-| **Multi-Mode Agent** | ✅ code / plan / explore / review | Usually single-mode |
-| **Session Branching** | ✅ Fork from any message, clone, retry | Few |
-| **Checkpoint & Restore** | ✅ Crash-safe snapshots, exact state recovery | Rare |
-| **Context Compaction** | ✅ Tiered compaction + cache-hit policy | Usually naive truncation |
-| **Permission Engine** | ✅ 4-tier decision chain + audit log | Inconsistent |
-| **Observability** | ✅ Prometheus / HTML / SQLite / Markdown | Few built-in |
-| **Subagent Swarm** | ✅ Parallel subagents + swarm batching | Rare |
-| **Deferred Tool Loading** | ✅ tool_search on-demand schema loading | Rare |
-| **Extension System** | ✅ MCP + HTTP tools + extension bridges | Mixed MCP support |
-
-## Quick Start
-
-```bash
-# Build — no runtime dependencies
-go build -o lcoder ./cmd/lcoder
-
-# Configure
-mkdir -p ~/.lcoder
-cp configs/lcoder.yaml ~/.lcoder/config.yaml
-
-# Set API key (any compatible provider)
-export OPENAI_API_KEY="sk-..."       # OpenAI-compatible
-export ANTHROPIC_API_KEY="sk-ant-..." # Anthropic
-export DEEPSEEK_API_KEY="sk-..."     # DeepSeek
-
-# Start coding
-./lcoder "Show me the project structure"
-./lcoder                   # Interactive TUI
-```
+| **Single binary** | ✅ `go build` is all you need | Most need Node.js |
+| **Path security** | ✅ Sensitive files + workspace guard | Rare |
+| **Multi-mode** | ✅ code / plan / explore / review | Usually single-mode |
+| **Session branching** | ✅ Fork, clone, retry from any message | Few |
+| **Crash recovery** | ✅ Auto-saved checkpoints | Rare |
+| **Context compaction** | ✅ Tiered + cache-hit policy | Usually truncation |
+| **Permission engine** | ✅ 4-tier chain + audit log | Inconsistent |
+| **Observability** | ✅ Prometheus / HTML / SQLite | Rare |
+| **Sub-agents** | ✅ Parallel + swarm mode | Few |
+| **Extensions** | ✅ MCP + HTTP tools + bridges | Mixed MCP support |
 
 ## Core Capabilities
 
-### 🛡️ Path Security
-
-Aligned with Kimi Code's security architecture. Every file tool (read/write/edit/ls/grep/find) passes through a unified path security guard before execution:
-
-- **Sensitive-file blocking**: `.env`, SSH private keys, and credentials are permanently inaccessible to the agent
-- **Workspace boundary**: relative `../` escapes are denied; external access requires explicit absolute paths
-- **Pre-permission enforcement**: the guard runs before the permission engine — sensitive operations never prompt the user
-
 ### 🧠 Multi-Mode Agent
 
-Four built-in modes, each with its own system prompt and tool constraints:
+Switch modes in the TUI with `/modes`. Each mode has its own prompt and tool constraints:
 
-| Mode | Purpose | Tool Surface |
+| Mode | Purpose | Tools |
 |------|---------|:---:|
-| `code` | Day-to-day development | Full tools |
-| `plan` | Design & analysis | Read-only + todo_write |
+| `code` | Day-to-day development | Full |
+| `plan` | Design & analysis | Read-only + todo |
 | `explore` | Codebase exploration | Read-only |
 | `review` | Code review | Read-only |
 
-```bash
-./lcoder --mode plan "Design the authentication module"
-./lcoder --mode review "Review pkg/agent/loop.go"
-```
+Custom modes (`.lcoder/modes/*.yaml`) support per-mode provider/model, tool rules, and exit approval.
 
-Custom modes supported (`.lcoder/modes/*.yaml`) with per-mode provider/model, tool rules, and exit approval.
+### 🛡️ Path Security Guard
+
+Aligned with Kimi Code. Every file operation passes through security validation before execution:
+
+- `.env`, SSH keys, and credentials are permanently blocked
+- `../` path escapes are rejected; external files require absolute paths
+- Guard runs before the permission engine — no user prompts for blocked operations
 
 ### 📦 Skills
 
-Encapsulate domain expertise as reusable Markdown skill packages:
+Drop Markdown files into `.lcoder/skills/` to add domain knowledge:
 
-```bash
+```
 .lcoder/skills/
 ├── security-review/SKILL.md   # Security review workflow
 ├── api-design/SKILL.md        # API design conventions
 └── db-migration/SKILL.md      # Database migration guide
 ```
 
-Skills can declare `allowed_tools` constraints, temporarily narrowing the agent's tool surface when activated.
+The TUI suggests matching skills as you type.
 
-### 🔀 Session Branching
+### 🔀 Session Management
 
-Every message records a `parent_id` — one JSONL file represents an entire conversation tree:
+Every message has a `parent_id`, enabling full branching:
 
-```bash
-./lcoder fork --session <id> --message <msg-id>   # Fork from any message
-./lcoder clone --session <id>                     # Clone active branch
-./lcoder -c                                       # Continue most recent session
-```
-
-### 💾 Checkpoints
-
-Lightweight runtime snapshots are written automatically on crash (mode, model, turn count, context budget, etc.). Restoration recovers exact state without replaying message history.
-
-### 📊 Context Management
-
-Tiered context organization with intelligent compaction:
-
-```
-[system prompt] [mode prompt] [skills] [project docs] [recent messages]
-                                                          ↑
-                                          Dynamically allocated within TokenBudget
-```
-
-- Tiered compaction: system/project as stable layers, recent as sliding window
-- `CompactThreshold` triggers proactive compaction before budget exhaustion
-- `CacheHintPolicy` integrates deeply with Anthropic's prompt cache
-- `DropThreshold` discards old messages under extreme pressure
-
-### 🔧 Deferred Tool Loading
-
-When the tool count is large (many MCP tools), ship only core tool schemas plus `tool_search`:
-
-```yaml
-context:
-  deferred_tools: true
-  core_tools: ["read", "write", "edit", "bash", "ls", "grep", "find"]
-```
-
-The model discovers tools on demand via `tool_search` and activates them with `tool_activate`. Saves first-token latency and preserves the provider cache prefix.
-
-### 🐝 Subagent Swarm
-
-```json
-{
-  "agent": "code",
-  "items": [
-    "Fix the bug in handler.go",
-    "Add unit tests for service.go",
-    "Update API documentation"
-  ]
-}
-```
-
-- **Parallel mode**: multiple subagents execute concurrently, results aggregate to the parent
-- **Swarm mode**: batch-exclusive execution for large-scale parallel tasks
-- Subagents inherit the parent's permissions and session context
-
-### 📈 Observability
-
-Multi-format export covering LLM calls, tool execution, latency, and more:
-
-```bash
-./lcoder stats <id>                           # Session statistics
-./lcoder trace <id>                           # Human-readable trace
-./lcoder export <id>                          # HTML report
-./lcoder export <id> --format sqlite -o.db    # SQLite database
-./lcoder export <id> --format prometheus -o.txt
-./lcoder metrics                              # Prometheus endpoint (:9090)
-```
+- `Ctrl+B` fork a new session from any reply
+- `Ctrl+S` browse and restore past sessions
+- `Ctrl+R` retry with a different approach
+- `-c` flag resumes the most recent session
 
 ### 🔐 Permission Engine
 
-Four-tier decision chain with full audit logging:
+Write/edit/bash operations require approval. The TUI shows a confirmation dialog:
 
 ```
-guard policies → unsafe → deny rules → session approval → user rules → dangerous-default → fallback
+┌─ Approve ──────────────────────────────────────────┐
+│  bash: go test ./...                                 │
+│                                                      │
+│  [y] once  [a] project  [g] global  [n] deny         │
+└──────────────────────────────────────────────────────┘
 ```
 
-- write / edit / bash default to ask; whitelisted commands auto-approve
-- Approval scopes: once / project (written to `.lcoder/permissions.yaml`) / global
-- Every decision recorded in the audit log, including unsafe-mode markers
-- Glob-based matching with most-specific-wins semantics
+Three scopes: once / project / global. All decisions are audit-logged.
 
-### 🔌 Extension System
+### 🔌 Extensions
 
-Three extension mechanisms working in concert:
+Register in `~/.lcoder/config.yaml` to extend the agent:
 
-**MCP Servers** (stdio / SSE / Streamable HTTP):
 ```yaml
+# MCP servers (codegraph recommended for code intelligence)
 mcp_servers:
   - name: codegraph
     transport: stdio
     command: ["codegraph", "serve", "--mcp", "--path", "."]
-```
 
-**HTTP Tools**:
-```yaml
+# HTTP tools
 http_tools:
   - name: deploy
     endpoint: http://localhost:9001/deploy
@@ -188,70 +174,48 @@ http_tools:
         service: { type: string }
 ```
 
-**Extension Bridges** (subprocess IPC for custom tools):
-```yaml
-extensions:
-  bridges:
-    - name: my-bridge
-      command: ["./my-tool", "serve"]
-```
+### 🐝 Sub-Agent Swarm
 
-### ⏱️ Tool Timeouts
+Describe parallel tasks in conversation — the agent splits and executes automatically:
 
-Time-consuming tools accept LLM-controllable timeouts to prevent hangs:
+> Do three things at once: fix the handler.go bug, add tests for service.go, update the README
 
-- `bash`: `timeout` parameter (default 120s)
-- MCP tools: `timeout_seconds` parameter (default 120s)
+Sub-agents run concurrently with live progress in the TUI. Results are auto-merged.
 
-## Interface
+### 📊 Context Management
+
+Tiered conversation organization with intelligent compaction:
+
+- Stable layers (system prompt / project docs / skills) always retained
+- Sliding window (recent messages) adjusted dynamically by token budget
+- Anthropic prompt cache integration reduces repeat billing
+
+### 📈 Observability
 
 ```bash
-./lcoder          # Interactive TUI
-./lcoder -p "..." # One-shot
-./lcoder -c       # Resume session
+./lcoder stats <id>                    # Session statistics
+./lcoder export <id>                   # HTML report
+./lcoder export --format sqlite -o.db  # SQLite database
+./lcoder metrics                       # Prometheus endpoint (:9090)
 ```
-
-TUI keybindings:
-
-| Key | Action |
-|-----|--------|
-| `Enter` | Send message |
-| `Shift+Enter` | Newline |
-| `Ctrl+O` | Expand/collapse tool output |
-| `Ctrl+T` | Task sidebar |
-| `Ctrl+B` | Fork from last message |
-| `Ctrl+R` | Retry last message |
-| `Ctrl+S` | Session picker |
-| `Ctrl+L` | Clear chat |
-| `Ctrl+M` | Extensions panel |
-| `PgUp/PgDn` | Scroll history |
-
-Slash commands: `/mcp` `/modes` `/tasks` `/tools` `/help`
 
 ## Architecture
 
 ```
-cmd/lcoder/main.go
- └─ prepareAgent   config → LLM → tool/MCP registry → session store → observability → mode → context → Agent
- └─ runRoot        one-shot/JSON/TUI dispatch; writes checkpoint on crash
-
-pkg/agent          Turn orchestration: steering → compact → streaming → tool exec → checkpoint
-pkg/contextmgr     Tiered context: system/mode/skills/project/recent → dynamic token budgeting
-pkg/llm            Engine routing/retry + OpenAI/Anthropic adapters + model catalog
-pkg/tools          Tool registry + built-ins + deferred loading + HTTP/MCP tools
-pkg/agent/hooks    Sensitive file detection + bash risk classification
-pkg/permissions     4-tier permission chain + glob matching + rule persistence
-pkg/session        JSONL branching storage
-pkg/checkpoint     Lightweight runtime snapshots
-pkg/tui            Bubble Tea TUI, event-bus-driven
-pkg/events         Event bus
-pkg/observability  JSONL/Prometheus/HTML/SQLite/Markdown export
-pkg/config         koanf config loading with env-var overrides
+Lcoder (single binary)
+├── TUI (Bubble Tea)        Terminal interface
+├── Agent                   Turn orchestration
+│   ├── Permissions         4-tier decision chain
+│   ├── Context Manager     Tiered token budget
+│   └── Checkpoints         Auto-save on crash
+├── LLM Engine              OpenAI / Anthropic / DeepSeek
+├── Tool System
+│   ├── Built-in tools      read write edit bash ls grep find
+│   ├── MCP Client          stdio / SSE / Streamable HTTP
+│   ├── HTTP Tools          Custom REST endpoints
+│   └── Extension Bridges   Subprocess IPC
+└── Observability           JSONL / Prometheus / HTML / SQLite
 ```
-
-## SWE-bench Lite Evaluation
-
-The `eval/swe-bench-lite/` directory provides a Docker-based evaluation harness measuring initial and post-feedback resolution rates, with HTML/Markdown reports covering tokens, cache hits, tool chains, and per-module latency.
 
 ## License
 
