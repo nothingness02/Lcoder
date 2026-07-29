@@ -32,7 +32,8 @@ Write a test for the user's request.
 	}
 
 	skill := skills.SkillMeta{Name: "tester", Description: "writing tests", Source: source}
-	m := NewModel(bus, agent, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, skill)
+	catalog := skills.NewCatalog([]skills.ScopedMeta{{SkillMeta: skill}})
+	m := NewModel(bus, agent, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, catalog)
 	m.width = 80
 	m.height = 24
 	m.state = stateInput

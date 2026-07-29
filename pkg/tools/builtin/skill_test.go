@@ -34,7 +34,7 @@ func writeTestSkill(t *testing.T, dir, name, frontmatter, body string) skills.Sk
 }
 
 func TestUseSkillDefinition(t *testing.T) {
-	tool := NewUseSkill(".", nil)
+	tool := NewUseSkill(".", skills.NewCatalog(nil))
 	def := tool.Definition()
 	if def.Name != skills.UseSkillToolName {
 		t.Fatalf("expected name %q, got %q", skills.UseSkillToolName, def.Name)
@@ -50,7 +50,7 @@ func TestUseSkillExecuteReturnsBody(t *testing.T) {
 		"description: Review code for vulnerabilities\n",
 		"# Security Review\n\nRead the file and identify risks.\n")
 
-	tool := NewUseSkill(".", []skills.SkillMeta{meta})
+	tool := NewUseSkill(".", skills.NewCatalog([]skills.ScopedMeta{{SkillMeta: meta}}))
 	result, err := tool.Execute(context.Background(), "call_1", map[string]any{"skill_name": "security-review"})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -75,7 +75,7 @@ func TestUseSkillExecutePublishesAllowedTools(t *testing.T) {
 		"description: Review code for vulnerabilities\nallowed_tools:\n  - read\n  - grep\n",
 		"# Security Review\n\nRead the file and identify risks.\n")
 
-	tool := NewUseSkill(".", []skills.SkillMeta{meta})
+	tool := NewUseSkill(".", skills.NewCatalog([]skills.ScopedMeta{{SkillMeta: meta}}))
 	result, err := tool.Execute(context.Background(), "call_1", map[string]any{"skill_name": "security-review"})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -93,7 +93,7 @@ func TestUseSkillExecuteUnknownSkill(t *testing.T) {
 	dir := t.TempDir()
 	meta := writeTestSkill(t, dir, "security-review", "description: x\n", "body\n")
 
-	tool := NewUseSkill(".", []skills.SkillMeta{meta})
+	tool := NewUseSkill(".", skills.NewCatalog([]skills.ScopedMeta{{SkillMeta: meta}}))
 	_, err := tool.Execute(context.Background(), "call_1", map[string]any{"skill_name": "nope"})
 	if err == nil {
 		t.Fatal("expected error for unknown skill")
@@ -104,8 +104,23 @@ func TestUseSkillExecuteUnknownSkill(t *testing.T) {
 }
 
 func TestUseSkillExecuteMissingName(t *testing.T) {
-	tool := NewUseSkill(".", nil)
+	tool := NewUseSkill(".", skills.NewCatalog(nil))
 	if _, err := tool.Execute(context.Background(), "call_1", map[string]any{}); err == nil {
 		t.Fatal("expected error for missing skill_name")
+	}
+}
+
+// A disabled skill is rejected with an actionable message.
+func TestUseSkillRejectsDisabled(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "SKILL.md")
+	_ = os.WriteFile(source, []byte("---\nname: x\ndescription: d\n---\nbody\n"), 0o644)
+	cat := skills.NewCatalog([]skills.ScopedMeta{{SkillMeta: skills.SkillMeta{Name: "x", Description: "d", Source: source}}})
+	cat.SetDisabled("x", true)
+
+	tool := NewUseSkill(".", cat)
+	_, err := tool.Execute(context.Background(), "c1", map[string]any{"skill_name": "x"})
+	if err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("expected disabled rejection, got %v", err)
 	}
 }

@@ -104,6 +104,11 @@ func init() {
 				m.openSkillPanel()
 				return nil
 			}},
+		{Name: "skills", Description: "Manage skills (enable/disable)", Category: "Agent",
+			Handler: func(m *Model, _ string) tea.Cmd {
+				m.openSkillManagePanel()
+				return nil
+			}},
 		{Name: "tools", Description: "Toggle detailed tool & thinking view (Ctrl+O)", Category: "View",
 			Handler: func(m *Model, _ string) tea.Cmd {
 				m.toolsExpanded = !m.toolsExpanded

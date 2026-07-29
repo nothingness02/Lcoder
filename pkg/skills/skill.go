@@ -27,7 +27,19 @@ type SkillMeta struct {
 	// AllowedTools, when non-empty, restricts the agent to these tools while
 	// the skill is active. Enforced at execution time by the executor.
 	AllowedTools []string
-	Source       string // absolute path to SKILL.md
+	// Hidden excludes the skill from the model-facing catalog (manual
+	// /skill:name activation still works).
+	Hidden bool
+	// DisableModelInvocation blocks model-driven use_skill calls entirely
+	// (manual activation only).
+	DisableModelInvocation bool
+	// HasSubSkill allows recursion into this skill's directory for nested
+	// children (kimi-code's has-sub-skill).
+	HasSubSkill bool
+	// IsSubSkill marks a nested child skill (parent.child). Sub-skills are
+	// excluded from the model-facing catalog but can be activated by name.
+	IsSubSkill bool
+	Source     string // absolute path to SKILL.md
 }
 
 // Skill is a fully loaded skill, including the free-form Markdown body that

@@ -11,18 +11,22 @@ import (
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
+// maxSkillBodyBytes caps the activated skill body so one giant skill cannot
+// blow up the context window.
+const maxSkillBodyBytes = 32 << 10
+
 // UseSkill lets the model activate a skill from the catalog on its own. The
 // catalog block in the system prompt is the discovery layer; this tool is the
 // activation layer — it loads the skill body from disk and returns it as the
 // tool result, so activation flows with the turn instead of the host writing
 // a permanent system message into the session.
 type UseSkill struct {
-	catalog []skills.SkillMeta
+	catalog *skills.Catalog
 }
 
-// NewUseSkill builds the use_skill tool bound to the loaded skill catalog.
-// cwd is unused: skill bodies are read via each entry's absolute Source path.
-func NewUseSkill(cwd string, catalog []skills.SkillMeta) tools.Executable {
+// NewUseSkill builds the use_skill tool bound to the shared skill catalog.
+// The catalog is read at call time, so runtime toggles take effect.
+func NewUseSkill(cwd string, catalog *skills.Catalog) tools.Executable {
 	return &UseSkill{catalog: catalog}
 }
 
@@ -54,10 +58,18 @@ func (t *UseSkill) Execute(ctx context.Context, callID string, args map[string]a
 	if name == "" {
 		return models.ToolExecutionResult{}, fmt.Errorf("missing skill_name")
 	}
-	meta, found := skills.FindByName(t.catalog, name)
+	meta, found := t.catalog.Find(name)
 	if !found {
 		return models.ToolExecutionResult{}, fmt.Errorf("unknown skill %q (available: %s)",
 			name, t.availableNames())
+	}
+	if t.catalog.IsDisabled(meta.Name) {
+		return models.ToolExecutionResult{}, fmt.Errorf(
+			"skill %q is disabled (enable it via /skills)", meta.Name)
+	}
+	if meta.DisableModelInvocation {
+		return models.ToolExecutionResult{}, fmt.Errorf(
+			"skill %q is manual-only (invoke it with /skill:%s)", meta.Name, meta.Name)
 	}
 	skill, err := skills.LoadSkill(meta.Source)
 	if err != nil {
@@ -65,6 +77,9 @@ func (t *UseSkill) Execute(ctx context.Context, callID string, args map[string]a
 	}
 
 	text := skills.RenderActiveSkill(skill)
+	if len(text) > maxSkillBodyBytes {
+		text = text[:maxSkillBodyBytes] + "\n\n[truncated: skill body exceeds 32KB]"
+	}
 	if len(skill.AllowedTools) > 0 {
 		text += fmt.Sprintf("\n\nThis skill restricts subsequent tool calls to: %s (plus %s). "+
 			"Calls to other tools will be rejected until you activate a different skill.",
@@ -78,12 +93,13 @@ func (t *UseSkill) Execute(ctx context.Context, callID string, args map[string]a
 }
 
 func (t *UseSkill) availableNames() string {
-	if len(t.catalog) == 0 {
+	entries := t.catalog.Entries()
+	if len(entries) == 0 {
 		return "(none)"
 	}
-	names := make([]string, 0, len(t.catalog))
-	for _, s := range t.catalog {
-		names = append(names, s.Name)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name)
 	}
 	sort.Strings(names)
 	return strings.Join(names, ", ")

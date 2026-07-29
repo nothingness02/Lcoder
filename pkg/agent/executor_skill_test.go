@@ -36,10 +36,7 @@ description: Unrestricted skill
 ---
 Freeform body.
 `)
-	catalog, err := skills.LoadCatalog([]string{dir})
-	if err != nil {
-		t.Fatalf("load catalog: %v", err)
-	}
+	catalog := skills.Discover([]skills.Source{{Scope: skills.ScopeUser, Dir: dir}})
 
 	r := tools.NewRegistry(".")
 	r.Register(skills.UseSkillToolName, builtin.NewUseSkill(".", catalog))
