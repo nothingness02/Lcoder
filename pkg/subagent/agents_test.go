@@ -157,14 +157,19 @@ func TestDiscoverAgents(t *testing.T) {
 
 func TestDiscoverAgentsMissingDir(t *testing.T) {
 	// DiscoverAgents should not error when the project agent directory does
-	// not exist.
+	// not exist; the result is exactly the built-in default profiles.
 	tmp := t.TempDir()
 	agents, err := DiscoverAgents(tmp)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
-	if len(agents) != 0 {
-		t.Errorf("expected no agents, got %v", agents)
+	if len(agents) != len(DefaultProfiles()) {
+		t.Errorf("expected only the default profiles, got %v", agents)
+	}
+	for name := range DefaultProfiles() {
+		if _, ok := agents[name]; !ok {
+			t.Errorf("expected default profile %q to be present", name)
+		}
 	}
 }
 
@@ -189,5 +194,34 @@ func TestDiscoverAgentsUserDir(t *testing.T) {
 	}
 	if _, ok := agents["user"]; !ok {
 		t.Errorf("expected user agent, got %v", agents)
+	}
+}
+
+// Built-in profiles come from the embedded markdown files: same schema as
+// user/project agent files, overridable by name.
+func TestDefaultProfilesFromEmbeddedMarkdown(t *testing.T) {
+	profiles := DefaultProfiles()
+	if len(profiles) < 2 {
+		t.Fatalf("expected embedded coder/explore profiles, got %v", profiles)
+	}
+	coder, ok := profiles["coder"]
+	if !ok || coder.Mode != "code" || coder.Timeout != 1800 || coder.MaxTurns != 40 {
+		t.Fatalf("coder profile wrong: %+v", coder)
+	}
+	if !strings.Contains(coder.Prompt, "coding agent") {
+		t.Fatalf("coder prompt should come from the markdown body, got %q", coder.Prompt)
+	}
+	explore, ok := profiles["explore"]
+	if !ok || explore.Mode != "explore" || explore.SummaryMinChars != 200 || explore.SummaryRetries != 1 {
+		t.Fatalf("explore profile wrong: %+v", explore)
+	}
+}
+
+// Fragment files ("_" prefix) are not profiles.
+func TestFragmentsAreNotProfiles(t *testing.T) {
+	for name := range DefaultProfiles() {
+		if strings.HasPrefix(name, "_") {
+			t.Fatalf("fragment %q must not be loaded as a profile", name)
+		}
 	}
 }

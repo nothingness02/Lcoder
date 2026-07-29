@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lcoder/lcoder"
 	"github.com/lcoder/lcoder/internal/paths"
 	"gopkg.in/yaml.v3"
 )
@@ -15,30 +16,71 @@ const (
 	defaultAgentTimeoutSec = 120
 )
 
-// Agent is a loaded subagent definition.
+// Agent is a loaded subagent profile: a self-contained definition of what a
+// spawned subagent is (prompt + mode/tool surface + budget + summary policy).
 type Agent struct {
 	Name        string
 	Description string
-	Model       string
+	Model       string // model id; empty means inherit the parent's model
 	Provider    string
 	Mode        string
-	Timeout     int
-	Prompt      string
+	Timeout     int // wall-clock seconds per run
+	MaxTurns    int // turn budget; 0 = unlimited
+	// SummaryMinChars/SummaryRetries form the summary floor: when the final
+	// answer is shorter than SummaryMinChars, the subagent is asked to expand
+	// it, up to SummaryRetries times. 0 disables the floor.
+	SummaryMinChars int
+	SummaryRetries  int
+	Subagents       []string // profile names this agent may delegate to; empty = none
+	Prompt          string
 }
 
 // agentFrontmatter is the YAML frontmatter of an agent markdown file.
 type agentFrontmatter struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Model       string `yaml:"model"`
-	Provider    string `yaml:"provider"`
-	Mode        string `yaml:"mode"`
-	Timeout     int    `yaml:"timeout"`
+	Name            string   `yaml:"name"`
+	Description     string   `yaml:"description"`
+	Model           string   `yaml:"model"`
+	Provider        string   `yaml:"provider"`
+	Mode            string   `yaml:"mode"`
+	Timeout         int      `yaml:"timeout"`
+	MaxTurns        int      `yaml:"max_turns"`
+	SummaryMinChars int      `yaml:"summary_min_chars"`
+	SummaryRetries  int      `yaml:"summary_retries"`
+	Subagents       []string `yaml:"subagents"`
+}
+
+// DefaultProfiles loads the built-in subagent profiles embedded from
+// configs/agents/*.md. User and project agent files override these by name
+// (same convention as mode loading). Files prefixed with "_" are shared
+// fragments (e.g. the role prefix), not profiles.
+func DefaultProfiles() map[string]Agent {
+	agents := make(map[string]Agent)
+	entries, err := lcoder.AgentProfiles.ReadDir("configs/agents")
+	if err != nil {
+		return agents
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".md") || strings.HasPrefix(name, "_") {
+			continue
+		}
+		data, err := lcoder.AgentProfiles.ReadFile("configs/agents/" + name)
+		if err != nil {
+			continue
+		}
+		profile, err := parseAgentMarkdown("configs/agents/"+name, data)
+		if err != nil {
+			continue
+		}
+		agents[profile.Name] = profile
+	}
+	return agents
 }
 
 // DiscoverAgents scans user-level and project-level agent directories.
+// Built-in defaults are overlaid by user then project files, by name.
 func DiscoverAgents(projectRoot string) (map[string]Agent, error) {
-	agents := make(map[string]Agent)
+	agents := DefaultProfiles()
 
 	userDir := paths.LCoderHome("agents")
 	if err := loadAgentsFromDir(userDir, agents); err != nil {
@@ -126,12 +168,16 @@ func parseAgentMarkdown(path string, data []byte) (Agent, error) {
 	}
 
 	return Agent{
-		Name:        name,
-		Description: fm.Description,
-		Model:       fm.Model,
-		Provider:    fm.Provider,
-		Mode:        mode,
-		Timeout:     timeout,
-		Prompt:      prompt,
+		Name:            name,
+		Description:     fm.Description,
+		Model:           fm.Model,
+		Provider:        fm.Provider,
+		Mode:            mode,
+		Timeout:         timeout,
+		MaxTurns:        fm.MaxTurns,
+		SummaryMinChars: fm.SummaryMinChars,
+		SummaryRetries:  fm.SummaryRetries,
+		Subagents:       fm.Subagents,
+		Prompt:          prompt,
 	}, nil
 }
