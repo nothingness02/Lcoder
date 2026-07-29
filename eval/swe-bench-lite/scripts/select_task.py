@@ -22,12 +22,20 @@ ROWS_URL = (
     "?dataset={ds}&config=default&split=test&offset={off}&length={ln}"
 )
 
-# 默认评估仓库集合(轻量或代表性)。逗号分隔,可在命令行覆盖。
+# 默认覆盖 SWE-bench Lite 全部 11 个官方仓库(与数据集分布一致,
+# django 占 ~42%、sympy 占 ~27%;按仓库分层采样)。逗号分隔,可在命令行覆盖。
 DEFAULT_REPOS = [
-    "psf/requests",
+    "django/django",
     "sympy/sympy",
-    "pallets/flask",
+    "psf/requests",
     "pytest-dev/pytest",
+    "pallets/flask",
+    "scikit-learn/scikit-learn",
+    "matplotlib/matplotlib",
+    "numpy/numpy",
+    "pandas-dev/pandas",
+    "sphinx-doc/sphinx",
+    "astropy/astropy",
 ]
 
 # 仓库 -> 适配的 Python 版本(对齐各任务代码的时代依赖)。未列出者默认 3.11。

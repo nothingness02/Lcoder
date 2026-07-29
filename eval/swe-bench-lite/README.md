@@ -40,11 +40,43 @@ results/report.html           汇总 HTML 报告
 results/summary.md            简要汇总
 ```
 
+## 评测协议（official vs extended）
+
+| 模式 | 说明 | 用途 |
+|---|---|---|
+| **official**（`OFFICIAL_PROTOCOL=1`） | 对齐官方 SWE-bench：一次性评估、无测试反馈重试、PASS_TO_PASS 全量不截断 | 与其他 agent 横向对比的分数 |
+| **extended**（默认） | 允许 ≤2 轮测试反馈重试（`FEEDBACK_ATTEMPTS`）、P2P 截断 20 条（`P2P_CAP`） | 工程诊断、agent 能力上限观察 |
+
+结果文件（`result.json`）记录每次运行的 `protocol` 与 `model`；报告同时给出两种协议的分开分数，并以 `initial_status`（反馈前）与 `final_status`（反馈后）区分——**对外报分时应使用 official 协议或 initial_status 口径**。
+
+`scripts/predictions.py` 可从结果目录导出官方评测器兼容的 `predictions.jsonl`（`instance_id / model_name_or_path / model_patch`）。
+
+## 自定义模型与密钥
+
+默认链路：Kimi coding 网关 + `ANTHROPIC_AUTH_TOKEN`。换其他模型只需两步：
+
+1. 编辑 `config/lcoder.yaml`——改顶部的 `provider`/`model`，并在 `providers:` 下加/改对应条目（`route` 选协议、`base_url` 指端点、`api_key` 用 `{env:EVAL_API_KEY}` 引用）。文件里已带 Anthropic / OpenAI / OpenRouter / 自建 OpenAI 兼容端点四段注释示例。
+2. 导出密钥并运行：
+
+```bash
+export EVAL_API_KEY=sk-xxxx
+export MODEL_ID=<报表里要显示的模型名>   # 可选，默认 kimi-k2.7-code
+python eval/swe-bench-lite/runner/run.py --build --select
+```
+
+协议路由说明：`anthropic` = Anthropic Messages API；`openai` = OpenAI chat completions 兼容（含 OpenRouter、vLLM、LiteLLM 等绝大多数网关）；`openai-responses` = OpenAI Responses API。`ANTHROPIC_AUTH_TOKEN` 与 `EVAL_API_KEY` 设任一个即可，两者都会透传进容器。
+
 ## 用法
 
 ```bash
-# 一键：交叉编译 + 构建镜像 + 多仓库分层采样（默认 4 个仓库，每仓库 5 个，上限 50）+ 运行
+# 一键：交叉编译 + 构建镜像 + 多仓库分层采样（默认覆盖 SWE-bench Lite 全部 11 个官方仓库）+ 运行
 python eval/swe-bench-lite/runner/run.py --build --select
+
+# 官方协议（一发无反馈、P2P 全量）跑可对比分数
+OFFICIAL_PROTOCOL=1 python eval/swe-bench-lite/runner/run.py --build --select
+
+# 导出官方评测器兼容的 predictions.jsonl
+python eval/swe-bench-lite/scripts/predictions.py --results-dir eval/swe-bench-lite/results
 
 # 只构建镜像（不运行）
 python eval/swe-bench-lite/runner/run.py --build --no-run

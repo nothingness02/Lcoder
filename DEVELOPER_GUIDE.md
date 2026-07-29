@@ -144,6 +144,8 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/tui` | Bubble Tea 终端 UI。 |
 | `pkg/config` | koanf 配置加载与验证。 |
 | `pkg/permissions` | 权限引擎与规则匹配。 |
+| `pkg/subagent` | 子代理 profile 发现（`.md` frontmatter）与 `Spawner` 边界类型。 |
+| `pkg/agenthost` | 同进程子代理宿主：spawn/resume、journal 持久化、预算与保底摘要。 |
 | `pkg/observability` | 事件收集、指标、trace、导出器。 |
 | `pkg/extension` | 包/扩展管理与进程外扩展运行时（`proto`/`runtime`/`bridge`）。 |
 

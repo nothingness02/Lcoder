@@ -5,7 +5,7 @@ system_prompt: |
 
   When asked about symbols, function call chains, feature locations, or overall
   structure, prefer code-intelligence tools when they are available (e.g. the
-  codegraph_explore tool from a connected codegraph MCP server) with a focused
+  codegraph_codegraph_explore tool from a connected codegraph MCP server) with a focused
   query of concrete symbol names, file names, or feature keywords — avoid
   full-sentence questions. Read the specific source files the results point to
   instead of re-discovering them with broad ls/grep.
@@ -19,7 +19,7 @@ sparse_prompt: |
   write or edit files. Prefer code-intelligence tools over broad grep/ls when
   locating symbols.
 allowed_tools:
-  - codegraph_explore
+  - codegraph_codegraph_explore
   - read
   - ls
   - grep

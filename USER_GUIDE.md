@@ -730,6 +730,21 @@ subagent:
   enabled: true
 ```
 
+启用后 agent 获得 `subagent` 工具，可把自包含的任务委托给**同进程子代理**（一个拥有干净上下文的完整 agent 实例，不是子进程）：
+
+```text
+用 subagent 的 explore 类型梳理 pkg/agent 的调用链
+```
+
+**agent 类型（profile）**：内嵌 `coder`（编码）与 `explore`（只读研究）两种；自定义类型在 `~/.lcoder/agents/*.md` 或 `<项目>/.lcoder/agents/*.md` 中用 YAML frontmatter 定义（`name`/`description`/`mode`/`timeout`/`max_turns`/`summary_min_chars` 等），按名覆盖内嵌类型。
+
+**使用形态**：
+
+- 单个：`{agent, task}`；`task` 必须自包含（子代理看不到当前对话）
+- 续跑：`{task, resume: "<agent_id>"}`——超时/失败的结果里会带 agent_id 和续跑提示，子代理的完整上下文从 journal 恢复
+- 批量（swarm）：`{agent, prompt_template, items}`——模板里用 `{{item}}` 占位，每个 item 展开成一个子代理（至少 2 个、至多 128 个，展开后 prompt 必须互不相同；有界并发；必须是响应中唯一的工具调用）
+- 后台：`run_in_background: true`，结果自动以提醒形式送达，无需轮询
+
 ### 注册扩展
 
 `tool_extensions` 目前仅支持 `type: json`：`path` 指向一个 JSON 描述文件（定义 HTTP 工具的 `name`/`endpoint`/`parameters` 等，与 `http_tools` 等价）：

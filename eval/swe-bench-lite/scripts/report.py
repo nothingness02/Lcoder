@@ -57,6 +57,18 @@ def summarize(rows):
         if r.get("initial_status") != "resolved" and r.get("final_status") == "resolved"
     )
 
+    # 分协议分数:official(一发无反馈,可横向对比)与 extended(反馈+P2P 截断)分开统计。
+    protocol_stats = {}
+    for proto in ("official", "extended"):
+        sub = [r for r in rows if r.get("protocol", "extended") == proto]
+        if sub:
+            resolved = sum(1 for r in sub if r.get("final_status") == "resolved")
+            protocol_stats[proto] = {
+                "total": len(sub),
+                "resolved": resolved,
+                "resolved_rate": round(100.0 * resolved / len(sub), 2),
+            }
+
     def mget(key, subkey=None):
         vals = []
         for r in rows:
@@ -88,6 +100,7 @@ def summarize(rows):
         "timeouts": timeouts,
         "errors": errors,
         "feedback_improved": feedback_improved,
+        "protocols": protocol_stats,
         "avg": {
             "turns": avg(mget("turns")),
             "agent_rounds": avg(mget("agent_rounds")),
@@ -161,6 +174,12 @@ def render_md(rows, summary, total_tools, per_task_tools, results_dir):
         f"{summary['final']['failed']} | {summary['final']['resolved_rate']}% |",
         "",
         f"- 反馈提升数: {summary['feedback_improved']} (初次未解、反馈后解决)",
+        f"- 协议分数: official {summary['protocols'].get('official', {}).get('resolved', 0)}/"
+        f"{summary['protocols'].get('official', {}).get('total', 0)} "
+        f"({summary['protocols'].get('official', {}).get('resolved_rate', 0)}%) · "
+        f"extended {summary['protocols'].get('extended', {}).get('resolved', 0)}/"
+        f"{summary['protocols'].get('extended', {}).get('total', 0)} "
+        f"({summary['protocols'].get('extended', {}).get('resolved_rate', 0)}%)",
         f"- timeout: {summary['timeouts']}, error: {summary['errors']}",
         "",
         "## 平均指标",
@@ -196,13 +215,13 @@ def render_md(rows, summary, total_tools, per_task_tools, results_dir):
 
     lines.append("## 任务明细")
     lines.append("")
-    lines.append("| instance_id | repo | initial | final | feedback | turns | tools | tokens | cost | cache_hit | dur(s) | model |")
-    lines.append("|-------------|------|---------|-------|----------|-------|-------|--------|------|-----------|--------|-------|")
+    lines.append("| instance_id | repo | protocol | initial | final | feedback | turns | tools | tokens | cost | cache_hit | dur(s) | model |")
+    lines.append("|-------------|------|----------|---------|-------|----------|-------|-------|--------|------|-----------|--------|-------|")
     for r in rows:
         m = r.get("metrics", {})
         model = r.get("model", "")
         lines.append(
-            f"| {r.get('instance_id', '')} | {r.get('repo', '')} | "
+            f"| {r.get('instance_id', '')} | {r.get('repo', '')} | {r.get('protocol', 'extended')} | "
             f"{r.get('initial_status', '')} | {r.get('final_status', '')} | "
             f"{r.get('feedback_attempts_used', 0)} | {m.get('turns', 0)} | "
             f"{m.get('tool_calls', 0)} | {m.get('total_tokens', 0)} | "

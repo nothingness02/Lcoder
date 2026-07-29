@@ -31,10 +31,16 @@ PROMPT_TMPL = "/eval/prompts/swe_task.txt"
 AGENT_TIMEOUT_S = int(os.environ.get("AGENT_TIMEOUT_S", "1500"))
 INSTALL_TIMEOUT_S = int(os.environ.get("INSTALL_TIMEOUT_S", "1200"))
 TEST_TIMEOUT_S = int(os.environ.get("TEST_TIMEOUT_S", "600"))
+
+# 官方 SWE-bench 协议是一次性评估:agent 产出 patch 后只评测一次,
+# 无测试反馈重试,PASS_TO_PASS 全量运行。OFFICIAL_PROTOCOL=1 时强制遵守,
+# 使分数可与官方/其他 agent 横向对比;默认 extended 模式(有反馈+P2P 截断)。
+OFFICIAL_PROTOCOL = os.environ.get("OFFICIAL_PROTOCOL", "0") == "1"
+
 # PASS_TO_PASS 可能很多,MVP 限制数量以约束耗时(非静默截断:会在结果里记录)。
-P2P_CAP = int(os.environ.get("P2P_CAP", "20"))
+P2P_CAP = 0 if OFFICIAL_PROTOCOL else int(os.environ.get("P2P_CAP", "20"))
 # 当 fail_to_pass 未通过时,把测试输出反馈给 agent 让它再试几轮。
-FEEDBACK_ATTEMPTS = int(os.environ.get("FEEDBACK_ATTEMPTS", "2"))
+FEEDBACK_ATTEMPTS = 0 if OFFICIAL_PROTOCOL else int(os.environ.get("FEEDBACK_ATTEMPTS", "2"))
 FEEDBACK_TIMEOUT_S = int(os.environ.get("FEEDBACK_TIMEOUT_S", "600"))
 
 
@@ -228,6 +234,34 @@ def classify_status(f2p_passed, p2p_passed):
     return "partial"
 
 
+def start_local_httpbin():
+    """老 requests 测试套件直连 httpbin.org,评测网络不可达时会挂到超时。
+    在容器内本地拉起 httpbin 并把 httpbin.org 指回 127.0.0.1,使测试完全离线。
+    失败只告警不致命(非 requests 仓库不受影响)。"""
+    import urllib.request
+
+    try:
+        with open("/etc/hosts", "a", encoding="utf-8") as f:
+            f.write("\n127.0.0.1 httpbin.org\n")
+        proc = subprocess.Popen(
+            [sys.executable, "-c",
+             "from gevent.pywsgi import WSGIServer; from httpbin import app; "
+             "WSGIServer(('127.0.0.1', 8080), app).serve_forever()"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(50):
+            try:
+                if urllib.request.urlopen("http://127.0.0.1:8080/get", timeout=1).status == 200:
+                    print("[httpbin] local server ready on :8080", flush=True)
+                    return proc
+            except Exception:
+                time.sleep(0.2)
+        print("[httpbin] WARNING: local server not ready in 10s", flush=True)
+        return proc
+    except Exception as e:
+        print(f"[httpbin] WARNING: failed to start local server: {e}", flush=True)
+        return None
+
+
 def main():
     task = load_task()
     iid = task["instance_id"]
@@ -243,6 +277,8 @@ def main():
         "final_status": "error",
         "stages": {},
         "stage_durations": {},
+        "protocol": "official" if OFFICIAL_PROTOCOL else "extended",
+        "model": os.environ.get("MODEL_ID", ""),
         "p2p_evaluated": 0,
         "p2p_total": len(task["pass_to_pass"]),
         "p2p_capped": False,
@@ -307,9 +343,11 @@ def main():
         # 裸函数名(sympy 等)解析为 '<test_file>::<func>',full node id 原样保留。
         f2p = resolve_nodes(task["fail_to_pass"], task["test_patch"])
         p2p_all = resolve_nodes(task["pass_to_pass"], task["test_patch"])
-        p2p = p2p_all[:P2P_CAP]
+        p2p = p2p_all if P2P_CAP <= 0 else p2p_all[:P2P_CAP]
         result["p2p_evaluated"] = len(p2p)
         result["p2p_capped"] = len(p2p) < len(p2p_all)
+
+        httpbin_proc = start_local_httpbin()
 
         # 3) baseline:应用 test_patch,确认 F2P 失败 / P2P 通过 ----------------
         stage_start = time.time()

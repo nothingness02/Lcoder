@@ -1,36 +1,30 @@
 # Lcoder 配置 —— SWE-bench Lite 评估专用
 #
-# provider/model 对齐生产:provider 名 `moonshot` 让 catalog 经 moonshot->moonshotai
-# 别名从 models.dev 加载 K2.7 指标;model 用 models.dev 的 id `kimi-k2.7-code`。
-# 端点/协议/凭证仍走 Kimi coding 网关(Anthropic 兼容)—— 当前令牌仅对该网关有效,
-# Moonshot 官方 OpenAI 端点(api.moonshot.cn)会 401。令牌由 host 通过
-# docker -e ANTHROPIC_AUTH_TOKEN=... 注入。coding 网关同时接受 kimi-k2.7-code。
-provider: moonshot
-model: kimi-k2.7-code
+# 只需要两处：provider/model（用什么模型跑）和 providers 下的 api_key（密钥）。
+# 上下文窗口/max_output 不配置时会按 (provider, model) 从 models.dev 自动解析。
+#
+# 当前: DeepSeek 官方端点(OpenAI chat completions 兼容)。
+# 使用: export EVAL_API_KEY=sk-xxxx; export MODEL_ID=deepseek-chat(报表显示名,可选)
+
+provider: deepseek
+model: deepseek-v4-pro
 mode: code
 
 providers:
-  moonshot:
-    route: anthropic
-    base_url: "https://api.kimi.com/coding/v1"
-    api_key: "{env:ANTHROPIC_AUTH_TOKEN}"
+  deepseek:
+    route: openai
+    base_url: "https://api.deepseek.com"
+    api_key: "{env:EVAL_API_KEY}"
 
-# 显式钉死窗口/输出,保证容器内可复现(不依赖 models.dev 后台刷新的网络波动)。
-# max_tokens 对齐 models.dev 的 K2.7 窗口 262144;models.dev 的 output 字段为
-# 占位值(=context window),不可信作单次输出上限,故显式 cap max_output。
-context:
-  max_tokens: 262144
-  max_output: 16384
-  static_ratio: 60
-  min_recent: 10
-  keep_recent_tokens: 20000
-  compact_threshold: 0.9
-  cache_hint_policy: default
+  # 备选: Kimi coding 网关(Anthropic Messages 协议),改回时把 provider 改为
+  # moonshot、model 改为 kimi-k2.7-code,并 export ANTHROPIC_AUTH_TOKEN。
+  # moonshot:
+  #   route: anthropic
+  #   base_url: "https://api.kimi.com/coding/v1"
+  #   api_key: "{env:ANTHROPIC_AUTH_TOKEN}"
 
-# 非交互(--json/-p)模式下没有人工审批通道。
-# 评估场景在隔离容器内运行,通过显式 rules 放行所有工具(包括 write/edit/bash)。
+# 评估在容器内非交互运行,没有人工审批通道:必须显式放行工具,否则 agent 无法写文件。
 permissions:
-  unsafe_mode: false
   rules:
     bash:
       "*": allow

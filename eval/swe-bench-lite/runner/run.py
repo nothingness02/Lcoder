@@ -13,6 +13,7 @@ import concurrent.futures
 import json
 import os
 import subprocess
+from datetime import datetime
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -85,18 +86,34 @@ def select_task(repo, instance, per_repo, limit, refresh=False):
 def run_task(task):
     os.makedirs(RESULTS_DIR, exist_ok=True)
     token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-    if not token:
-        sys.exit("ANTHROPIC_AUTH_TOKEN not set in environment")
+    eval_key = os.environ.get("EVAL_API_KEY", "")
+    if not token and not eval_key:
+        sys.exit("set ANTHROPIC_AUTH_TOKEN (kimi gateway) or EVAL_API_KEY (custom provider)")
     pyver = task.get("python_version", DEFAULT_PYVER)
     tag = image_tag(pyver)
-    # 该 python 版本的镜像若不存在则按需构建。
-    if sh(["docker", "image", "inspect", tag],
-          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+    # 该 python 版本的镜像若不存在则按需构建;二进制比镜像新时也必须重建,
+    # 否则容器里跑的是旧 lcoder(旧镜像层不会随源代码自动失效)。
+    need_build = sh(["docker", "image", "inspect", tag],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0
+    if not need_build:
+        out = subprocess.run(["docker", "image", "inspect", "--format", "{{.Created}}", tag],
+                             capture_output=True, text=True).stdout.strip()
+        try:
+            img_ts = datetime.fromisoformat(out.replace("Z", "+00:00")).timestamp()
+            if os.path.getmtime(BIN_PATH) > img_ts:
+                print(f"[build] binary newer than image {tag}, rebuilding", flush=True)
+                need_build = True
+        except ValueError:
+            need_build = True
+    if need_build:
         build_image(pyver)
     cmd = [
         "docker", "run", "--rm",
         "-e", f"ANTHROPIC_AUTH_TOKEN={token}",
+        "-e", f"EVAL_API_KEY={eval_key}",
         "-e", f"INSTANCE_ID={task['instance_id']}",
+        "-e", f"OFFICIAL_PROTOCOL={os.environ.get('OFFICIAL_PROTOCOL', '0')}",
+        "-e", f"MODEL_ID={os.environ.get('MODEL_ID', 'kimi-k2.7-code')}",
         "-e", "LCODER_MODELS_CONFIG=/eval/configs/models.yaml",
         "-v", f"{DATA_DIR}:/eval/data:ro",
         "-v", f"{RESULTS_DIR}:/eval/results",

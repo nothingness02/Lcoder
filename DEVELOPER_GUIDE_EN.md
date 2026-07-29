@@ -144,6 +144,8 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/tui` | Bubble Tea terminal UI. |
 | `pkg/config` | koanf configuration loading and validation. |
 | `pkg/permissions` | Permission engine and rule matching. |
+| `pkg/subagent` | Subagent profile discovery (`.md` frontmatter) and `Spawner` boundary types. |
+| `pkg/agenthost` | In-process subagent host: spawn/resume, journal persistence, budgets and summary floor. |
 | `pkg/observability` | Event collection, metrics, traces, exporters. |
 | `pkg/extension` | Package/extension management and the process-external extension runtime (`proto`/`runtime`/`bridge`). |
 

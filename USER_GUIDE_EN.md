@@ -720,6 +720,21 @@ subagent:
   enabled: true
 ```
 
+Once enabled, the agent gains the `subagent` tool and can delegate self-contained tasks to **in-process subagents** (full agent instances with clean contexts, not subprocesses):
+
+```text
+Use a subagent of type explore to map the call chains in pkg/agent
+```
+
+**Agent profiles**: built-in `coder` (coding) and `explore` (read-only research); custom profiles are defined via YAML frontmatter in `~/.lcoder/agents/*.md` or `<project>/.lcoder/agents/*.md` (`name`/`description`/`mode`/`timeout`/`max_turns`/`summary_min_chars`, etc.) and override the built-ins by name.
+
+**Invocation forms**:
+
+- Single: `{agent, task}` — `task` must be self-contained (the subagent cannot see this conversation)
+- Resume: `{task, resume: "<agent_id>"}` — timeout/failure results carry the agent_id and a resume hint; the subagent's full context is restored from its journal
+- Swarm: `{agent, prompt_template, items}` — the template uses `{{item}}` as placeholder; each item expands into its own subagent (at least 2, at most 128; expanded prompts must be distinct; bounded concurrency; must be the only tool call in the response)
+- Background: `run_in_background: true` — the result arrives automatically as a reminder, no polling needed
+
 ### Registering Extensions
 
 `tool_extensions` currently supports only `type: json`: `path` points to a JSON descriptor file that defines an HTTP tool (`name`/`endpoint`/`parameters`, etc., equivalent to `http_tools`):

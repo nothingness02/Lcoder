@@ -17,6 +17,10 @@ RUN apt-get update \
 
 RUN pip install --no-cache-dir pytest
 
+# 老 requests 测试套件直连 httpbin.org;评测网络不可达时在容器内本地拉起一个,
+# 配合 /etc/hosts 把 httpbin.org 指回 127.0.0.1(见 run_in_container.py)。
+RUN pip install --no-cache-dir httpbin gevent
+
 WORKDIR /eval
 
 # 交叉编译产物由 host 的 run.py 在 build 前生成到 bin/lcoder-linux
