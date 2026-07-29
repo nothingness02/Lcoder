@@ -85,6 +85,12 @@ func (l *Loader) List() ([]string, error) {
 		if e.IsDir() {
 			names = append(names, e.Name())
 		}
+		// Symlinks to directories are not reported as IsDir by os.ReadDir
+		// (which uses Lstat); treat them as directories so symlink-installed
+		// extensions are visible to List().
+		if e.Type()&os.ModeSymlink != 0 {
+			names = append(names, e.Name())
+		}
 	}
 	return names, nil
 }

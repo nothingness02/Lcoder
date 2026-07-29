@@ -58,6 +58,8 @@ func TestWrite_FailureKeepsOriginal(t *testing.T) {
 	if err := os.Chmod(filepath.Dir(target), 0o555); err != nil {
 		t.Fatal(err)
 	}
+	// Restore write permission so TempDir cleanup can remove the directory.
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(target), 0o755) })
 
 	write := NewWrite(dir).(*Write)
 

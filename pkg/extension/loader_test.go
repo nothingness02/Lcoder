@@ -32,17 +32,9 @@ func TestLoaderInstallLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// On some Linux CI environments symlinks may take a moment to be visible.
 	names, err := loader.List()
 	if err != nil {
 		t.Fatal(err)
-	}
-	if len(names) == 0 {
-		// Fallback: try reading the directory directly.
-		entries, _ := os.ReadDir(root)
-		for _, e := range entries {
-			t.Logf("entry: %s isDir=%v type=%v", e.Name(), e.IsDir(), e.Type())
-		}
 	}
 	if len(names) != 1 || names[0] != "test-ext" {
 		t.Fatalf("unexpected extensions: %v", names)
