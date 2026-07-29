@@ -170,15 +170,29 @@ permissions:
 #     url: https://mcpmarket.cn/mcp/<your-mcp-id>
 #     timeout: 60
 
-# Shell command hooks.
+# Shell command hooks — unified hook mechanism.
+# Every hook is a shell command. stdin receives JSON context.
+# Exit 0 = allow, exit 2 = block (stderr is the reason).
 # hooks:
 #   before_tool_call:
 #     enabled: true
 #     command: "python3 ~/.lcoder/hooks/guard.py"
 #     timeout: 30
+#
 #   after_tool_result:
 #     enabled: true
 #     command: "python3 ~/.lcoder/hooks/log.py"
+#     timeout: 30
+#
+#   before_compact:
+#     enabled: true
+#     command: "python3 ~/.lcoder/hooks/summarize.py"
+#     timeout: 60
+#
+#   on_stop:
+#     enabled: true
+#     command: "python3 ~/.lcoder/hooks/continue.py"
+#     timeout: 30
 
 # Installed packages and Go extensions.
 # packages:
