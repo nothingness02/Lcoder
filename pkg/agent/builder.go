@@ -89,6 +89,12 @@ func (b *Builder) WithShouldStop(fn ShouldStopFunc) *Builder {
 	return b
 }
 
+// WithShouldContinueAfterStop sets the post-stop continuation hook.
+func (b *Builder) WithShouldContinueAfterStop(fn ShouldContinueAfterStopFunc) *Builder {
+	b.cfg.ShouldContinueAfterStop = fn
+	return b
+}
+
 // WithMode sets the active mode and mode manager.
 func (b *Builder) WithMode(name string, mgr *ModeManager) *Builder {
 	b.cfg.Mode = name

@@ -614,3 +614,41 @@ func TestAgentAbortCancelsRunningTool(t *testing.T) {
 		t.Fatal("Prompt did not return after Abort")
 	}
 }
+
+func TestShouldContinueAfterStopHook(t *testing.T) {
+	// One-turn agent: the LLM returns a single message with no tool calls.
+	// The default ShouldStop stops there. We wire ShouldContinueAfterStop
+	// to override the stop decision.
+	client := llmtest.Client(llmtest.Turn(llmtest.Done(models.NewAgentMessage(
+		models.RoleAssistant,
+		models.TextContent{Text: "done"},
+	), nil)))
+
+	hookCalled := false
+	ag := New(Config{
+		SystemPrompt: "x",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		ShouldContinueAfterStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
+			hookCalled = true
+			return false, nil
+		},
+	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
+
+	if err := ag.Prompt(context.Background(), models.UserMessage("go")); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if !hookCalled {
+		t.Fatal("ShouldContinueAfterStop hook was not called")
+	}
+
+	// hook was called and loop terminated correctly.
+	msgs := ag.AllMessages()
+	if len(msgs) < 2 {
+		t.Fatalf("expected at least 2 messages (user+asst), got %d: %v", len(msgs), msgs)
+	}
+	// Verify the last message is the assistant's "done" response.
+	last := msgs[len(msgs)-1]
+	if last.Role != models.RoleAssistant || last.Text() != "done" {
+		t.Fatalf("expected assistant 'done', got role=%v text=%q", last.Role, last.Text())
+	}
+}
