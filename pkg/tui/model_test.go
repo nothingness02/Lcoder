@@ -70,11 +70,11 @@ func TestModelHandlesUserInput(t *testing.T) {
 	// one delivery (no duplicate submissions), rather than asserting on the
 	// racy "not yet delivered" intermediate state.
 	deadline := time.Now().Add(2 * time.Second)
-	for len(agent.Prompts) == 0 && time.Now().Before(deadline) {
+	for agent.PromptsLen() == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if len(agent.Prompts) != 1 {
-		t.Fatalf("expected exactly one async prompt, got %d", len(agent.Prompts))
+	if agent.PromptsLen() != 1 {
+		t.Fatalf("expected exactly one async prompt, got %d", agent.PromptsLen())
 	}
 }
 

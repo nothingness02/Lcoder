@@ -45,7 +45,7 @@ func (l *Loader) Install(name, source string) (string, error) {
 			return "", err
 		}
 		if err := os.Symlink(abs, target); err != nil {
-			// Fallback to copy on Windows if symlink fails.
+			// Fallback to copy if symlink fails (Windows, restricted filesystems).
 			if err := l.copyDir(abs, target); err != nil {
 				return "", fmt.Errorf("copy extension: %w", err)
 			}

@@ -78,15 +78,24 @@ func (w *ConfigWatcher) Start() error {
 	return nil
 }
 
-// Close stops the watcher.
+// Close stops the watcher and waits for the event loop to exit.
 func (w *ConfigWatcher) Close() error {
-	close(w.done)
 	w.mu.Lock()
 	watcher := w.watcher
 	w.watcher = nil
 	w.mu.Unlock()
+
+	// Close the fsnotify watcher first: this shuts down the Events/Errors
+	// channels, which causes loop() to exit its select and return.
 	if watcher != nil {
-		return watcher.Close()
+		_ = watcher.Close()
+	}
+	// Drain the done channel so a double-close does not panic, then signal
+	// the loop (belt-and-suspenders — the closed watcher already signals it).
+	select {
+	case <-w.done:
+	default:
+		close(w.done)
 	}
 	return nil
 }
@@ -94,9 +103,18 @@ func (w *ConfigWatcher) Close() error {
 func (w *ConfigWatcher) loop() {
 	const debounceDelay = 100 * time.Millisecond
 
+	// Snapshot the watcher under the lock so we don't race with Close()
+	// setting w.watcher = nil.
+	w.mu.Lock()
+	watcher := w.watcher
+	w.mu.Unlock()
+	if watcher == nil {
+		return
+	}
+
 	for {
 		select {
-		case ev, ok := <-w.watcher.Events:
+		case ev, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
@@ -112,7 +130,7 @@ func (w *ConfigWatcher) loop() {
 			})
 			w.mu.Unlock()
 
-		case err, ok := <-w.watcher.Errors:
+		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}

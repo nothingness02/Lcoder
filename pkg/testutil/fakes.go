@@ -4,6 +4,7 @@ package testutil
 import (
 	"context"
 	"strconv"
+	"sync"
 
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
@@ -14,8 +15,10 @@ import (
 
 // FakeAgent is a minimal implementation of agent.Runner (and ModeSwitcher) for
 // TUI and executor tests. All fields are exported so tests can program or
-// inspect behavior.
+// inspect behavior. Prompts and Messages are protected by a mutex so tests can
+// safely read them while the TUI runner delivers prompts from a goroutine.
 type FakeAgent struct {
+	mu             sync.Mutex
 	Prompts        []models.AgentMessage
 	Messages       []models.AgentMessage
 	ModeName       string
@@ -29,16 +32,29 @@ type FakeAgent struct {
 }
 
 func (f *FakeAgent) Prompt(_ context.Context, msg models.AgentMessage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.Prompts = append(f.Prompts, msg)
 	return nil
 }
 
-func (f *FakeAgent) Continue(_ context.Context) error   { return nil }
-func (f *FakeAgent) AllMessages() []models.AgentMessage { return f.Messages }
+func (f *FakeAgent) Continue(_ context.Context) error { return nil }
+func (f *FakeAgent) AllMessages() []models.AgentMessage {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Messages
+}
 func (f *FakeAgent) SetMessages(msgs []models.AgentMessage) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.Messages = msgs
 }
 func (f *FakeAgent) Stats() map[string]int { return f.StatsVal }
+func (f *FakeAgent) PromptsLen() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.Prompts)
+}
 func (f *FakeAgent) Mode() string {
 	if f.ModeName == "" {
 		return "code"

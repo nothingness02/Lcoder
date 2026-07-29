@@ -46,7 +46,16 @@ func TestWrite_FailureKeepsOriginal(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(target, []byte("old"), 0o444); err != nil {
+	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Remove write permission from both the file and its parent directory.
+	// On POSIX the directory permission gate-keeps file creation/deletion;
+	// file permission alone is not enough when the test runs as the owner.
+	if err := os.Chmod(target, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(target), 0o555); err != nil {
 		t.Fatal(err)
 	}
 

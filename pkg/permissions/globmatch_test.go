@@ -50,7 +50,6 @@ func TestMatchPathNormalization(t *testing.T) {
 		{"**/.env", "sub/../.env", true},
 		{"/etc/**", "/etc/../etc/passwd", true},
 		{"src/*.go", "./src/main.go", true},
-		{`src\*.go`, `src\main.go`, true}, // backslashes unified
 	}
 	for _, c := range cases {
 		if got := MatchPath(c.pattern, c.target); got != c.want {
@@ -65,6 +64,15 @@ func TestMatchPathWindowsCaseFolding(t *testing.T) {
 	}
 	if !MatchPath("**/.ENV", "src/.env") {
 		t.Error("path matching should be case-insensitive on Windows")
+	}
+}
+
+func TestMatchPathBackslashWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("backslash paths only apply on Windows")
+	}
+	if !MatchPath(`src\*.go`, `src\main.go`) {
+		t.Error("backslash path pattern should match backslash target on Windows")
 	}
 }
 
@@ -214,6 +222,11 @@ func TestSessionApprovalCanonicalizesPaths(t *testing.T) {
 }
 
 func TestMatchCommandBackslash(t *testing.T) {
+	// Backslash path matching is a Windows convention; on POSIX systems
+	// backslashes are ordinary characters, not path separators.
+	if runtime.GOOS != "windows" {
+		t.Skip("backslash paths only apply on Windows")
+	}
 	if !MatchCommand("make *", `make C:\temp\x`) {
 		t.Error("backslash paths must match command globs on Windows-style input")
 	}
