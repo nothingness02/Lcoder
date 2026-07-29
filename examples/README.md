@@ -11,7 +11,9 @@
 | 限制 agent 只能用只读工具 | 模式 (Mode) |
 | 接入外部 API 作为工具 | HTTP 工具 或 MCP |
 | 接入代码智能（codegraph） | MCP |
-| 写一个长期运行的自定义服务 | MCP 或 扩展 |
+| 实时监控 agent 活动（事件通知） | 扩展 (Extension) |
+| 添加自定义 TUI 斜杠命令 | 扩展 (Extension) |
+| 写入自定义数据到会话 | 扩展 (Extension) |
 
 ---
 
@@ -221,27 +223,56 @@ mcp_servers:
 
 ## 6. 扩展 (Extensions)
 
-> Shell hook 覆盖 90% 场景。仅在需要进程常驻、事件订阅、会话持久化时使用扩展。
+> Shell hook 覆盖 90% 的拦截/修改场景。扩展用于 shell hook 做不到的事：**事件订阅、自定义命令、会话数据持久化**。
+>
+> 扩展是**常驻 JSON-RPC 子进程**，一次启动、持续服务。和 MCP 不冲突——MCP 给 agent 加工具，扩展给 agent 加监控和拦截。
 
-独立子进程，通过 JSON-RPC 2.0 与 Lcoder 通信。参阅 [sensitive-guard/main.go](sensitive-guard/main.go)。
+### 扩展独有能力（shell hook 做不到）
 
-```yaml
-# extension.yaml
-name: my-extension
-command: ["go", "run", "."]
+| 能力 | 说明 | 示例 |
+|------|------|------|
+| 事件订阅 | 接收 `event/turn_start` 等实时通知 | 实时分析 agent 活动 |
+| 会话数据 | `session/append_entry` 读写自定义条目 | 存储扩展私有状态 |
+| 自定义命令 | 声明 TUI 斜杠命令 | `/review` `/deploy` |
+| 进程常驻 | 保持状态，避免每次冷启动 | 缓存、索引 |
+
+### 和 Shell Hook 的关系
+
 ```
+一个工具调用经过的检查链：
+
+  Shell Hook (before_tool_call)  ← 先执行，用户配置的脚本
+       ↓
+  Extension (hook/tool_call)     ← 后执行，JSON-RPC 扩展
+       ↓
+  工具.Execute()
+       ↓
+  Extension (hook/tool_result)   ← 先改写
+       ↓
+  Shell Hook (after_tool_result) ← 后改写
+```
+
+两者共存，不互斥。Shell hook 的命令简单直接，扩展的 JSON-RPC 协议更强大。
+
+### 启用方式
+
+扩展默认启用。Lcoder 启动时自动扫描以下目录：
+
+| 目录 | 作用域 | 信任 |
+|------|------|------|
+| `~/.lcoder/extensions/` | 全局 | 自动信任 |
+| `./.lcoder/extensions/` | 项目 | 首次需交互确认 |
+
+扫描到 `extension.yaml` 后自动启动对应子进程。
+
+### 禁用
 
 ```yaml
 # ~/.lcoder/config.yaml
 extensions:
-  dirs: ["~/.lcoder/extensions"]
+  disabled: ["noisy-logger"]   # 按名禁用
 ```
 
-### 扩展独有能力
+### 完整示例
 
-| 能力 | 说明 |
-|------|------|
-| 事件订阅 | 接收 `event/turn_start` 等实时通知 |
-| 会话数据 | `session/append_entry` 读写自定义条目 |
-| 自定义命令 | 声明 TUI 斜杠命令 |
-| 进程常驻 | 保持状态，避免每次冷启动 |
+参阅 [session-logger](session-logger/)——订阅 turn 事件并记录到文件。
