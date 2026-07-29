@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -140,6 +141,15 @@ func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) 
 		return models.ToolExecutionResult{}, err
 	}
 
+	// os.Stat follows symlinks but os.Rename would replace the link itself:
+	// resolve the real path first so editing a symlink edits its target and
+	// the link survives.
+	if lst, err := os.Lstat(path); err == nil && lst.Mode()&os.ModeSymlink != 0 {
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = resolved
+		}
+	}
+
 	info, err := os.Stat(path)
 	if err != nil {
 		return models.ToolExecutionResult{}, err
@@ -167,13 +177,14 @@ func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) 
 	committed := materializeModelText(newView, style)
 
 	// Stage 2: commit with backup + atomic rename, preserving the original
-	// file's permission bits.
-	backupPath := path + backupSuffix
+	// file's permission bits. tmp/backup names carry the call id so parallel
+	// edits to the same file cannot clobber each other's staging files.
+	backupPath := path + backupSuffix + "." + callID
 	if err := os.WriteFile(backupPath, original, 0o600); err != nil {
 		return models.ToolExecutionResult{}, fmt.Errorf("backup failed: %w", err)
 	}
 
-	tmpPath := path + tmpSuffix
+	tmpPath := path + tmpSuffix + "." + callID
 	if err := os.WriteFile(tmpPath, []byte(committed), info.Mode().Perm()); err != nil {
 		_ = os.Remove(backupPath)
 		return models.ToolExecutionResult{}, fmt.Errorf("write temp failed: %w", err)

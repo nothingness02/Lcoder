@@ -57,6 +57,9 @@ func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) 
 	outputs := tools.StringSlice(args, "outputs")
 
 	timeout := tools.Int(args, "timeout", 120)
+	if timeout <= 0 {
+		timeout = 120 // 0 would mean "already expired", not "no limit"
+	}
 
 	cwd := b.cwd
 	if !filepath.IsAbs(cwd) {
@@ -170,6 +173,13 @@ func (b *Bash) copyOutputs(outputs []string, cwd string) ([]string, error) {
 		}
 		src = filepath.Clean(src)
 		dst := resolveInCwd(cwd, out)
+		if src == dst {
+			// Nothing to copy: the output already lives at its destination.
+			// Copying it onto itself would truncate-then-rewrite for no gain
+			// and fail outright when the file does not exist yet.
+			copied = append(copied, dst)
+			continue
+		}
 		data, err := os.ReadFile(src)
 		if err != nil {
 			return copied, fmt.Errorf("read output %s: %w", out, err)

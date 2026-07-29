@@ -53,14 +53,24 @@ func (w *Write) Execute(ctx context.Context, callID string, args map[string]any)
 	}
 	path = resolveInCwd(w.cwd, path)
 
+	// See edit.go: rename would replace the symlink itself, so resolve the
+	// link target before staging (only when the link already exists).
+	if lst, err := os.Lstat(path); err == nil && lst.Mode()&os.ModeSymlink != 0 {
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = resolved
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return models.ToolExecutionResult{}, err
 	}
 
 	// Backup existing file before overwriting, and keep its permission bits.
+	// tmp/backup names carry the call id so parallel writes to the same file
+	// cannot clobber each other's staging files.
 	var hadBackup bool
 	mode := os.FileMode(0o644)
-	backupPath := path + backupSuffix
+	backupPath := path + backupSuffix + "." + callID
 	if info, statErr := os.Stat(path); statErr == nil {
 		mode = info.Mode().Perm()
 		original, err := os.ReadFile(path)
@@ -73,7 +83,7 @@ func (w *Write) Execute(ctx context.Context, callID string, args map[string]any)
 		hadBackup = true
 	}
 
-	tmpPath := path + tmpSuffix
+	tmpPath := path + tmpSuffix + "." + callID
 	if err := os.WriteFile(tmpPath, []byte(content), mode); err != nil {
 		if hadBackup {
 			_ = os.Remove(backupPath)

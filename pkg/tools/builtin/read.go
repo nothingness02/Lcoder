@@ -23,7 +23,7 @@ func NewRead(cwd string) tools.Executable {
 func (r *Read) Definition() models.ToolDefinition {
 	return models.ToolDefinition{
 		Name:        "read",
-		Description: "Read the contents of a file. Supports text files and images. For text files, output is truncated; use offset/limit for large files.",
+		Description: "Read the contents of a text file. Output is truncated; use offset/limit for large files.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -95,7 +95,7 @@ func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) 
 	lines := strings.Split(text, "\n")
 
 	limit := userLimit
-	if limit == 0 {
+	if limit <= 0 {
 		limit = defaultReadLines
 	}
 

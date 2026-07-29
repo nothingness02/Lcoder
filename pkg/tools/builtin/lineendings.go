@@ -48,9 +48,11 @@ func toModelTextView(raw string, style lineEndingStyle) string {
 }
 
 // materializeModelText converts edited model-view text back to disk bytes.
-// Only pure CRLF files are converted, and exactly once, so \r is never doubled.
+// Only pure CRLF files are converted. The view is normalized to LF first, so
+// a model that copied \r\n sequences into its edit does not get them doubled.
 func materializeModelText(view string, style lineEndingStyle) string {
 	if style == lineEndingCRLF {
+		view = strings.ReplaceAll(view, "\r\n", "\n")
 		return strings.ReplaceAll(view, "\n", "\r\n")
 	}
 	return view

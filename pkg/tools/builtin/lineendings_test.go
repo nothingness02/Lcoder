@@ -65,3 +65,16 @@ func TestMakeCarriageReturnsVisible(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+// A model that copies \r\n sequences into its edit (from bash output or raw
+// bytes) must not get them doubled when writing back to a CRLF file.
+func TestMaterializeDoesNotDoubleCR(t *testing.T) {
+	got := materializeModelText("line1\r\nline2", lineEndingCRLF)
+	if got != "line1\r\nline2" {
+		t.Fatalf("materialize doubled CR: %q", got)
+	}
+	got = materializeModelText("a\nb\r\nc", lineEndingCRLF)
+	if got != "a\r\nb\r\nc" {
+		t.Fatalf("materialize = %q, want %q", got, "a\r\nb\r\nc")
+	}
+}
