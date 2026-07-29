@@ -27,6 +27,7 @@ func TestNewContextManager_BlockStabilityContract(t *testing.T) {
 		"SKILLS",
 		[]models.AgentMessage{models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hi"})},
 		nil,
+		TemplateContext{},
 	)
 
 	for _, tc := range []struct {
@@ -66,6 +67,7 @@ func TestNewContextManager_StabilityOrdering(t *testing.T) {
 		"", nil, "PROJECT DOCS", "SKILLS",
 		[]models.AgentMessage{models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hi"})},
 		nil,
+		TemplateContext{},
 	)
 
 	rank := map[contextmgr.Stability]int{

@@ -51,7 +51,12 @@ Your primary goal is to help users with software engineering tasks by taking act
 
 # Working Environment
 
-当前工作目录是项目的根目录。工具可能需要绝对路径参数。默认使用相对路径操作工作目录内的文件。不要访问工作目录外的文件，除非用户明确指示。
+- **Operating System**: {{ .OS }}
+- **Shell**: {{ .Shell }}
+- **Current date**: {{ .Now }}
+- **Working directory**: {{ .CWD }}
+
+The working directory is the project root. Prefer relative paths for files inside it. Tools may require absolute paths for some parameters — use them when the tool description asks for it. Do not access files outside the working directory unless the user explicitly instructs you to.
 
 # Project Information
 

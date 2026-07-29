@@ -207,7 +207,7 @@ func buildContextManager() *contextmgr.Manager {
 		contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(5)),
 	)
 
-	sysText := agentsetup.BuildSystemPrompt()
+	sysText := agentsetup.BuildSystemPrompt(agentsetup.TemplateContext{})
 	if sysText == "" {
 		sysText = "You are Lcoder, an expert software engineering agent."
 	}

@@ -7,7 +7,9 @@ package agentsetup
 
 import (
 	"os"
+	"strings"
 	"sync"
+	"text/template"
 
 	"github.com/lcoder/lcoder"
 	"github.com/lcoder/lcoder/internal/paths"
@@ -19,11 +21,19 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-// BuildSystemPrompt assembles the shared base system prompt: a fixed persona
-// and operating contract. Project context and activated skills are injected as
-// separate context-manager blocks (project_docs / skills) so they are not
-// duplicated in the system block.
-func BuildSystemPrompt() string {
+// TemplateContext provides runtime values for template rendering in system.md.
+type TemplateContext struct {
+	CWD   string
+	OS    string
+	Shell string
+	Now   string
+}
+
+// BuildSystemPrompt assembles the shared base system prompt from system.md,
+// rendering template variables ({{ .CWD }}, {{ .OS }}, etc.) with the given
+// context. Project context and activated skills are injected as separate
+// context-manager blocks (project_docs / skills) so they are not duplicated.
+func BuildSystemPrompt(ctx TemplateContext) string {
 	// Prompts live in markdown files, not code. Precedence: user override
 	// (~/.lcoder/modes/system.md) -> dev checkout (configs/modes/system.md,
 	// so prompt edits take effect without a rebuild) -> embedded default
@@ -33,12 +43,29 @@ func BuildSystemPrompt() string {
 		"configs/modes/system.md",
 		"../../configs/modes/system.md", // from pkg/agentsetup tests
 	}
+	var tmpl string
 	for _, path := range candidates {
 		if content, err := os.ReadFile(path); err == nil {
-			return string(content)
+			tmpl = string(content)
+			break
 		}
 	}
-	return lcoder.SystemPromptMD
+	if tmpl == "" {
+		tmpl = lcoder.SystemPromptMD
+	}
+	return renderTemplate(tmpl, ctx)
+}
+
+func renderTemplate(tmpl string, data any) string {
+	t, err := template.New("").Parse(tmpl)
+	if err != nil {
+		return tmpl
+	}
+	var buf strings.Builder
+	if err := t.Execute(&buf, data); err != nil {
+		return tmpl
+	}
+	return buf.String()
 }
 
 // NewContextManager builds the token-budgeted context manager with the system,
@@ -126,7 +153,7 @@ func SessionCompactionSink(active func() CompactionRecorder) contextmgr.Compacti
 	}
 }
 
-func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking string, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage, sink contextmgr.CompactionSink) *contextmgr.Manager {
+func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking string, llmClient *llm.Client, contextText, skillsBlock string, activeMessages []models.AgentMessage, sink contextmgr.CompactionSink, tmplCtx TemplateContext) *contextmgr.Manager {
 	opts := []contextmgr.Option{
 		contextmgr.WithWindowPolicy(contextmgr.NewKeepRecentInBudget(cfg.Context.MinRecent)),
 		contextmgr.WithMinRecent(cfg.Context.MinRecent),
@@ -151,7 +178,7 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking st
 		StaticRatio:      cfg.Context.StaticRatio,
 	}, opts...)
 
-	systemText := BuildSystemPrompt()
+	systemText := BuildSystemPrompt(tmplCtx)
 	mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system", contextmgr.StabilityStatic, 100,
 		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: systemText})))
 

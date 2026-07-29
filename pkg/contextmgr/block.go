@@ -16,7 +16,6 @@ const (
 	BlockSkills      BlockKind = "skills"       // Activated skills
 	BlockProjectDocs BlockKind = "project_docs" // AGENTS.md / CLAUDE.md
 	BlockRecent      BlockKind = "recent"       // Recent full messages
-	BlockRetrieval   BlockKind = "retrieval"    // RAG / code index results
 
 	// BlockMode is retained for one reason only: evicting a mode block left in a
 	// checkpoint written before mode text moved to an ephemeral reminder. Nothing
@@ -130,7 +129,6 @@ func DefaultBlockOrder() []BlockKind {
 		BlockMode, // legacy checkpoints only; see the BlockMode comment
 		BlockSkills,
 		BlockProjectDocs,
-		BlockRetrieval,
 		BlockRecent,
 	}
 }

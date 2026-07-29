@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -22,7 +24,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/extension/bridge"
-	"github.com/lcoder/lcoder/pkg/extension/runtime"
+	extruntime "github.com/lcoder/lcoder/pkg/extension/runtime"
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/models"
@@ -136,7 +138,7 @@ type agentSetup struct {
 	checkpointStore checkpoint.Store
 	obsWatcher      *observability.ConfigWatcher
 	subagentHost    *agenthost.Host
-	extHost         *runtime.Host  // nil when no extensions loaded
+	extHost         *extruntime.Host  // nil when no extensions loaded
 	extBridge       *bridge.Bridge // nil when no extensions loaded
 	cleanup         func()
 }
@@ -294,8 +296,14 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", thinkWarn)
 	}
 	activeSession := agentsetup.NewActiveSession(sess)
+	tmplCtx := agentsetup.TemplateContext{
+		CWD:   cwd,
+		OS:    runtime.GOOS,
+		Shell: os.Getenv("SHELL"),
+		Now:   time.Now().Format(time.RFC3339),
+	}
 	mgr := agentsetup.NewContextManager(cfg, budget, thinking, llmClient, contextText, skillsBlock,
-		sess.EffectiveMessages(), agentsetup.SessionCompactionSink(activeSession.Get))
+		sess.EffectiveMessages(), agentsetup.SessionCompactionSink(activeSession.Get), tmplCtx)
 
 	var reminderProducers []agent.ReminderProducer
 
@@ -316,7 +324,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			Profiles:     profiles,
 			ParentBus:    bus,
 			NewContextManager: func() *contextmgr.Manager {
-				return agentsetup.NewContextManager(cfg, budget, thinking, llmClient, "", "", nil, nil)
+				return agentsetup.NewContextManager(cfg, budget, thinking, llmClient, "", "", nil, nil, tmplCtx)
 			},
 		})
 		subagentHost.SetHooks(makeBeforeToolCall(cfg.Hooks, sess.ID), nil)
@@ -341,7 +349,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	agBuilder := agent.NewBuilder().
 		WithConfig(agent.Config{
 			SystemPrompt:       "",
-			BaseSystemPrompt:   agentsetup.BuildSystemPrompt(),
+			BaseSystemPrompt:   agentsetup.BuildSystemPrompt(tmplCtx),
 			Model:              models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
 			ToolExecutionMode:  models.ExecutionParallel,
 			ContextManager:     mgr,

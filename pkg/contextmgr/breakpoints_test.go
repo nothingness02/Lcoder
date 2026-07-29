@@ -103,20 +103,25 @@ func TestCachePolicyAggressive_PrefixAlwaysAnchored(t *testing.T) {
 func TestCacheHintSkip_NoBreakpointOnBlock(t *testing.T) {
 	mgr := NewManager(TokenBudget{MaxTotal: 10000, ReserveOutput: 0})
 	mgr.SetSystemPrompt(strings.Repeat("sys ", 300))
-	retrieval := NewBlock(BlockRetrieval, "retrieval", StabilityStable, 50,
-		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: "rag result"}))
-	retrieval.CacheHint = CacheHintSkip
-	mgr.SetBlock(retrieval)
+	skills := NewBlock(BlockSkills, "skills", StabilityStable, 50,
+		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: "skill info"}))
+	skills.CacheHint = CacheHintSkip
+	mgr.SetBlock(skills)
 	mgr.ReplaceRecent([]models.AgentMessage{
 		models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "hi"}),
 	})
 	req, _ := mgr.BuildTurnRequest(models.ModelRef{ID: "test"}, nil)
+	// System blocks with CacheHintSkip must not produce extra breakpoints.
+	// The tail anchor at the last message is expected.
+	nonTail := 0
+	lastMsgIdx := len(req.Messages) - 1
 	for _, bp := range req.CacheBreakpoints {
-		// retrieval block messages start at index 0 because it is not a system block,
-		// but with CacheHintSkip it must not be anchored.
-		if bp == 0 {
-			t.Fatalf("CacheHintSkip block got breakpoint at 0: %v", req.CacheBreakpoints)
+		if bp != lastMsgIdx {
+			nonTail++
 		}
+	}
+	if nonTail > 0 {
+		t.Fatalf("CacheHintSkip block produced %d non-tail breakpoints: %v", nonTail, req.CacheBreakpoints)
 	}
 }
 

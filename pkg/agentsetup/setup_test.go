@@ -9,7 +9,7 @@ import (
 )
 
 func TestBuildSystemPrompt(t *testing.T) {
-	p := BuildSystemPrompt()
+	p := BuildSystemPrompt(TemplateContext{})
 	if p == "" {
 		t.Fatal("expected non-empty prompt")
 	}
@@ -37,7 +37,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 // them inside the system block.
 func TestContextManagerBlocks(t *testing.T) {
 	cfg := config.Config{Context: config.ContextConfig{MinRecent: 1}}
-	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "project context here", "skill block here", nil, nil)
+	mgr := NewContextManager(cfg, config.TokenBudget{MaxTotal: 100000, TargetTotal: 90000, ReserveOutput: 8192}, "", nil, "project context here", "skill block here", nil, nil, TemplateContext{})
 
 	sys, ok := mgr.GetBlock(contextmgr.BlockSystem, "system")
 	if !ok {
