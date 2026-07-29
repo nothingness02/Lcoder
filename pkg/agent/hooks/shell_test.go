@@ -102,11 +102,12 @@ func TestShellBeforeToolCall_Timeout(t *testing.T) {
 		ToolCall: models.ToolCallContent{Name: "write", ID: "1"},
 		Args:     map[string]any{"path": "main.go"},
 	}
-	_, err := h(context.Background(), info)
-	if err == nil {
-		t.Fatal("expected timeout error")
+	// Fail-open: timeout returns nil (allow), not error.
+	result, err := h(context.Background(), info)
+	if err != nil {
+		t.Fatalf("timeout must fail-open (no error), got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("expected timeout error, got %v", err)
+	if result != nil {
+		t.Fatalf("timeout must fail-open (no block), got: %+v", result)
 	}
 }

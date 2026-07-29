@@ -19,17 +19,27 @@ const defaultShellHookTimeout = 30 * time.Second
 // shellHookInput is the JSON payload sent to a shell hook via stdin.
 // Matches Kimi Code's hook input convention.
 type shellHookInput struct {
-	HookEvent   string         `json:"hook_event"`
-	ToolName    string         `json:"tool_name,omitempty"`
-	ToolInput   map[string]any `json:"tool_input,omitempty"`
-	ToolResult  string         `json:"tool_result,omitempty"`
-	IsError     bool           `json:"is_error,omitempty"`
-	SessionID   string         `json:"session_id,omitempty"`
-	CWD         string         `json:"cwd,omitempty"`
+	HookEvent  string         `json:"hook_event"`
+	ToolName   string         `json:"tool_name,omitempty"`
+	ToolInput  map[string]any `json:"tool_input,omitempty"`
+	ToolResult string         `json:"tool_result,omitempty"`
+	IsError    bool           `json:"is_error,omitempty"`
+	SessionID  string         `json:"session_id,omitempty"`
+	CWD        string         `json:"cwd,omitempty"`
 }
 
 // runShellHook spawns a shell command, pipes JSON input to stdin, and
-// interprets the exit code.
+// interprets the exit code. Process-tree kill ensures the entire command
+// tree (shell + grandchildren) is terminated on timeout or abort.
+//
+// Exit-code semantics (matching Kimi Code):
+//
+//	0 — allow
+//	2 — block (stderr is the reason)
+//	other — allow
+//
+// Fail-open: timeout and abort signal result in "allow", never error,
+// so a wedged hook cannot block the agent.
 func runShellHook(ctx context.Context, cfg config.ShellHookConfig, input shellHookInput) (*agent.BeforeToolCallResult, error) {
 	if !cfg.Enabled || cfg.Command == "" {
 		return nil, nil
@@ -44,6 +54,7 @@ func runShellHook(ctx context.Context, cfg config.ShellHookConfig, input shellHo
 	defer cancel()
 
 	cmd := exec.CommandContext(hookCtx, "sh", "-c", cfg.Command)
+	setProcGroup(cmd)
 	cmd.Stdin = bytes.NewReader(mustMarshal(input))
 
 	var stdout, stderr bytes.Buffer
@@ -51,10 +62,23 @@ func runShellHook(ctx context.Context, cfg config.ShellHookConfig, input shellHo
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	exitCode := cmd.ProcessState.ExitCode()
 
+	// Kill the whole process tree on the way out so no grandchildren leak.
+	killTree(cmd)
+
+	exitCode := 0
+	if cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
+	}
+
+	// Fail-open: timeout → allow.
 	if err != nil && hookCtx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("shell hook timed out after %v", timeout)
+		return nil, nil
+	}
+
+	// Fail-open: abort → allow.
+	if err != nil && ctx.Err() != nil {
+		return nil, nil
 	}
 
 	switch exitCode {
@@ -67,10 +91,12 @@ func runShellHook(ctx context.Context, cfg config.ShellHookConfig, input shellHo
 		}
 		return &agent.BeforeToolCallResult{Block: true, Reason: reason}, nil
 	default:
+		// Non-zero exit but not 2: allow. The hook is advisory — a crash or
+		// unexpected failure must not block the agent (fail-open).
 		if err != nil {
 			return nil, fmt.Errorf("shell hook exited %d: %s", exitCode, stderr.String())
 		}
-		return nil, nil // non-zero but not 2 → allow with warning
+		return nil, nil
 	}
 }
 
