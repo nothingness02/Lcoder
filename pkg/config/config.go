@@ -66,6 +66,16 @@ type SubagentConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// SkillsConfig controls skill discovery and visibility.
+type SkillsConfig struct {
+	// Disabled lists skill names toggled off (see ~/.lcoder/skills.yaml for
+	// the persisted TUI toggles; both apply).
+	Disabled []string `yaml:"disabled"`
+	// ExtraDirs are additional skill directories (user scope; "~" and
+	// cwd-relative paths are supported).
+	ExtraDirs []string `yaml:"extra_dirs"`
+}
+
 // Config is the full Lcoder configuration.
 type Config struct {
 	Provider       string                  `yaml:"provider"`
@@ -78,6 +88,7 @@ type Config struct {
 	HTTPTools      []HTTPToolConfig        `yaml:"http_tools"`
 	ToolExtensions []ToolExtensionConfig   `yaml:"tool_extensions"`
 	MCPServers     []MCPServerConfig       `yaml:"mcp_servers"`
+	Skills         SkillsConfig            `yaml:"skills"`
 	Hooks          HookConfig              `yaml:"hooks"`
 	Extensions     ExtensionsConfig        `yaml:"extensions"`
 	Providers      map[string]ProviderConn `yaml:"providers"`
@@ -110,13 +121,13 @@ func DefaultConfig() Config {
 			DropThreshold:    1.0,
 		},
 		Subagent: SubagentConfig{
-			Enabled: false,
+			Enabled: true,
 		},
 		Permissions: PermissionConfig{
 			Rules: map[string]map[string]string{
 				"read":  {"*": "allow"},
-				"write": {"*": "allow"},
-				"edit":  {"*": "allow"},
+				"write": {"*": "ask"},
+				"edit":  {"*": "ask"},
 				"ls":    {"*": "allow"},
 				"grep":  {"*": "allow"},
 				"find":  {"*": "allow"},
@@ -363,25 +374,34 @@ func Load() (Config, error) {
 		cfg.ModelsSource = v
 	}
 
+	Finalize(&cfg)
+	return cfg, nil
+}
+
+// Finalize applies the post-parse steps every config path needs: credentials
+// merge, {env:VAR} expansion in provider settings, and the models.dev catalog
+// fold. The --config <file> path in cmd/lcoder unmarshals the file directly
+// and must call this too, otherwise {env:VAR} keys are sent verbatim and
+// context budgets never resolve from the catalog.
+func Finalize(c *Config) {
 	// Fold TUI-managed credentials (~/.lcoder/credentials.yaml) into providers,
 	// without overriding hand-written config.providers fields.
 	if credPath := resolveCredentialsPath(); credPath != "" {
 		if creds, err := LoadCredentials(credPath); err == nil {
-			cfg.Providers = mergeCredentials(cfg.Providers, creds)
+			c.Providers = mergeCredentials(c.Providers, creds)
 		} else {
 			fmt.Fprintf(os.Stderr, "warning: 读取 credentials 失败,已忽略: %v\n", err)
 		}
 	}
 
 	// Expand {env:VAR} references in provider connection settings.
-	cfg.Providers = resolveProviders(cfg.Providers)
+	c.Providers = resolveProviders(c.Providers)
 
 	// Fold the shared model catalog (models.yaml) into the config when present,
 	// so context budgets and capabilities come from a single source of truth.
 	// ResolveContextBudget reads catalog windows directly via Catalog.Lookup.
 	if cat, path, ok := LoadModelCatalog(); ok {
-		cfg.Catalog = cat
-		cfg.ModelsConfigPath = path
+		c.Catalog = cat
+		c.ModelsConfigPath = path
 	}
-	return cfg, nil
 }

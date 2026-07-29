@@ -14,10 +14,12 @@ import (
 	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/agent/hooks"
+	"github.com/lcoder/lcoder/pkg/agenthost"
 	"github.com/lcoder/lcoder/pkg/agentsetup"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/config"
 	contextloader "github.com/lcoder/lcoder/pkg/context"
+	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/extension/bridge"
 	"github.com/lcoder/lcoder/pkg/extension/runtime"
@@ -98,6 +100,7 @@ func loadConfig() (config.Config, error) {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return cfg, err
 		}
+		config.Finalize(&cfg)
 	} else {
 		loaded, err := config.Load()
 		if err != nil {
@@ -121,25 +124,26 @@ func loadConfig() (config.Config, error) {
 }
 
 type agentSetup struct {
-	ag               *agent.Agent
-	sess             *session.Session
-	activeSession    *agentsetup.ActiveSession
-	store            *session.Store
-	bus              *events.Bus
-	mcpRegistry      *mcp.Registry
-	cfg              agentConfig
-	cwd              string
-	llmClient        *llm.Client
-	checkpointStore  checkpoint.Store
-	obsWatcher       *observability.ConfigWatcher
-	extHost          *runtime.Host  // nil when no extensions loaded
-	extBridge        *bridge.Bridge // nil when no extensions loaded
-	cleanup          func()
+	ag              *agent.Agent
+	sess            *session.Session
+	activeSession   *agentsetup.ActiveSession
+	store           *session.Store
+	bus             *events.Bus
+	mcpRegistry     *mcp.Registry
+	cfg             agentConfig
+	cwd             string
+	llmClient       *llm.Client
+	checkpointStore checkpoint.Store
+	obsWatcher      *observability.ConfigWatcher
+	subagentHost    *agenthost.Host
+	extHost         *runtime.Host  // nil when no extensions loaded
+	extBridge       *bridge.Bridge // nil when no extensions loaded
+	cleanup         func()
 }
 
 type agentConfig struct {
 	config.Config
-	loadedSkillCatalog []skills.SkillMeta
+	skillCatalog       *skills.Catalog
 	modeManager        *agent.ModeManager
 }
 
@@ -150,9 +154,12 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		return nil, err
 	}
 
-	skillPaths := skills.DefaultPaths(cwd)
-	loadedSkillCatalog, _ := skills.LoadCatalog(skillPaths)
-	skillsBlock := skills.ToCatalogBlock(loadedSkillCatalog)
+	skillCatalog := skills.Discover(skills.DefaultSources(cwd, cfg.Skills.ExtraDirs))
+	skillCatalog.SetDisabledAll(cfg.Skills.Disabled)
+	if persisted, err := skills.LoadDisabledFile(paths.LCoderHome("skills.yaml")); err == nil {
+		skillCatalog.SetDisabledAll(persisted)
+	}
+	skillsBlock := skillCatalog.Block()
 
 	// Non-fatal capability check: warn if the configured model is known not to
 	// support tool calling, since the agent relies on tools.
@@ -170,14 +177,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	if err := registry.RegisterBuiltinFactories(cwd); err != nil {
 		return nil, fmt.Errorf("register built-in tools: %w", err)
 	}
-	registry.Register(skills.UseSkillToolName, builtinTools.NewUseSkill(cwd, loadedSkillCatalog))
-	if cfg.Subagent.Enabled {
-		runner, err := subagent.NewRunner(cwd)
-		if err != nil {
-			return nil, fmt.Errorf("init subagent runner: %w", err)
-		}
-		registry.Register("subagent", builtinTools.NewSubagent(cwd, runner))
-	}
+	registry.Register(skills.UseSkillToolName, builtinTools.NewUseSkill(cwd, skillCatalog))
 	for _, cfgTool := range cfg.HTTPTools {
 		registry.Register(cfgTool.Name, tools.NewHTTPExecutable(tools.HTTPConfig{
 			Name:          cfgTool.Name,
@@ -299,6 +299,42 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 
 	var reminderProducers []agent.ReminderProducer
 
+	var subagentHost *agenthost.Host
+	if cfg.Subagent.Enabled {
+		profiles, err := subagent.DiscoverAgents(cwd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: load subagent profiles: %v\n", err)
+		}
+		subagentHost = agenthost.NewHost(agenthost.HostConfig{
+			LLMClient:    llmClient,
+			Registry:     registry,
+			ModeManager:  modeManager,
+			Permissions:  permEngine,
+			Model:        models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
+			CWD:          cwd,
+			SessionStore: sessStore,
+			Profiles:     profiles,
+			ParentBus:    bus,
+			NewContextManager: func() *contextmgr.Manager {
+				return agentsetup.NewContextManager(cfg, budget, thinking, llmClient, "", "", nil, nil)
+			},
+		})
+		subagentHost.SetHooks(makeBeforeToolCall(cfg.Hooks), nil)
+		subagentHost.SetParentSession(sess.ID)
+		subagentTool := builtinTools.NewSubagent(cwd, subagentHost, profiles)
+		subagentTool.SetNotifier(func(text string) {
+			_ = bus.Emit(context.Background(), events.BackgroundNoticeEvent{
+				Base: events.Base{Type: events.BackgroundNotice},
+				Text: text,
+			})
+		})
+		registry.Register("subagent", subagentTool)
+		// Background subagent completions surface as per-turn reminders.
+		reminderProducers = append(reminderProducers, func([]models.AgentMessage) []string {
+			return subagentTool.DrainNotifications()
+		})
+	}
+
 	chkStore := checkpoint.NewFileStore(filepath.Join(session.DefaultDir(), "checkpoints"))
 	coreTools := cfg.Context.CoreTools
 
@@ -336,8 +372,12 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	// project ones on trust, spawn and handshake, then bridge into the agent.
 	extHost, extBridge := startExtensions(cfg, cwd, sess, bus)
 	if extBridge != nil {
-		ag.SetBeforeToolCall(hooks.CompositeBeforeToolCall(makeBeforeToolCall(cfg.Hooks), extBridge.BeforeToolCall()))
+		before := hooks.CompositeBeforeToolCall(makeBeforeToolCall(cfg.Hooks), extBridge.BeforeToolCall())
+		ag.SetBeforeToolCall(before)
 		ag.SetAfterToolCall(extBridge.AfterToolCall())
+		if subagentHost != nil {
+			subagentHost.SetHooks(before, extBridge.AfterToolCall())
+		}
 		mgr.SetSummarizer(extBridge.Summarizer(mgr.Summarizer()))
 	}
 
@@ -358,11 +398,12 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		store:           sessStore,
 		bus:             bus,
 		mcpRegistry:     mcpRegistry,
-		cfg:             agentConfig{Config: cfg, loadedSkillCatalog: loadedSkillCatalog, modeManager: modeManager},
+		cfg:             agentConfig{Config: cfg, skillCatalog: skillCatalog, modeManager: modeManager},
 		cwd:             cwd,
 		llmClient:       llmClient,
 		checkpointStore: chkStore,
 		obsWatcher:      obsWatcher,
+		subagentHost:    subagentHost,
 		extHost:         extHost,
 		extBridge:       extBridge,
 		cleanup: func() {
@@ -449,6 +490,12 @@ func writeCrashCheckpoint(setup *agentSetup) {
 
 func runJSONMode(ctx context.Context, setup *agentSetup, prompt string) error {
 	setup.ag.SetUserConfirm(cliConfirm{})
+	if setup.subagentHost != nil {
+		setup.subagentHost.SetUserConfirm(cliConfirm{})
+	}
+	if setup.subagentHost != nil {
+		setup.subagentHost.SetUserConfirm(cliConfirm{})
+	}
 	var msg models.AgentMessage
 	if prompt != "" {
 		// Slash-prefixed input (extension/builtin commands, manual skill
@@ -527,7 +574,7 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 	// A manual "/skill:name args" trigger folds the skill body into the user
 	// message; the model can also activate skills on its own via use_skill.
 	if name, rest, ok := skills.ParseManualTrigger(prompt); ok {
-		meta, found := skills.FindByName(setup.cfg.loadedSkillCatalog, name)
+		meta, found := setup.cfg.skillCatalog.Find(name)
 		if !found {
 			return fmt.Errorf("skill %q not found", name)
 		}
@@ -597,6 +644,12 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 	}
 
 	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup,
-		func(s *session.Session) { setup.activeSession.Set(s) },
-		setup.cfg.loadedSkillCatalog...)
+		func(s *session.Session) {
+			setup.activeSession.Set(s)
+			if setup.subagentHost != nil {
+				setup.subagentHost.SetParentSession(s.ID)
+			}
+		},
+		setup.subagentHost,
+		setup.cfg.skillCatalog)
 }

@@ -99,7 +99,7 @@ func (c cliConfirm) ConfirmWithScope(ctx context.Context, info agent.ToolCallInf
 		fmt.Fprint(os.Stderr, "Destructive command (global allow disabled).\n")
 		fmt.Fprint(os.Stderr, "Allow? (y = once / p = project / N = deny): ")
 	} else {
-		fmt.Fprint(os.Stderr, "Allow? (y = once / p = project / g = global / N = deny): ")
+		fmt.Fprint(os.Stderr, "Allow? (y = once / s = session / p = project / g = global / N = deny): ")
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -122,6 +122,8 @@ func parseConfirmScope(s string) (agent.ConfirmScope, error) {
 	switch strings.ToLower(s) {
 	case "y", "yes", "once":
 		return agent.ScopeOnce, nil
+	case "s", "session":
+		return agent.ScopeSession, nil
 	case "p", "project":
 		return agent.ScopeProject, nil
 	case "g", "global":

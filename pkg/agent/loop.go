@@ -351,6 +351,20 @@ func (a *Agent) TaskManager() *task.Manager {
 	return a.taskMgr
 }
 
+// ContextManager exposes the context manager for block-level updates (e.g.
+// refreshing the skills block after a runtime skill toggle).
+func (a *Agent) ContextManager() *contextmgr.Manager {
+	return a.mgr
+}
+
+// ClearSkillFilter lifts any active skill tool restriction (used when the
+// active skill is disabled at runtime).
+func (a *Agent) ClearSkillFilter() {
+	if a.executor != nil {
+		a.executor.updateSkillFilter(map[string]any{skills.AllowedToolsDetailsKey: []string(nil)})
+	}
+}
+
 // SetUserConfirm injects the interactive confirmation handler.
 func (a *Agent) SetUserConfirm(uc UserConfirmation) {
 	a.cfg.UserConfirm = uc
@@ -382,6 +396,9 @@ func (a *Agent) Continue(ctx context.Context) error {
 
 // Mode returns the active mode name.
 func (a *Agent) Mode() string {
+	if a.executor != nil {
+		return a.executor.currentModeName()
+	}
 	return a.cfg.Mode
 }
 

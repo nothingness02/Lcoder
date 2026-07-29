@@ -140,3 +140,13 @@ func TestPrepareAgentWiresModeManager(t *testing.T) {
 		t.Fatal("expected at least one default mode to be loaded")
 	}
 }
+func TestParseConfirmScopeSession(t *testing.T) {
+	scope, err := parseConfirmScope("s")
+	if err != nil || scope != agent.ScopeSession {
+		t.Fatalf("s should map to ScopeSession, got %v, %v", scope, err)
+	}
+	scope, err = parseConfirmScope("session")
+	if err != nil || scope != agent.ScopeSession {
+		t.Fatalf("session should map to ScopeSession, got %v, %v", scope, err)
+	}
+}

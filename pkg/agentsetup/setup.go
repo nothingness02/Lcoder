@@ -9,7 +9,9 @@ import (
 	"os"
 	"sync"
 
+	"github.com/lcoder/lcoder"
 	"github.com/lcoder/lcoder/internal/paths"
+
 	"github.com/lcoder/lcoder/pkg/compaction"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
@@ -22,26 +24,21 @@ import (
 // separate context-manager blocks (project_docs / skills) so they are not
 // duplicated in the system block.
 func BuildSystemPrompt() string {
-	// var b strings.Builder
-	// b.WriteString("You are Lcoder, an expert software engineering agent.\n\n")
-	// b.WriteString("Operating guidelines:\n")
-	// b.WriteString("- Ground every claim in tool output. Never answer about file contents, repository state, or command results from memory or assumption — read the file or run the command first, then answer from what the tool actually returned.\n")
-	// b.WriteString("- Prefer parallel tool calls when the operations are independent.\n")
-	// b.WriteString("- Keep working across turns until the task is genuinely complete. You see each tool's result before choosing the next step, so verify rather than guess.\n")
-	// b.WriteString("- Signal completion by replying with a final message that makes NO tool calls: a concise summary of what you did and the outcome. Do not stop early with a plain-text answer while work remains, and do not keep calling tools once the task is done.")
-	// return b.String()
-	// 开发环境用txt来快速构建和查看提示词的更改带来的效果的影响
+	// Prompts live in markdown files, not code. Precedence: user override
+	// (~/.lcoder/modes/system.md) -> dev checkout (configs/modes/system.md,
+	// so prompt edits take effect without a rebuild) -> embedded default
+	// (always present, even for single-file installs).
 	candidates := []string{
-		"configs/modes/system.txt",              // 从项目根目录运行
-		"../../configs/modes/system.txt",        // 从 pkg/agentsetup 测试
-		paths.LCoderHome("modes", "system.txt"), // 用户全局覆盖
+		paths.LCoderHome("modes", "system.md"),
+		"configs/modes/system.md",
+		"../../configs/modes/system.md", // from pkg/agentsetup tests
 	}
 	for _, path := range candidates {
 		if content, err := os.ReadFile(path); err == nil {
 			return string(content)
 		}
 	}
-	return ""
+	return lcoder.SystemPromptMD
 }
 
 // NewContextManager builds the token-budgeted context manager with the system,

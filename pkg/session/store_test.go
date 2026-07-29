@@ -62,3 +62,22 @@ func TestCreateDoesNotWriteEmptySession(t *testing.T) {
 		t.Fatalf("expected empty sessions list, got %d", len(list))
 	}
 }
+
+// Subagent journals carry the subagent/meta marker so listings can skip them.
+func TestIsSubagentJournal(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	sess, err := store.Create(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.IsSubagentJournal() {
+		t.Fatal("fresh session must not be a journal")
+	}
+	if err := sess.AppendCustomEntry("subagent/meta", []byte(`{"profile":"explore"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !sess.IsSubagentJournal() {
+		t.Fatal("session with subagent/meta must be a journal")
+	}
+}

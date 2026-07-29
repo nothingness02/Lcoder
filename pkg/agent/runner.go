@@ -25,6 +25,8 @@ type Runner interface {
 	Abort()
 	SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget)
 	TaskManager() *task.Manager
+	// ClearSkillFilter lifts any active skill tool restriction.
+	ClearSkillFilter()
 }
 
 // ModeSwitcher extends Runner with the ability to create a new agent instance

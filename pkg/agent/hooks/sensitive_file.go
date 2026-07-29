@@ -49,7 +49,14 @@ func SensitiveFileCheck(patterns []string) agent.BeforeToolCallHook {
 
 func matchPattern(pattern, path string) (bool, error) {
 	if strings.Contains(pattern, "*") {
-		matched, err := filepath.Match(pattern, filepath.Base(path))
+		// Patterns with a path separator ("secrets/*") match the full path;
+		// plain globs ("*.env") match the basename. Matching only the
+		// basename would silently disable path-shaped patterns.
+		target := filepath.Base(path)
+		if strings.ContainsAny(pattern, `/\`) {
+			target = filepath.ToSlash(filepath.Clean(path))
+		}
+		matched, err := filepath.Match(filepath.ToSlash(pattern), target)
 		if err != nil {
 			return false, err
 		}

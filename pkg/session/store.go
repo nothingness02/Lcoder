@@ -96,7 +96,14 @@ func (s *Store) Load(path string) (*Session, error) {
 	defer f.Close()
 
 	sess := &Session{Path: path}
+	if info, err := f.Stat(); err == nil {
+		sess.CreatedAt = info.ModTime().Unix()
+	}
 	scanner := bufio.NewScanner(f)
+	// Lines are whole messages serialized as one JSON object; large file
+	// reads and diffs easily exceed bufio's 64KB default, which would make
+	// the whole session unreadable.
+	scanner.Buffer(make([]byte, 0, 1<<20), 64<<20)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -199,6 +206,8 @@ func (s *Session) AppendMissing(msgs []models.AgentMessage) error {
 			break
 		}
 	}
+	// Stage everything first, then persist once — N new messages should not
+	// cost N full-file rewrites.
 	for _, m := range msgs {
 		if m.ID == "" || have[m.ID] {
 			continue
@@ -208,12 +217,12 @@ func (s *Session) AppendMissing(msgs []models.AgentMessage) error {
 				continue
 			}
 		}
-		if err := s.appendLocked(m); err != nil {
+		if err := s.stage(m); err != nil {
 			return err
 		}
 		have[m.ID] = true
 	}
-	return nil
+	return s.saveLocked()
 }
 
 // Append adds a message to the current branch and persists it.
@@ -236,7 +245,16 @@ func (s *Session) appendLocked(msg models.AgentMessage) error {
 // stage applies the common metadata/parent wiring and appends the message to
 // the in-memory list (shared by Append and AppendCompactionEntry).
 func (s *Session) stage(msg models.AgentMessage) error {
-	if msg.Metadata == nil {
+	// Copy the metadata map before writing session fields into it: callers
+	// share this map with their in-memory messages (contextmgr returns the
+	// same references), and it must not be mutated behind their backs.
+	if msg.Metadata != nil {
+		cp := make(map[string]any, len(msg.Metadata)+4)
+		for k, v := range msg.Metadata {
+			cp[k] = v
+		}
+		msg.Metadata = cp
+	} else {
 		msg.Metadata = make(map[string]any)
 	}
 	msg.Metadata["session_id"] = s.ID
@@ -307,6 +325,13 @@ const (
 type CustomEntry struct {
 	CustomType string
 	Data       json.RawMessage
+}
+
+// IsSubagentJournal reports whether the session is a subagent journal (it
+// carries a subagent/meta custom entry), so session pickers can keep it out
+// of the user-facing list.
+func (s *Session) IsSubagentJournal() bool {
+	return len(s.CustomEntries("subagent/meta")) > 0
 }
 
 // IsCustomEntry reports whether m is an extension custom entry.
@@ -533,7 +558,14 @@ func (s *Session) activeChain() []models.AgentMessage {
 	}
 
 	var branch []models.AgentMessage
+	seen := make(map[string]bool)
 	for cur := head; cur != ""; {
+		if seen[cur] {
+			// A hand-edited or corrupted file could form a parent loop; stop
+			// instead of spinning forever while holding the session lock.
+			break
+		}
+		seen[cur] = true
 		m, ok := byID[cur]
 		if !ok {
 			break

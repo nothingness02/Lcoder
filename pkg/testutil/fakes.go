@@ -50,6 +50,7 @@ func (f *FakeAgent) SetSessionID(id string) { f.SessionIDVal = id }
 func (f *FakeAgent) SetUserConfirm(uc agent.UserConfirmation) {}
 func (f *FakeAgent) Steer(models.AgentMessage)                {}
 func (f *FakeAgent) Abort()                                   {}
+func (f *FakeAgent) ClearSkillFilter()                        {}
 func (f *FakeAgent) SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget) {
 	f.SwitchedModel = ref
 	f.SwitchedBudget = budget

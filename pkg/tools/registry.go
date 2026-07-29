@@ -93,3 +93,21 @@ func (r *Registry) Execute(ctx context.Context, callID string, name string, args
 	}
 	return res, false
 }
+
+// Without returns a shallow copy of the registry excluding the named tools.
+// Used to strip delegation tools from a subagent that may not nest further.
+func (r *Registry) Without(names ...string) *Registry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	excluded := make(map[string]bool, len(names))
+	for _, n := range names {
+		excluded[n] = true
+	}
+	out := NewRegistry(r.cwd)
+	for name, exec := range r.tools {
+		if !excluded[name] {
+			out.tools[name] = exec
+		}
+	}
+	return out
+}

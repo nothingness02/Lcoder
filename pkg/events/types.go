@@ -26,6 +26,8 @@ const (
 	CompactionStarted   EventType = "compaction_started"
 	SessionLoaded       EventType = "session_loaded"
 	PermissionRequest   EventType = "permission_request"
+	SubagentActivity    EventType = "subagent_activity"
+	BackgroundNotice    EventType = "background_notice"
 )
 
 // Event is the interface implemented by all agent events.
