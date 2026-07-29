@@ -28,8 +28,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25.4"
-      - name: Build extension-tool
-        run: cd examples/extension-tool && go build ./...
       - name: Build extension-hook
         run: cd examples/extension-hook && go build ./...
       - name: Build extension-exporter
