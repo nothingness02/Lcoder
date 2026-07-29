@@ -122,9 +122,14 @@ func (s *stateHolder) Abort() {
 	if cancel != nil {
 		cancel()
 	}
+
+	// Lock around the entire once+close sequence so ResetAbort cannot
+	// replace abortOnce or abortCh between the Do check and the close.
+	s.mu.Lock()
 	s.abortOnce.Do(func() {
 		close(s.abortCh)
 	})
+	s.mu.Unlock()
 }
 
 // SetStreamAbort registers the cancel function for the in-flight stream.
