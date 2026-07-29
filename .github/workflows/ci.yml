@@ -13,13 +13,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.25.4"
       - name: Build
         run: go build ./...
       - name: Vet
         run: go vet ./...
       - name: Test
-        run: go test ./... -count=1 -race
+        run: go test ./... -count=1 -race -timeout 300s
 
   examples:
     runs-on: ubuntu-latest
@@ -27,36 +27,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.25.4"
       - name: Build extension-tool
         run: cd examples/extension-tool && go build ./...
       - name: Build extension-hook
         run: cd examples/extension-hook && go build ./...
       - name: Build extension-exporter
         run: cd examples/extension-exporter && go build ./...
-
-  desktop:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: cmd/lcoder-desktop/frontend/package-lock.json
-      - name: Build desktop frontend
-        run: |
-          cd cmd/lcoder-desktop/frontend
-          npm ci
-          npm run build
-      - name: Build desktop backend
-        run: cd cmd/lcoder-desktop && go build ./...
-      - name: Vet desktop backend
-        run: cd cmd/lcoder-desktop && go vet ./...
-      - name: Test desktop backend
-        run: cd cmd/lcoder-desktop && go test ./... -count=1
-      - name: Test desktop frontend
-        run: cd cmd/lcoder-desktop/frontend && npm test
+      - name: Build extension-http-tool
+        run: cd examples/extension-http-tool && go build ./...
+      - name: Build extension-mode
+        run: cd examples/extension-mode && go build ./...

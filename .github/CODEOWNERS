@@ -1,0 +1,27 @@
+# CODEOWNERS — Lcoder
+
+# Global owners for the entire codebase.
+* @nothingness02
+
+# CI / GitHub workflows.
+/.github/  @nothingness02
+
+# Core agent loop, executor, and permissions.
+/pkg/agent/     @nothingness02
+/pkg/permissions/ @nothingness02
+
+# LLM engine and providers.
+/pkg/llm/ @nothingness02
+
+# Built-in tools.
+/pkg/tools/builtin/ @nothingness02
+
+# TUI.
+/pkg/tui/ @nothingness02
+
+# Documentation.
+/README.md        @nothingness02
+/README_EN.md     @nothingness02
+/DEVELOPER_GUIDE.md  @nothingness02
+/USER_GUIDE.md    @nothingness02
+/docs/            @nothingness02
