@@ -319,7 +319,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 				return agentsetup.NewContextManager(cfg, budget, thinking, llmClient, "", "", nil, nil)
 			},
 		})
-		subagentHost.SetHooks(makeBeforeToolCall(cfg.Hooks), nil)
+		subagentHost.SetHooks(makeBeforeToolCall(cfg.Hooks, sess.ID), nil)
 		subagentHost.SetParentSession(sess.ID)
 		subagentTool := builtinTools.NewSubagent(cwd, subagentHost, profiles)
 		subagentTool.SetNotifier(func(text string) {
@@ -345,7 +345,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			Model:              models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
 			ToolExecutionMode:  models.ExecutionParallel,
 			ContextManager:     mgr,
-			BeforeToolCall:     makeBeforeToolCall(cfg.Hooks),
+			BeforeToolCall:     makeBeforeToolCall(cfg.Hooks, sess.ID),
 			Mode:               modeName,
 			ModeManager:        modeManager,
 			DeferredTools:      cfg.Context.DeferredTools,
@@ -372,11 +372,12 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	// project ones on trust, spawn and handshake, then bridge into the agent.
 	extHost, extBridge := startExtensions(cfg, cwd, sess, bus)
 	if extBridge != nil {
-		before := hooks.CompositeBeforeToolCall(makeBeforeToolCall(cfg.Hooks), extBridge.BeforeToolCall())
+		before := hooks.CompositeBeforeToolCall(makeBeforeToolCall(cfg.Hooks, sess.ID), extBridge.BeforeToolCall())
+		after := hooks.CompositeAfterToolCall(makeAfterToolCall(cfg.Hooks, sess.ID), extBridge.AfterToolCall())
 		ag.SetBeforeToolCall(before)
-		ag.SetAfterToolCall(extBridge.AfterToolCall())
+		ag.SetAfterToolCall(after)
 		if subagentHost != nil {
-			subagentHost.SetHooks(before, extBridge.AfterToolCall())
+			subagentHost.SetHooks(before, after)
 		}
 		mgr.SetSummarizer(extBridge.Summarizer(mgr.Summarizer()))
 	}

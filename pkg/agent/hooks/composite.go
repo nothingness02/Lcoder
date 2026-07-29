@@ -41,3 +41,22 @@ func CompositeBeforeToolCall(hooks ...agent.BeforeToolCallHook) agent.BeforeTool
 		return nil, nil
 	}
 }
+
+// CompositeAfterToolCall runs multiple after-tool-call hooks in order.
+func CompositeAfterToolCall(hooks ...agent.AfterToolCallHook) agent.AfterToolCallHook {
+	return func(ctx context.Context, info agent.ToolCallResultInfo) (*agent.AfterToolCallResult, error) {
+		for _, h := range hooks {
+			if h == nil {
+				continue
+			}
+			result, err := h(ctx, info)
+			if err != nil {
+				return nil, fmt.Errorf("hook error: %w", err)
+			}
+			if result != nil {
+				return result, nil
+			}
+		}
+		return nil, nil
+	}
+}

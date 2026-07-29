@@ -67,8 +67,12 @@ func catalogOverridesFromConfig(cfg config.Config) []catalog.Entry {
 	return out
 }
 
-func makeBeforeToolCall(hookCfg config.HookConfig) agent.BeforeToolCallHook {
-	return hooks.FromConfig(hookCfg)
+func makeBeforeToolCall(hookCfg config.HookConfig, sessionID string) agent.BeforeToolCallHook {
+	return hooks.FromConfig(hookCfg, sessionID)
+}
+
+func makeAfterToolCall(hookCfg config.HookConfig, sessionID string) agent.AfterToolCallHook {
+	return hooks.AfterToolCallFromConfig(hookCfg, sessionID)
 }
 
 // stdinTrustPrompter asks the user whether to load a project-level extension.

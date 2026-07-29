@@ -16,7 +16,7 @@ func TestFromConfig(t *testing.T) {
 			Patterns: []string{"*.env"},
 		},
 	}
-	h := FromConfig(cfg)
+	h := FromConfig(cfg, "test-session")
 	info := agent.ToolCallInfo{
 		ToolCall: models.ToolCallContent{Name: "read", ID: "1"},
 		Args:     map[string]any{"path": "secrets.env"},
@@ -32,7 +32,7 @@ func TestFromConfig(t *testing.T) {
 
 func TestFromConfigDisabled(t *testing.T) {
 	cfg := config.HookConfig{}
-	h := FromConfig(cfg)
+	h := FromConfig(cfg, "test-session")
 	if h == nil {
 		t.Fatal("expected non-nil hook")
 	}
