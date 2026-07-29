@@ -1,0 +1,21 @@
+services:
+  lcoder:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    stdin_open: true
+    tty: true
+    volumes:
+      # 工作目录：把你要 AI 辅助的项目挂载到这里
+      - ./workspace:/workspace
+      # 持久化 Lcoder 配置和会话（API key、权限规则、历史会话）
+      - lcoder_home:/root/.lcoder
+    environment:
+      # 设置你的 API key（三选一）
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - TERM=${TERM:-xterm-256color}
+
+volumes:
+  lcoder_home:

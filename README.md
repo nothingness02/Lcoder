@@ -23,6 +23,22 @@ export DEEPSEEK_API_KEY="sk-..."        # DeepSeek
 
 首次运行会自动创建 `~/.lcoder/config.yaml`，之后按 `Enter` 即可开始对话。
 
+### Docker 启动
+
+```bash
+# 克隆项目
+git clone https://github.com/nothingness02/Lcoder.git
+cd Lcoder/docker
+
+# 创建工作目录（把你要 AI 辅助的项目放进去）
+mkdir workspace
+
+# 启动（首次会自动编译镜像，约 2 分钟）
+ANTHROPIC_API_KEY="sk-ant-..." docker compose up
+```
+
+Docker 自动完成 Go 编译、容器化，挂载 `./workspace` 为工作目录，配置和会话通过命名卷持久化。
+
 ### 其他使用方式
 
 ```bash

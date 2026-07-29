@@ -23,6 +23,22 @@ export DEEPSEEK_API_KEY="sk-..."        # DeepSeek
 
 `~/.lcoder/config.yaml` is created automatically on first run. Press `Enter` to start chatting.
 
+### Docker
+
+```bash
+# Clone the repo
+git clone https://github.com/nothingness02/Lcoder.git
+cd Lcoder/docker
+
+# Create workspace directory (put your project here)
+mkdir workspace
+
+# Launch (first run builds the image, ~2 min)
+ANTHROPIC_API_KEY="sk-ant-..." docker compose up
+```
+
+Docker handles Go compilation and containerization. `./workspace` is mounted as the working directory. Config and sessions persist via a named volume.
+
 ### Other Usage
 
 ```bash
