@@ -80,3 +80,78 @@ func (m *Model) rebuildViewport() {
 **影响文件**：`pkg/tui/view.go`、`pkg/tui/model.go`
 
 **临时 workaround**：在 VSCode 中将终端改为 `cmd.exe` 或使用 Windows Terminal (`wt.exe`)。
+
+---
+
+## 4. @file 补全严重卡顿
+
+**现象**：输入 `@` 触发文件补全后，每次按键都有明显延迟（>500ms），尤其在大型项目中。
+
+**根因**：`filemenu.go:fileMatches()` 每次按键都执行 `filepath.WalkDir(cwd, ...)` 遍历整个项目目录树。
+
+```go
+// pkg/tui/filemenu.go:33
+func fileMatches(cwd, partial string) []string {
+    var files []string
+    _ = filepath.WalkDir(cwd, func(path string, d os.DirEntry, err error) error {
+        // ... 对每个文件收集相对路径
+        files = append(files, filepath.ToSlash(rel))
+        return nil
+    })
+    // 收集完所有文件后才做模糊匹配
+    var out []string
+    for _, m := range fuzzy.Find(partial, files) {
+        out = append(out, files[m.Index])
+    }
+    return out
+}
+```
+
+**问题**：
+1. 无条目上限——10 万文件的项目遍历 10 万个条目
+2. 先收集所有文件，再模糊匹配——中间列表可能非常大
+3. 每次按键都触发完整遍历——上一个遍历还未完成新的又开始了（goroutine 堆积）
+4. 无缓存——同一目录被反复遍历
+
+### Kimi Code 的优化
+
+**主方案：使用 `fd` 工具（Rust 文件搜索）**
+
+```typescript
+// file-mention-provider.ts
+// 优先用 fd（Rust 原生速度），fd 不可用时才走文件系统 fallback
+if (this.fdPath === null || !isExecutableFd(this.fdPath)) {
+    return getFsMentionSuggestions(workDir, additionalDirs, atPrefix, signal);
+}
+return await this.inner.getSuggestions(lines, cursorLine, cursorCol, options);
+```
+
+**Fallback 方案：限制扫描范围**
+
+```typescript
+const MAX_FALLBACK_SCAN = 2000;       // 最多扫描 2000 个条目
+const MAX_FALLBACK_SUGGESTIONS = 50;  // 最多 50 个建议
+
+// 用 AbortSignal 在新按键到来时取消旧遍历
+if (signal.aborted) break;
+```
+
+**对比**：
+
+| | Lcoder | Kimi Code |
+|------|:---:|:---:|
+| 主方案 | `filepath.WalkDir`（Go 标准库） | `fd`（Rust 原生） |
+| 条目上限 | 无 | 2000 |
+| 建议上限 | 10 | 50 |
+| 取消机制 | 无（goroutine 泄漏） | `AbortSignal` |
+| 缓存 | 无 | 无（fd 足够快） |
+| 模糊匹配 | `fuzzy.Find`（全量后匹配） | 自行实现（遍历中打分） |
+
+### 修复方向
+
+1. **立即修复**：加条目上限 `MAX_SCAN = 2000`，先收集前 2000 个再匹配
+2. **立即修复**：缓存文件列表，只在新 `@` 触发时刷新
+3. **优化**：用 context 取消上一次遍历
+4. **远期**：检测系统是否安装 `fd`，可用时委托给 `fd --glob`
+
+**影响文件**：`pkg/tui/filemenu.go`
