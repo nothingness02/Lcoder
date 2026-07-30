@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -153,4 +154,101 @@ func (a *Agent) goalBudgetVeto(_ context.Context, _ StopContext) (bool, error) {
 		return false, nil
 	}
 	return true, nil
+}
+
+// GoalContinuationPromptText is the marker line every continuation prompt
+// starts with; tests and the TUI assert on it.
+const GoalContinuationPromptText = "Continue working toward the active goal."
+
+// goalContinuationPrompt is the autonomous stand-in for the user typing
+// "continue" (ported from kimi-code's GOAL_CONTINUATION_PROMPT). The model
+// settles the goal via update_goal; otherwise the driver runs another turn.
+const goalContinuationPrompt = GoalContinuationPromptText + ` Keep the self-audit brief. ` +
+	`Do not explore unrelated interpretations once the goal can be decided. ` +
+	`If the objective is simple, already answered, impossible, unsafe, or contradictory, do not run another goal turn: ` +
+	`explain briefly if useful, then call update_goal with complete or blocked in the same turn. ` +
+	`Otherwise choose one bounded, useful slice of work. Do not try to finish a broad goal in one turn unless the whole goal is genuinely small. ` +
+	`After completing a useful slice with material work remaining, end the turn normally WITHOUT calling update_goal so the runtime continues the goal in the next turn. ` +
+	`Call update_goal with complete only when all required work is done and verified: never after only a plan, summary, first pass, or partial result. ` +
+	`Call update_goal with blocked only for a genuine impasse that has repeated for at least 3 consecutive goal turns, or an objective that is impossible, unsafe, or contradictory.`
+
+// goalStepCapContinuationPrompt is the variant used when the previous run hit
+// MaxTurnsPerRun (kimi-code's GOAL_STEP_CAP_CONTINUATION_PROMPT).
+const goalStepCapContinuationPrompt = `The previous goal turn reached the per-turn step limit before finishing its work, ` +
+	`so a new turn was started for you. Pick up where that turn stopped and keep each slice of work small enough to fit the limit. ` +
+	goalContinuationPrompt
+
+// NextGoalAction decides what the goal driver does after a run ends, given
+// the goal record and how the run ended. It is the pure decision core of
+// kimi-code's driveGoal post-turn logic, shared by GoalDriver (headless) and
+// the TUI continuation wiring. done=true means the pursuit ends here.
+func NextGoalAction(g *GoalState, reason events.AgentEndReason) (prompt string, done bool) {
+	if g == nil || g.Status != GoalActive {
+		return "", true // 模型已用 update_goal 决出终态,或无 goal
+	}
+	switch reason {
+	case events.EndReasonInterrupted, events.EndReasonError:
+		return "", true // 调用方负责 pauseGoal
+	case events.EndReasonMaxTurns:
+		if g.OverBudget() {
+			return "", true // 调用方负责 blockGoal
+		}
+		return goalStepCapContinuationPrompt, false
+	default: // completed / terminated:模型说完或显式硬停,都尊重,继续追求
+		if g.OverBudget() {
+			return "", true
+		}
+		return goalContinuationPrompt, false
+	}
+}
+
+// GoalDriver runs ordinary Prompt turns until the goal settles. It is the
+// loop-external half of the two-layer design: per-turn safety (max_turns)
+// stays inside the run; cross-turn pursuit lives here.
+type GoalDriver struct {
+	agent *Agent
+}
+
+// NewGoalDriver creates a driver for the agent.
+func NewGoalDriver(a *Agent) *GoalDriver { return &GoalDriver{agent: a} }
+
+// Run starts a fresh goal and pursues it until it settles (complete/blocked),
+// a budget is exhausted (blocked), or the run is interrupted or fails
+// (paused).
+func (d *GoalDriver) Run(ctx context.Context, objective string, turnBudget, tokenBudget int) error {
+	a := d.agent
+	a.startGoal(objective, turnBudget, tokenBudget)
+
+	next := objective
+	for {
+		g := a.Goal()
+		if g == nil {
+			return nil
+		}
+		if g.OverBudget() {
+			a.blockGoal("a configured budget was reached")
+			return nil
+		}
+		a.goals.mutate(func(live *GoalState) { live.TurnsUsed++ })
+
+		if err := a.Prompt(ctx, models.UserMessage(next)); err != nil {
+			a.pauseGoal(err.Error())
+			return err
+		}
+		reason := a.LastEndReason()
+		if reason == events.EndReasonInterrupted || reason == events.EndReasonError {
+			a.pauseGoal(string(reason))
+			return nil
+		}
+
+		prompt, done := NextGoalAction(a.Goal(), reason)
+		if done {
+			g = a.Goal()
+			if g != nil && g.Status == GoalActive {
+				a.blockGoal("a configured budget was reached")
+			}
+			return nil
+		}
+		next = prompt
+	}
 }
