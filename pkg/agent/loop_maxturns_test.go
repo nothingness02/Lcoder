@@ -30,9 +30,11 @@ func TestMaxTurnsPerRunHardStop(t *testing.T) {
 		SystemPrompt:   "x",
 		Model:          models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		MaxTurnsPerRun: 3,
-		ShouldContinueAfterStop: func(context.Context, StopContext) (bool, error) {
-			hookCalled = true
-			return true, nil
+		ContinuationDeciders: []ContinuationDecider{
+			func(context.Context, StopContext) (bool, error) {
+				hookCalled = true
+				return true, nil
+			},
 		},
 	}, client, tools.NewRegistry(t.TempDir()), permissions.NewEngine(permissions.DefaultConfig()), events.New())
 

@@ -79,9 +79,9 @@ func (b *Builder) WithShouldStop(fn ShouldStopFunc) *Builder {
 	return b
 }
 
-// WithShouldContinueAfterStop sets the post-stop continuation hook.
-func (b *Builder) WithShouldContinueAfterStop(fn ShouldContinueAfterStopFunc) *Builder {
-	b.cfg.ShouldContinueAfterStop = fn
+// WithContinuationDeciders appends post-stop continuation deciders.
+func (b *Builder) WithContinuationDeciders(fns ...ContinuationDecider) *Builder {
+	b.cfg.ContinuationDeciders = append(b.cfg.ContinuationDeciders, fns...)
 	return b
 }
 

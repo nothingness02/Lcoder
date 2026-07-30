@@ -73,9 +73,13 @@ type Config struct {
 	BeforeToolCall    BeforeToolCallHook
 	AfterToolCall     AfterToolCallHook
 	ShouldStop        ShouldStopFunc
-	// ShouldContinueAfterStop is called when ShouldStop returns true.
-	// Return true to continue the loop. If nil, the followUp queue is used.
-	ShouldContinueAfterStop ShouldContinueAfterStopFunc
+	// ContinuationDeciders decide whether the loop continues after a stop
+	// signal. They run in registration order; the FIRST decider returning
+	// (false, _) or (_, err) wins and the loop stops. All returning true
+	// means continue; an empty chain stops (the pre-chain nil-hook behavior).
+	// Built-in hard vetoes (goal budget, goal.go) run before this chain and
+	// can only stop the loop, never continue it.
+	ContinuationDeciders []ContinuationDecider
 	Mode              string
 	ModeManager       *ModeManager
 
@@ -275,14 +279,13 @@ type StopContext struct {
 	LLM    *llm.Client
 }
 
-// ShouldContinueAfterStopFunc is called when the model signals completion
-// (ShouldStop returns true). Return true to keep the loop running, false
-// to stop. It receives full stop context — it can inspect the stop reason,
-// call the LLM, wait for async tasks, or inject follow-up messages before
-// deciding. Mirrors Kimi Code's shouldContinueAfterStop hook.
-//
-// When ShouldContinueAfterStop is nil, the loop simply stops.
-type ShouldContinueAfterStopFunc func(ctx context.Context, stop StopContext) (bool, error)
+// ContinuationDecider decides whether the loop continues after a stop signal.
+// Deciders run in registration order; the FIRST decider returning
+// (false, _) or (_, err) wins and the loop stops. All returning true means
+// continue. Registration order IS the priority: hard vetoes (goal budget)
+// must run before soft continuations (steering drains). The chain is fixed
+// at assembly time; goal's built-in veto prepends internally (see goal.go).
+type ContinuationDecider func(ctx context.Context, stop StopContext) (bool, error)
 
 // TurnSummary provides context for a stop decision.
 type TurnSummary struct {
@@ -576,23 +579,42 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		}
 
 	if a.shouldStop(ctx, assistantMsg, toolResults) {
-		if a.cfg.ShouldContinueAfterStop != nil {
-			usage, _ := a.streamer.takeUsage()
-			cont, err := a.cfg.ShouldContinueAfterStop(ctx, StopContext{
-				TurnSummary: TurnSummary{
-					Message:     assistantMsg,
-					ToolResults: toolResults,
-					Context:     a.mgr.AllMessages(),
-				},
-				Reason: StopEndTurn,
-				Turn:   turn,
-				Usage:  usage,
-				LLM:    a.llm,
-			})
-			if err != nil || !cont {
+		usage, _ := a.streamer.takeUsage()
+		stop := StopContext{
+			TurnSummary: TurnSummary{
+				Message:     assistantMsg,
+				ToolResults: toolResults,
+				Context:     a.mgr.AllMessages(),
+			},
+			Reason: StopEndTurn,
+			Turn:   turn,
+			Usage:  usage,
+			LLM:    a.llm,
+		}
+		// Built-in hard vetoes (goal budget, goal.go) run first: they can
+		// only STOP the loop, never continue it.
+		vetoed := false
+		for _, veto := range a.builtinContinuationDeciders() {
+			ok, err := veto(ctx, stop)
+			if err != nil || !ok {
+				vetoed = true
 				break
 			}
-		} else {
+		}
+		// Configured deciders decide continuation: first (false,_) or (_,err)
+		// wins. An empty chain stops — the pre-chain nil-hook behavior.
+		cont := false
+		if !vetoed {
+			cont = len(a.cfg.ContinuationDeciders) > 0
+			for _, decide := range a.cfg.ContinuationDeciders {
+				ok, err := decide(ctx, stop)
+				if err != nil || !ok {
+					cont = false
+					break
+				}
+			}
+		}
+		if !cont {
 			break
 		}
 	}
@@ -619,6 +641,13 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 // subscribing to the event bus.
 func (a *Agent) LastEndReason() events.AgentEndReason {
 	return a.loopState.LastEndReason()
+}
+
+// builtinContinuationDeciders returns hard vetoes that run before the
+// configured chain (currently the goal budget veto, goal.go). A built-in
+// can only stop the loop — it is never consulted for continuation.
+func (a *Agent) builtinContinuationDeciders() []ContinuationDecider {
+	return nil
 }
 
 // refreshEphemeralReminders stages reminders for the upcoming turn.

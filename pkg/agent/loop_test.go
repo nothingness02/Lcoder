@@ -597,7 +597,7 @@ func TestAgentAbortCancelsRunningTool(t *testing.T) {
 
 func TestShouldContinueAfterStopHook(t *testing.T) {
 	// One-turn agent: the LLM returns a single message with no tool calls.
-	// The default ShouldStop stops there. We wire ShouldContinueAfterStop
+	// The default ShouldStop stops there. We wire a continuation decider
 	// to override the stop decision.
 	client := llmtest.Client(llmtest.Turn(llmtest.Done(models.NewAgentMessage(
 		models.RoleAssistant,
@@ -608,18 +608,20 @@ func TestShouldContinueAfterStopHook(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt: "x",
 		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ShouldContinueAfterStop: func(ctx context.Context, stop StopContext) (bool, error) {
-			hookCalled = true
-			if stop.Reason != StopEndTurn {
-				t.Errorf("Reason = %q, want end_turn", stop.Reason)
-			}
-			if stop.Turn < 1 {
-				t.Errorf("Turn = %d, want >= 1", stop.Turn)
-			}
-			if stop.LLM == nil {
-				t.Error("LLM must be passed through")
-			}
-			return false, nil
+		ContinuationDeciders: []ContinuationDecider{
+			func(ctx context.Context, stop StopContext) (bool, error) {
+				hookCalled = true
+				if stop.Reason != StopEndTurn {
+					t.Errorf("Reason = %q, want end_turn", stop.Reason)
+				}
+				if stop.Turn < 1 {
+					t.Errorf("Turn = %d, want >= 1", stop.Turn)
+				}
+				if stop.LLM == nil {
+					t.Error("LLM must be passed through")
+				}
+				return false, nil
+			},
 		},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
 
@@ -639,5 +641,34 @@ func TestShouldContinueAfterStopHook(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Role != models.RoleAssistant || last.Text() != "done" {
 		t.Fatalf("expected assistant 'done', got role=%v text=%q", last.Role, last.Text())
+	}
+}
+
+// 链按注册顺序调用,第一个 (false,_) 或 (_,err) 胜出,后面的不再调用。
+func TestContinuationDeciderChainOrder(t *testing.T) {
+	toolMsg := models.NewAgentMessage(models.RoleAssistant, models.TextContent{Text: "done"})
+	client := llmtest.Client(llmtest.Turn(llmtest.Done(toolMsg, nil)))
+
+	var calls []string
+	decider := func(name string, cont bool) ContinuationDecider {
+		return func(context.Context, StopContext) (bool, error) {
+			calls = append(calls, name)
+			return cont, nil
+		}
+	}
+	ag := New(Config{
+		SystemPrompt: "x",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		ContinuationDeciders: []ContinuationDecider{
+			decider("veto", false),
+			decider("never-reached", true),
+		},
+	}, client, tools.NewRegistry(t.TempDir()), permissions.NewEngine(permissions.DefaultConfig()), events.New())
+
+	if err := ag.Prompt(context.Background(), models.UserMessage("go")); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if len(calls) != 1 || calls[0] != "veto" {
+		t.Fatalf("expected only first decider called, got %v", calls)
 	}
 }
