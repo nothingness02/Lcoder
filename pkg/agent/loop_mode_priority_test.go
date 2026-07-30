@@ -25,7 +25,6 @@ func modeReminderAgent(t *testing.T, mode ModeConfig) *Agent {
 		WithConfig(Config{
 			BaseSystemPrompt:  "BASE PROMPT",
 			Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-			ToolExecutionMode: models.ExecutionParallel,
 			ContextManager:    mgr,
 			Mode:              mode.Name,
 			ModeManager:       mm,

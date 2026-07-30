@@ -55,7 +55,7 @@ func (t slowProbeTool) Definition() models.ToolDefinition {
 			},
 			"required": []any{"label"},
 		},
-		ExecutionMode: models.ExecutionParallel,
+
 	}
 }
 
@@ -297,7 +297,6 @@ func TestParallelToolCalls(t *testing.T) {
 		WithConfig(agent.Config{
 			SystemPrompt:      "",
 			Model:             models.ModelRef{Provider: provider, ID: model},
-			ToolExecutionMode: models.ExecutionParallel,
 			ContextManager:    mgr,
 			Mode:              "code",
 			ModeManager:       modeManager,

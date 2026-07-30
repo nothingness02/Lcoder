@@ -28,15 +28,11 @@ func TestBuilderBuildsAgent(t *testing.T) {
 		WithPermissions(permissions.NewEngineFromRules(nil)).
 		WithSystemPrompt("test prompt").
 		WithModel("openai", "gpt-4o-mini").
-		WithToolExecutionMode(models.ExecutionSequential).
 		Build()
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	if ag.cfg.SystemPrompt != "test prompt" {
 		t.Fatalf("unexpected system prompt: %s", ag.cfg.SystemPrompt)
-	}
-	if ag.cfg.ToolExecutionMode != models.ExecutionSequential {
-		t.Fatalf("unexpected execution mode: %v", ag.cfg.ToolExecutionMode)
 	}
 }

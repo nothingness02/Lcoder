@@ -72,18 +72,6 @@ func TestValidate_InvalidHTTPTool(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidHTTPToolExecutionMode(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.HTTPTools = []HTTPToolConfig{{
-		Name:          "bad",
-		Endpoint:      "http://example.com",
-		ExecutionMode: "batch",
-	}}
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "execution_mode") {
-		t.Fatalf("expected execution_mode error, got %v", err)
-	}
-}
-
 func TestValidate_InvalidMCPServer(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.MCPServers = []MCPServerConfig{{

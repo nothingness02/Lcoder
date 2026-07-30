@@ -432,7 +432,6 @@ func TestAgentRealRun(t *testing.T) {
 		WithConfig(agent.Config{
 			SystemPrompt:      "",
 			Model:             models.ModelRef{Provider: provider, ID: model},
-			ToolExecutionMode: models.ExecutionParallel,
 			ContextManager:    mgr,
 			Mode:              "code",
 			ModeManager:       modeManager,

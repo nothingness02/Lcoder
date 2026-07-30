@@ -147,7 +147,6 @@ permissions:
 #         service:
 #           type: string
 #       required: [service]
-#     execution_mode: parallel
 #     headers:
 #       Authorization: Bearer ${DEPLOY_TOKEN}
 

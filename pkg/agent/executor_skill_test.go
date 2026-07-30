@@ -68,7 +68,7 @@ func writeSkillFile(t *testing.T, dir, name, content string) {
 func callTool(e *executor, name string, args map[string]any) models.ToolResultContent {
 	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, []models.ToolCallContent{
 		{ID: "call_" + name, Name: name, Arguments: args},
-	}, models.ExecutionParallel)
+	})
 	return results[0].Content[0].(models.ToolResultContent)
 }
 

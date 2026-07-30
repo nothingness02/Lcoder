@@ -29,7 +29,6 @@ func TestExecute_DedupReadSameTurn(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionSequential,
 		ShouldStop: func(context.Context, TurnSummary) (bool, error) {
 			return true, nil
 		},

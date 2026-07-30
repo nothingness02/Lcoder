@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/models"
 )
 
 func TestLoadExtensionsJSONDescriptor(t *testing.T) {
@@ -17,7 +16,6 @@ func TestLoadExtensionsJSONDescriptor(t *testing.T) {
 		"endpoint": "http://localhost:8080/echo",
 		"description": "echo tool",
 		"parameters": {"type": "object"},
-		"execution_mode": "sequential",
 		"headers": {"X-Tool": "echo"}
 	}`
 	if err := os.WriteFile(desc, []byte(data), 0o600); err != nil {
@@ -37,9 +35,6 @@ func TestLoadExtensionsJSONDescriptor(t *testing.T) {
 	if def.Description != "echo tool" {
 		t.Errorf("description = %q, want echo tool", def.Description)
 	}
-	if def.ExecutionMode != models.ExecutionSequential {
-		t.Errorf("execution mode = %q, want sequential", def.ExecutionMode)
-	}
 }
 
 func TestLoadExtensionsJSONOverrides(t *testing.T) {
@@ -50,7 +45,6 @@ func TestLoadExtensionsJSONOverrides(t *testing.T) {
 		"endpoint": "http://old",
 		"description": "old desc",
 		"parameters": {"type": "object"},
-		"execution_mode": "parallel",
 		"headers": {"X-Old": "old"}
 	}`
 	if err := os.WriteFile(desc, []byte(data), 0o600); err != nil {
@@ -59,13 +53,12 @@ func TestLoadExtensionsJSONOverrides(t *testing.T) {
 
 	r := NewRegistry(dir)
 	cfg := config.ToolExtensionConfig{
-		Name:          "overridden",
-		Path:          desc,
-		Endpoint:      "http://new",
-		Description:   "new desc",
-		Parameters:    map[string]any{"type": "array"},
-		ExecutionMode: "sequential",
-		Headers:       map[string]string{"X-New": "new"},
+		Name:        "overridden",
+		Path:        desc,
+		Endpoint:    "http://new",
+		Description: "new desc",
+		Parameters:  map[string]any{"type": "array"},
+		Headers:     map[string]string{"X-New": "new"},
 	}
 	if err := r.LoadExtensions([]config.ToolExtensionConfig{cfg}); err != nil {
 		t.Fatalf("LoadExtensions: %v", err)
@@ -78,9 +71,6 @@ func TestLoadExtensionsJSONOverrides(t *testing.T) {
 	def := exec.Definition()
 	if def.Description != "new desc" {
 		t.Errorf("description = %q, want new desc", def.Description)
-	}
-	if def.ExecutionMode != models.ExecutionSequential {
-		t.Errorf("execution mode = %q, want sequential", def.ExecutionMode)
 	}
 }
 

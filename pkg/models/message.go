@@ -306,20 +306,11 @@ func NewToolExecutionResultError(text string) ToolExecutionResult {
 	}
 }
 
-// ExecutionMode controls how a tool participates in batch execution.
-type ExecutionMode string
-
-const (
-	ExecutionParallel   ExecutionMode = "parallel"
-	ExecutionSequential ExecutionMode = "sequential"
-)
-
 // ToolDefinition is the schema exposed to the LLM for a tool.
 type ToolDefinition struct {
-	Name          string         `json:"name"`
-	Description   string         `json:"description"`
-	Parameters    map[string]any `json:"parameters"` // JSON Schema object
-	ExecutionMode ExecutionMode  `json:"execution_mode"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"` // JSON Schema object
 }
 
 // ModelRef identifies a specific model for the LLM engine. Provider is

@@ -48,9 +48,6 @@ func TestSubagentDefinitionListsProfiles(t *testing.T) {
 	if def.Name != "subagent" {
 		t.Errorf("name = %q, want subagent", def.Name)
 	}
-	if def.ExecutionMode != models.ExecutionSequential {
-		t.Errorf("execution mode = %q, want sequential", def.ExecutionMode)
-	}
 	for _, want := range []string{"coder", "explore", "zero context"} {
 		if !strings.Contains(def.Description, want) {
 			t.Errorf("description should mention %q:\n%s", want, def.Description)

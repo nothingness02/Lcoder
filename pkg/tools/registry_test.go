@@ -12,7 +12,7 @@ import (
 type errorExecutable struct{ panics bool }
 
 func (e errorExecutable) Definition() models.ToolDefinition {
-	return models.ToolDefinition{Name: "error", ExecutionMode: models.ExecutionParallel}
+	return models.ToolDefinition{Name: "error"}
 }
 
 func (e errorExecutable) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
@@ -27,7 +27,7 @@ func (e errorExecutable) Execute(ctx context.Context, callID string, args map[st
 type businessExecutable struct{}
 
 func (businessExecutable) Definition() models.ToolDefinition {
-	return models.ToolDefinition{Name: "business", ExecutionMode: models.ExecutionParallel}
+	return models.ToolDefinition{Name: "business"}
 }
 
 func (businessExecutable) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
@@ -81,7 +81,7 @@ func TestRegistry_Execute_PanicBecomesErrorResult(t *testing.T) {
 type namedExecutable struct{ name string }
 
 func (n namedExecutable) Definition() models.ToolDefinition {
-	return models.ToolDefinition{Name: n.name, ExecutionMode: models.ExecutionParallel}
+	return models.ToolDefinition{Name: n.name}
 }
 
 func (n namedExecutable) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {

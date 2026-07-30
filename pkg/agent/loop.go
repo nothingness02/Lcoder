@@ -60,11 +60,10 @@ type ConfirmResult struct {
 
 // Config controls agent behavior.
 type Config struct {
-	SystemPrompt      string
-	BaseSystemPrompt  string
-	Model             models.ModelRef
-	ToolExecutionMode models.ExecutionMode
-	ContextManager    *contextmgr.Manager
+	SystemPrompt     string
+	BaseSystemPrompt string
+	Model            models.ModelRef
+	ContextManager   *contextmgr.Manager
 	TransformContext  TransformContext
 	BeforeToolCall    BeforeToolCallHook
 	AfterToolCall     AfterToolCallHook
@@ -491,7 +490,6 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 		_, tools := a.applyMode()
 		modelRef := a.cfg.Model
-		execMode := a.cfg.ToolExecutionMode
 
 		assistantMsg, err := a.streamer.stream(
 			ctx,
@@ -517,7 +515,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		terminate := false
 		if len(toolCalls) > 0 {
 			a.loopState.SetState(StateExecutingTools)
-			toolResults, terminate = a.executor.execute(ctx, turn, assistantMsg, toolCalls, execMode)
+			toolResults, terminate = a.executor.execute(ctx, turn, assistantMsg, toolCalls)
 			for _, r := range toolResults {
 				a.appendMessage(r)
 			}

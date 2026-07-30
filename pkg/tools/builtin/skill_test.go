@@ -39,9 +39,6 @@ func TestUseSkillDefinition(t *testing.T) {
 	if def.Name != skills.UseSkillToolName {
 		t.Fatalf("expected name %q, got %q", skills.UseSkillToolName, def.Name)
 	}
-	if def.ExecutionMode != "sequential" {
-		t.Fatalf("expected sequential execution, got %q", def.ExecutionMode)
-	}
 }
 
 func TestUseSkillExecuteReturnsBody(t *testing.T) {

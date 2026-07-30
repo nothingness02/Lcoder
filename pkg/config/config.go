@@ -15,12 +15,11 @@ import (
 
 // HTTPToolConfig describes an external HTTP tool.
 type HTTPToolConfig struct {
-	Name          string            `yaml:"name"`
-	Endpoint      string            `yaml:"endpoint"`
-	Description   string            `yaml:"description"`
-	Parameters    map[string]any    `yaml:"parameters"`
-	ExecutionMode string            `yaml:"execution_mode"`
-	Headers       map[string]string `yaml:"headers"`
+	Name        string            `yaml:"name"`
+	Endpoint    string            `yaml:"endpoint"`
+	Description string            `yaml:"description"`
+	Parameters  map[string]any    `yaml:"parameters"`
+	Headers     map[string]string `yaml:"headers"`
 }
 
 // MCPServerConfig describes an MCP server connection.

@@ -38,7 +38,6 @@ func TestExecuteToolCall_InvalidArgs_NoToolEvents(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		ShouldStop: func(context.Context, TurnSummary) (bool, error) {
 			return true, nil
 		},
@@ -90,7 +89,6 @@ func TestExecuteToolCall_ValidArgs_EmitsEvents(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		ShouldStop: func(context.Context, TurnSummary) (bool, error) {
 			return true, nil
 		},

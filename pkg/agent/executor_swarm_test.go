@@ -36,7 +36,7 @@ func TestSwarmExclusivityVeto(t *testing.T) {
 		}},
 		{ID: "call_read", Name: "read", Arguments: map[string]any{"path": "."}},
 	}
-	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls, models.ExecutionParallel)
+	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls)
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -79,7 +79,7 @@ func TestSwarmExclusivityAllowsSoloBatch(t *testing.T) {
 			"agent": "coder", "prompt_template": "do {{item}}", "items": []any{"a", "b"},
 		}},
 	}
-	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls, models.ExecutionParallel)
+	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls)
 
 	trc := results[0].Content[0].(models.ToolResultContent)
 	if trc.IsError && strings.Contains(trc.Text(), "ONLY tool call") {

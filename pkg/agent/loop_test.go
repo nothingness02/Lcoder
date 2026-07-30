@@ -67,7 +67,6 @@ func TestAgentOneTurn(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), bus, obs)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("hi")); err != nil {
@@ -103,7 +102,6 @@ func TestAgentToolCall(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
 			return true, nil
 		},
@@ -143,7 +141,6 @@ func TestAgentNaturalCompletionDefault(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		// Deliberately no ShouldStop: exercise the default behavior.
 	}, client, testRegistry(t.TempDir()), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
@@ -168,7 +165,6 @@ func TestAgentAbortIsReentrant(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
 	// Calling Abort multiple times must not panic.
@@ -191,7 +187,6 @@ func TestAgentAbortStopsStream(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
 	go func() {
@@ -243,7 +238,6 @@ func TestAgentWithModeSnapshot(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "base",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		ModeManager:       mm,
 		Mode:              "code",
 		ContextManager:    mgr,
@@ -287,7 +281,6 @@ func TestAgentTransformContext(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			transformCalled = true
 			return msgs, nil
@@ -337,7 +330,6 @@ func TestAgentPermissionAskAllowed(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
 			return true, nil
 		},
@@ -379,7 +371,6 @@ func TestAgentPermissionDeny(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry(t.TempDir()), perms, events.New())
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("list files")); err != nil {
@@ -409,7 +400,6 @@ func TestAgentEventHandlerErrorIsObservedNotFatal(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), bus, obs)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("hi")); err != nil {
@@ -442,7 +432,6 @@ func TestAgentTransformContextPreservesEphemeralReminders(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		ReminderProducers: []ReminderProducer{
 			func(messages []models.AgentMessage) []string {
 				return []string{"remember to check tests"}
@@ -480,7 +469,6 @@ func TestAgentTransformContextPreservesCacheBreakpoints(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs, nil
 		},
@@ -502,7 +490,6 @@ func TestAgentTransformContextRecomputesBreakpointsWhenCountChanges(t *testing.T
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs[:1], nil
 		},
@@ -530,7 +517,6 @@ func TestAgentTransformContextRecomputesMaxTokens(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs[:1], nil
 		},
@@ -581,7 +567,6 @@ func TestAgentAbortCancelsRunningTool(t *testing.T) {
 	ag := NewWithObservability(Config{
 		SystemPrompt:      "You are helpful.",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 	}, client, registry, permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

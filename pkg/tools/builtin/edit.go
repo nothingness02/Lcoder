@@ -61,7 +61,6 @@ func (e *Edit) Definition() models.ToolDefinition {
 			},
 			"required": []string{"path", "edits"},
 		},
-		ExecutionMode: models.ExecutionSequential,
 	}
 }
 

@@ -43,7 +43,6 @@ func (f *Find) Definition() models.ToolDefinition {
 			},
 			"required": []string{"pattern"},
 		},
-		ExecutionMode: models.ExecutionParallel,
 	}
 }
 

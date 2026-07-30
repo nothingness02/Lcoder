@@ -108,7 +108,6 @@ func (s *Subagent) Definition() models.ToolDefinition {
 			},
 			"required": []string{},
 		},
-		ExecutionMode: models.ExecutionSequential,
 	}
 }
 

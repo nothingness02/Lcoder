@@ -105,7 +105,7 @@ func TestExecutorDifferentFilesOverlap(t *testing.T) {
 	calls := []models.ToolCallContent{schedCall("c1", "gate", "a.go"), schedCall("c2", "gate", "b.go")}
 	done := make(chan struct{})
 	go func() {
-		e.execute(context.Background(), 0, models.AgentMessage{}, calls, models.ExecutionParallel)
+		e.execute(context.Background(), 0, models.AgentMessage{}, calls)
 		close(done)
 	}()
 
@@ -123,7 +123,7 @@ func TestExecutorSameFileSerializes(t *testing.T) {
 	calls := []models.ToolCallContent{schedCall("c1", "gate", "x.go"), schedCall("c2", "gate", "x.go")}
 	done := make(chan []models.AgentMessage, 1)
 	go func() {
-		results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls, models.ExecutionParallel)
+		results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls)
 		done <- results
 	}()
 
@@ -152,7 +152,7 @@ func TestExecutorUndeclaredToolDefaultsToAll(t *testing.T) {
 	calls := []models.ToolCallContent{schedCall("c1", "gate", "a.go"), schedCall("c2", "gate", "b.go")}
 	done := make(chan struct{})
 	go func() {
-		e.execute(context.Background(), 0, models.AgentMessage{}, calls, models.ExecutionParallel)
+		e.execute(context.Background(), 0, models.AgentMessage{}, calls)
 		close(done)
 	}()
 
@@ -191,7 +191,7 @@ func TestExecutorConfirmsInProviderOrder(t *testing.T) {
 	})
 
 	calls := []models.ToolCallContent{schedCall("c1", "gate", "a.go"), schedCall("c2", "gate", "b.go")}
-	e.execute(context.Background(), 0, models.AgentMessage{}, calls, models.ExecutionParallel)
+	e.execute(context.Background(), 0, models.AgentMessage{}, calls)
 
 	if len(order) != 2 || order[0] != "c1" || order[1] != "c2" {
 		t.Fatalf("confirmations out of provider order: %v", order)
@@ -208,7 +208,7 @@ func TestExecutorDeniedCallDoesNotBlock(t *testing.T) {
 
 	// "../escape.go" 被路径守卫拒绝(prepare 阶段),c2 必须正常执行。
 	calls := []models.ToolCallContent{schedCall("c1", "gate", "../escape.go"), schedCall("c2", "gate", "b.go")}
-	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls, models.ExecutionParallel)
+	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls)
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -237,7 +237,7 @@ func TestExecutorDuplicateCacheableCallDeduplicates(t *testing.T) {
 	calls := []models.ToolCallContent{schedCall("c1", "read", "same.go"), schedCall("c2", "read", "same.go")}
 	done := make(chan []models.AgentMessage, 1)
 	go func() {
-		results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls, models.ExecutionParallel)
+		results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, calls)
 		done <- results
 	}()
 

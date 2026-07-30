@@ -14,12 +14,11 @@ import (
 
 // HTTPConfig describes an external HTTP tool.
 type HTTPConfig struct {
-	Name          string               `json:"name"`
-	Endpoint      string               `json:"endpoint"`
-	Description   string               `json:"description"`
-	Parameters    map[string]any       `json:"parameters"`
-	ExecutionMode models.ExecutionMode `json:"execution_mode"`
-	Headers       map[string]string    `json:"headers"`
+	Name        string            `json:"name"`
+	Endpoint    string            `json:"endpoint"`
+	Description string            `json:"description"`
+	Parameters  map[string]any    `json:"parameters"`
+	Headers     map[string]string `json:"headers"`
 }
 
 // HTTPExecutable calls a remote HTTP endpoint for a tool.
@@ -35,15 +34,10 @@ func NewHTTPExecutable(cfg HTTPConfig) *HTTPExecutable {
 
 // Definition returns the tool schema exposed to the LLM.
 func (h *HTTPExecutable) Definition() models.ToolDefinition {
-	mode := h.cfg.ExecutionMode
-	if mode == "" {
-		mode = models.ExecutionParallel
-	}
 	return models.ToolDefinition{
-		Name:          h.cfg.Name,
-		Description:   h.cfg.Description,
-		Parameters:    h.cfg.Parameters,
-		ExecutionMode: mode,
+		Name:        h.cfg.Name,
+		Description: h.cfg.Description,
+		Parameters:  h.cfg.Parameters,
 	}
 }
 

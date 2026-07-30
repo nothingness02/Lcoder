@@ -35,7 +35,6 @@ func (l *Ls) Definition() models.ToolDefinition {
 				},
 			},
 		},
-		ExecutionMode: models.ExecutionParallel,
 	}
 }
 

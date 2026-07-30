@@ -74,7 +74,7 @@ func newPathGuardExecutor(t *testing.T) (*executor, string) {
 func pathGuardToolResult(e *executor, name string, args map[string]any) (string, bool) {
 	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, []models.ToolCallContent{
 		{ID: "call_test", Name: name, Arguments: args},
-	}, models.ExecutionParallel)
+	})
 	tr := results[0].Content[0].(models.ToolResultContent)
 	return tr.Text(), tr.IsError
 }

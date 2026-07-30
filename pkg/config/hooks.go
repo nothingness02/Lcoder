@@ -39,7 +39,6 @@ type ToolExtensionConfig struct {
 	Endpoint      string            `yaml:"endpoint"`       // optional override for JSON endpoint
 	Description   string            `yaml:"description"`    // optional override
 	Parameters    map[string]any    `yaml:"parameters"`     // optional override
-	ExecutionMode string            `yaml:"execution_mode"` // optional override
 	Headers       map[string]string `yaml:"headers"`        // optional override
 	Config        map[string]any    `yaml:"config"`         // opaque extension config
 }

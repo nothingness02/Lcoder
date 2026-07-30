@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/models"
 )
 
 // LoadExtensions registers tools from JSON descriptors (HTTPExecutable tools).
@@ -50,9 +49,6 @@ func (r *Registry) loadJSONExtension(cfg config.ToolExtensionConfig) error {
 	}
 	if cfg.Parameters != nil {
 		httpCfg.Parameters = cfg.Parameters
-	}
-	if cfg.ExecutionMode != "" {
-		httpCfg.ExecutionMode = models.ExecutionMode(cfg.ExecutionMode)
 	}
 	if cfg.Headers != nil {
 		httpCfg.Headers = cfg.Headers

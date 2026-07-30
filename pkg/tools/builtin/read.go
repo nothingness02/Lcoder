@@ -43,7 +43,6 @@ func (r *Read) Definition() models.ToolDefinition {
 			},
 			"required": []string{"path"},
 		},
-		ExecutionMode: models.ExecutionParallel,
 	}
 }
 

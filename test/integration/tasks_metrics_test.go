@@ -127,9 +127,8 @@ func TestTasksToolFrequencyAndLongRangeMetrics(t *testing.T) {
 	})
 
 	ag := agent.New(agent.Config{
-		SystemPrompt:      "You are a helpful assistant.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionSequential,
+		SystemPrompt: "You are a helpful assistant.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		ShouldStop: func(_ context.Context, ts agent.TurnSummary) (bool, error) {
 			for _, tc := range ts.Message.ToolCalls() {
 				if tc.Name == task.ToolName {

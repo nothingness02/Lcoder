@@ -49,7 +49,6 @@ func TestExecutorBeforeHookModifiedArgs(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		BeforeToolCall: func(_ context.Context, _ ToolCallInfo) (*BeforeToolCallResult, error) {
 			return &BeforeToolCallResult{ModifiedArgs: map[string]any{"command": "rewritten"}}, nil
 		},
@@ -80,7 +79,6 @@ func TestExecutorBeforeHookNilResult(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		BeforeToolCall: func(_ context.Context, _ ToolCallInfo) (*BeforeToolCallResult, error) {
 			return nil, nil
 		},
@@ -111,7 +109,6 @@ func TestExecutorBeforeHookBlockWithModifiedArgs(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
 		BeforeToolCall: func(_ context.Context, _ ToolCallInfo) (*BeforeToolCallResult, error) {
 			return &BeforeToolCallResult{
 				Block:        true,
@@ -175,7 +172,6 @@ func TestExecutorDedupKeyedOnPostHookArgs(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt:      "x",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionSequential,
 		BeforeToolCall: func(_ context.Context, info ToolCallInfo) (*BeforeToolCallResult, error) {
 			// call_1: x -> y (lands in call_2's original key space).
 			// call_2: y -> z (must still execute, not serve call_1's cache).

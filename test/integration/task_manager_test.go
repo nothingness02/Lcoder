@@ -102,7 +102,6 @@ func TestTaskManagerSurvivesCompactionAndReconcilesOverwrites(t *testing.T) {
 	cfg := agent.Config{
 		SystemPrompt:      "test system prompt",
 		Model:             models.ModelRef{Provider: "openai", ID: "gpt-test"},
-		ToolExecutionMode: models.ExecutionSequential,
 		ContextManager:    mgr,
 		SessionID:         sessionID,
 		CheckpointStore:   store,

@@ -27,11 +27,7 @@ type Builder struct {
 
 // NewBuilder creates a new Agent builder.
 func NewBuilder() *Builder {
-	return &Builder{
-		cfg: Config{
-			ToolExecutionMode: models.ExecutionParallel,
-		},
-	}
+	return &Builder{}
 }
 
 // WithConfig applies a full configuration.
@@ -49,12 +45,6 @@ func (b *Builder) WithSystemPrompt(prompt string) *Builder {
 // WithModel sets the model reference.
 func (b *Builder) WithModel(provider, id string) *Builder {
 	b.cfg.Model = models.ModelRef{Provider: provider, ID: id}
-	return b
-}
-
-// WithToolExecutionMode sets the default tool execution mode.
-func (b *Builder) WithToolExecutionMode(mode models.ExecutionMode) *Builder {
-	b.cfg.ToolExecutionMode = mode
 	return b
 }
 

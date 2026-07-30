@@ -35,10 +35,9 @@ func (e *Executable) Definition() models.ToolDefinition {
 		params = injectTimeoutProperty(params)
 	}
 	return models.ToolDefinition{
-		Name:          fmt.Sprintf("%s_%s", e.client.Name(), e.tool.Name),
-		Description:   fmt.Sprintf("[%s] %s", e.client.Name(), e.tool.Description),
-		Parameters:    params,
-		ExecutionMode: models.ExecutionParallel,
+		Name:        fmt.Sprintf("%s_%s", e.client.Name(), e.tool.Name),
+		Description: fmt.Sprintf("[%s] %s", e.client.Name(), e.tool.Description),
+		Parameters:  params,
 	}
 }
 

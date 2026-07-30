@@ -182,12 +182,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	registry.Register(skills.UseSkillToolName, builtinTools.NewUseSkill(cwd, skillCatalog))
 	for _, cfgTool := range cfg.HTTPTools {
 		registry.Register(cfgTool.Name, tools.NewHTTPExecutable(tools.HTTPConfig{
-			Name:          cfgTool.Name,
-			Endpoint:      tools.ExpandEndpointEnv(cfgTool.Endpoint),
-			Description:   cfgTool.Description,
-			Parameters:    cfgTool.Parameters,
-			ExecutionMode: models.ExecutionMode(cfgTool.ExecutionMode),
-			Headers:       cfgTool.Headers,
+			Name:        cfgTool.Name,
+			Endpoint:    tools.ExpandEndpointEnv(cfgTool.Endpoint),
+			Description: cfgTool.Description,
+			Parameters:  cfgTool.Parameters,
+			Headers:     cfgTool.Headers,
 		}))
 	}
 
@@ -351,7 +350,6 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			SystemPrompt:       "",
 			BaseSystemPrompt:   agentsetup.BuildSystemPrompt(tmplCtx),
 			Model:              models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
-			ToolExecutionMode:  models.ExecutionParallel,
 			ContextManager:     mgr,
 			BeforeToolCall:     makeBeforeToolCall(cfg.Hooks, sess.ID),
 			Mode:               modeName,

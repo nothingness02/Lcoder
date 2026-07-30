@@ -48,7 +48,6 @@ func (t *UseSkill) Definition() models.ToolDefinition {
 		},
 		// Sequential so that within one batch an activation completes before
 		// later calls are checked against the skill's tool restriction.
-		ExecutionMode: models.ExecutionSequential,
 	}
 }
 

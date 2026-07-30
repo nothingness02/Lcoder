@@ -210,9 +210,8 @@ func (h *Host) buildChild(profile subagent.Agent, cwd string) *agent.Agent {
 	}
 	childCfg := agent.Config{
 		BaseSystemPrompt:  rolePrefixText() + "\n\n" + profile.Prompt,
-		Model:             h.resolveModel(profile),
-		ToolExecutionMode: models.ExecutionParallel,
-		ContextManager:    h.cfg.NewContextManager(),
+		Model:            h.resolveModel(profile),
+		ContextManager:   h.cfg.NewContextManager(),
 		Mode:              profile.Mode,
 		ModeManager:       h.cfg.ModeManager,
 		UserConfirm:       h.confirm,

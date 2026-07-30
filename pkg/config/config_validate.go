@@ -81,12 +81,6 @@ func (c HTTPToolConfig) Validate() error {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return fmt.Errorf("endpoint %q must be an http or https URL", c.Endpoint)
 	}
-	switch c.ExecutionMode {
-	case "", "parallel", "sequential":
-		// ok; empty defaults to parallel at runtime
-	default:
-		return fmt.Errorf("execution_mode %q is not valid; must be parallel or sequential", c.ExecutionMode)
-	}
 	return nil
 }
 

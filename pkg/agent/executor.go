@@ -126,7 +126,7 @@ type preparedToolCall struct {
 	run         func(ctx context.Context) models.AgentMessage
 }
 
-func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.AgentMessage, calls []models.ToolCallContent, execMode models.ExecutionMode) ([]models.AgentMessage, bool) {
+func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.AgentMessage, calls []models.ToolCallContent) ([]models.AgentMessage, bool) {
 	e.dedupMu.Lock()
 	e.dedup = make(map[string]models.AgentMessage)
 	e.dedupMu.Unlock()
@@ -151,20 +151,6 @@ func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.Ag
 		}
 	}
 
-	sequential := execMode == models.ExecutionSequential
-	if !sequential {
-		for _, call := range calls {
-			// switch_mode mutates agent state (the mode every other call's
-			// guard reads), so a batch containing it must run sequentially.
-			if call.Name == switchModeToolName {
-				sequential = true
-				break
-			}
-		}
-	}
-	if sequential {
-		return e.runSequential(ctx, prepared)
-	}
 	return e.runScheduled(ctx, prepared)
 }
 
@@ -178,18 +164,6 @@ func finalizeBatch(results []models.AgentMessage) ([]models.AgentMessage, bool) 
 		}
 	}
 	return results, allTerminate
-}
-
-func (e *executor) runSequential(ctx context.Context, prepared []preparedToolCall) ([]models.AgentMessage, bool) {
-	results := make([]models.AgentMessage, len(prepared))
-	for i, p := range prepared {
-		if p.run == nil {
-			results[i] = p.resolved
-		} else {
-			results[i] = p.run(ctx)
-		}
-	}
-	return finalizeBatch(results)
 }
 
 func (e *executor) runScheduled(ctx context.Context, prepared []preparedToolCall) ([]models.AgentMessage, bool) {

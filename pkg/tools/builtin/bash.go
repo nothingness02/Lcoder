@@ -45,7 +45,6 @@ func (b *Bash) Definition() models.ToolDefinition {
 			},
 			"required": []string{"command"},
 		},
-		ExecutionMode: models.ExecutionSequential,
 	}
 }
 

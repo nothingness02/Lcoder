@@ -38,7 +38,6 @@ func (w *Write) Definition() models.ToolDefinition {
 			},
 			"required": []string{"path", "content"},
 		},
-		ExecutionMode: models.ExecutionParallel,
 	}
 }
 

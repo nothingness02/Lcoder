@@ -49,7 +49,6 @@ func (t *TodoWrite) Definition() models.ToolDefinition {
 			},
 			"required": []any{"todos"},
 		},
-		ExecutionMode: models.ExecutionSequential,
 	}
 }
 

@@ -89,7 +89,6 @@ func (g *Grep) Definition() models.ToolDefinition {
 			},
 			"required": []string{"pattern"},
 		},
-		ExecutionMode: models.ExecutionParallel,
 	}
 }
 
