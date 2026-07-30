@@ -2,6 +2,7 @@
 *.exe
 docs/*
 !docs/*-report.md
+!docs/*-optimization.md
 !docs/superpowers/
 !docs/superpowers/**
 reference/*
