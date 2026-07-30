@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -40,6 +41,9 @@ type fileSuggester interface {
 // newFileSuggester picks the @-completion backend for cwd: an fd subprocess
 // when the binary is available (fd.go), else the cached FileIndex.
 func newFileSuggester(cwd string) fileSuggester {
+	if bin := detectFd(exec.LookPath, probeFdVersion); bin != "" {
+		return newFdSuggester(cwd, bin)
+	}
 	return NewFileIndex(cwd)
 }
 
