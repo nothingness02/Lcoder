@@ -110,6 +110,9 @@ type Model struct {
 	header      headerInfo
 	headerFrame int
 
+	// topBar toggles the persistent identity strip above the transcript.
+	topBar bool
+
 	model      string
 	themeStyle string
 	totalCost  float64
@@ -200,6 +203,7 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		needsProviderSetup: needsProviderSetup,
 		mcpRegistry:        mcpRegistry,
 		header:             headerInfo{model: model, cwd: cwd, version: "0.1"},
+		topBar:             true,
 		focusedBlockIndex:  -1,
 		contextPct:         -1,
 		contextUsedTok:     0,
@@ -345,14 +349,14 @@ func (m *Model) addUser(text string) {
 }
 
 // updateSizes recomputes layout after a resize, reserving the task sidebar's
-// fixed column when it is visible.
+// fixed column when it is visible and the top bar's row when it is shown.
 func (m *Model) updateSizes() {
 	mw := m.mainContentWidth()
 	m.mainWidth = mw
 	m.input.SetWidth(mw - 2)
 	m.input.SyncHeight()
 	bottom := m.bottomHeight()
-	vh := m.height - bottom
+	vh := m.height - bottom - m.topBarHeight()
 	if vh < 3 {
 		vh = 3
 	}

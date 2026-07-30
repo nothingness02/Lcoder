@@ -200,6 +200,9 @@ func (m Model) View() string {
 
 	top := m.viewport.View()
 	bottom := m.bottomRegion()
+	if bar := m.topBarView(); bar != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, bar, top, bottom)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, top, bottom)
 }
 
