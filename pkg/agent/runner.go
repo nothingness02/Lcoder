@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/lcoder/lcoder/pkg/contextmgr"
+	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/task"
 )
@@ -27,6 +28,18 @@ type Runner interface {
 	TaskManager() *task.Manager
 	// ClearSkillFilter lifts any active skill tool restriction.
 	ClearSkillFilter()
+	// Goal returns a copy of the current goal record, or nil.
+	Goal() *GoalState
+	// StartGoal creates an active goal with the given budgets (0 = unlimited).
+	StartGoal(objective string, turnBudget, tokenBudget int)
+	// PauseGoal suspends an active goal; the driver exits at the boundary.
+	PauseGoal(reason string)
+	// ResumeGoal reactivates a paused/blocked goal.
+	ResumeGoal()
+	// CancelGoal clears the goal record.
+	CancelGoal()
+	// LastEndReason returns how the most recent run ended.
+	LastEndReason() events.AgentEndReason
 }
 
 // ModeSwitcher extends Runner with the ability to create a new agent instance

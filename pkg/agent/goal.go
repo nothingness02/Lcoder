@@ -111,8 +111,8 @@ func (h *goalHolder) applyUpdate(status, reason string) (GoalStatus, error) {
 // Goal returns a copy of the current goal record, or nil.
 func (a *Agent) Goal() *GoalState { return a.goals.get() }
 
-// startGoal creates an active goal, replacing any settled one.
-func (a *Agent) startGoal(objective string, turnBudget, tokenBudget int) {
+// StartGoal creates an active goal, replacing any settled one.
+func (a *Agent) StartGoal(objective string, turnBudget, tokenBudget int) {
 	a.goals.set(&GoalState{
 		Objective:   objective,
 		Status:      GoalActive,
@@ -121,8 +121,8 @@ func (a *Agent) startGoal(objective string, turnBudget, tokenBudget int) {
 	})
 }
 
-// pauseGoal marks an active goal paused (interrupt / error / driver exit).
-func (a *Agent) pauseGoal(reason string) {
+// PauseGoal marks an active goal paused (interrupt / error / driver exit).
+func (a *Agent) PauseGoal(reason string) {
 	a.goals.mutate(func(g *GoalState) {
 		if g.Status == GoalActive {
 			g.Status = GoalPaused
@@ -130,6 +130,19 @@ func (a *Agent) pauseGoal(reason string) {
 		}
 	})
 }
+
+// ResumeGoal reactivates a paused or blocked goal.
+func (a *Agent) ResumeGoal() {
+	a.goals.mutate(func(g *GoalState) {
+		if g.Status == GoalPaused || g.Status == GoalBlocked {
+			g.Status = GoalActive
+			g.BlockReason = ""
+		}
+	})
+}
+
+// CancelGoal clears the goal record.
+func (a *Agent) CancelGoal() { a.goals.set(nil) }
 
 // blockGoal marks an active goal blocked with a reason.
 func (a *Agent) blockGoal(reason string) {
@@ -217,7 +230,7 @@ func NewGoalDriver(a *Agent) *GoalDriver { return &GoalDriver{agent: a} }
 // (paused).
 func (d *GoalDriver) Run(ctx context.Context, objective string, turnBudget, tokenBudget int) error {
 	a := d.agent
-	a.startGoal(objective, turnBudget, tokenBudget)
+	a.StartGoal(objective, turnBudget, tokenBudget)
 
 	next := objective
 	for {
@@ -232,12 +245,12 @@ func (d *GoalDriver) Run(ctx context.Context, objective string, turnBudget, toke
 		a.goals.mutate(func(live *GoalState) { live.TurnsUsed++ })
 
 		if err := a.Prompt(ctx, models.UserMessage(next)); err != nil {
-			a.pauseGoal(err.Error())
+			a.PauseGoal(err.Error())
 			return err
 		}
 		reason := a.LastEndReason()
 		if reason == events.EndReasonInterrupted || reason == events.EndReasonError {
-			a.pauseGoal(string(reason))
+			a.PauseGoal(string(reason))
 			return nil
 		}
 

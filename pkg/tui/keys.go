@@ -63,7 +63,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForEventCmd(m.eventCh)
 
 	case AgentDoneMsg:
-		m.onAgentDone(msg.Err)
+		if cmd := m.onAgentDone(msg.Err); cmd != nil {
+			return m, cmd
+		}
 		return m, waitForRunnerResultCmd(m.runner.Results())
 
 	case mcpActionMsg:
@@ -546,14 +548,23 @@ func (m *Model) startPrompt(text string) tea.Cmd {
 
 // onAgentDone returns the model to the input state and persists the session.
 // A run error goes to the fixed region (errMsg), not the transcript.
-func (m *Model) onAgentDone(err error) {
+// onAgentDone settles the UI after a run. When a goal is still active it
+// submits the continuation prompt and returns a non-nil Cmd so the caller
+// keeps waiting on the runner; the UI stays in processing state.
+func (m *Model) onAgentDone(err error) tea.Cmd {
+	m.persistSession()
+	if err == nil {
+		if cmd := m.continueGoalIfActive(); cmd != nil {
+			return cmd
+		}
+	}
 	m.state = stateInput
 	m.input.SetProcessing(false)
 	if err != nil {
 		m.errMsg = err.Error()
 	}
-	m.persistSession()
 	m.updateSuggestion()
+	return nil
 }
 
 // refreshMenu toggles the slash and @file menus based on the current input.

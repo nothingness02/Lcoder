@@ -74,6 +74,10 @@ func init() {
 				m.saveCheckpoint()
 				return nil
 			}},
+		{Name: "goal", Description: "Pursue an objective across turns", Category: "Agent",
+			Handler: func(m *Model, args string) tea.Cmd {
+				return handleGoalCommand(m, args)
+			}},
 		{Name: "restore", Description: "Restore agent checkpoint", Category: "Session",
 			Handler: func(m *Model, _ string) tea.Cmd {
 				m.restoreCheckpoint()

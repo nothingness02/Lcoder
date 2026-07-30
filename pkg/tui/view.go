@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lcoder/lcoder/pkg/agent"
 )
 
 // rebuildViewport re-renders all blocks into the viewport and pins to bottom
@@ -98,12 +99,17 @@ func (m *Model) statusLineView() string {
 	return statusLine(m.mainWidth, left, m.contextRight())
 }
 
-// modeLabel returns the current agent mode for the status bar.
+// modeLabel returns the current agent mode for the status bar, with a goal
+// marker while a goal is being pursued.
 func (m *Model) modeLabel() string {
+	label := "ready"
 	if mode := m.agent.Mode(); mode != "" {
-		return mode
+		label = mode
 	}
-	return "ready"
+	if g := m.agent.Goal(); g != nil && g.Status == agent.GoalActive {
+		label += " · goal"
+	}
+	return label
 }
 
 // contextRight builds the right-aligned status segment. Context usage leads

@@ -8,6 +8,7 @@ import (
 
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
+	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/task"
@@ -29,6 +30,10 @@ type FakeAgent struct {
 	// StatsVal, when non-nil, is returned by Stats so tests can program the
 	// context-budget figures the TUI status line consumes.
 	StatsVal map[string]int
+	// GoalVal is the fake goal record manipulated by the goal methods.
+	GoalVal *agent.GoalState
+	// EndReason is returned by LastEndReason (zero value = "").
+	EndReason events.AgentEndReason
 }
 
 func (f *FakeAgent) Prompt(_ context.Context, msg models.AgentMessage) error {
@@ -74,6 +79,54 @@ func (f *FakeAgent) SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudg
 func (f *FakeAgent) TaskManager() *task.Manager {
 	return f.TaskMgr
 }
+
+// Goal returns the fake's goal record (nil unless StartGoal was called).
+func (f *FakeAgent) Goal() *agent.GoalState {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.GoalVal == nil {
+		return nil
+	}
+	cp := *f.GoalVal
+	return &cp
+}
+
+// StartGoal records an active goal so TUI tests can exercise /goal flows.
+func (f *FakeAgent) StartGoal(objective string, turnBudget, tokenBudget int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.GoalVal = &agent.GoalState{Objective: objective, Status: agent.GoalActive, TurnBudget: turnBudget, TokenBudget: tokenBudget}
+}
+
+// PauseGoal marks the fake goal paused.
+func (f *FakeAgent) PauseGoal(reason string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.GoalVal != nil && f.GoalVal.Status == agent.GoalActive {
+		f.GoalVal.Status = agent.GoalPaused
+		f.GoalVal.BlockReason = reason
+	}
+}
+
+// ResumeGoal reactivates the fake goal.
+func (f *FakeAgent) ResumeGoal() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.GoalVal != nil && (f.GoalVal.Status == agent.GoalPaused || f.GoalVal.Status == agent.GoalBlocked) {
+		f.GoalVal.Status = agent.GoalActive
+		f.GoalVal.BlockReason = ""
+	}
+}
+
+// CancelGoal clears the fake goal.
+func (f *FakeAgent) CancelGoal() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.GoalVal = nil
+}
+
+// LastEndReason returns the fake's programmed end reason.
+func (f *FakeAgent) LastEndReason() events.AgentEndReason { return f.EndReason }
 
 // WithMode implements agent.ModeSwitcher by recording the requested mode and
 // returning itself. It satisfies the interface TUI uses for mode switches.
