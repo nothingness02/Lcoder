@@ -16,9 +16,11 @@ type block struct {
 	attachments []string // @file mention basenames shown under the bar
 
 	// assistant extras
-	thinking string
-	usage    *blockUsage
-	expanded bool
+	thinking      string
+	usage         *blockUsage
+	expanded      bool
+	thinkingStart time.Time // first thinking delta of this message
+	thinkingSecs  float64   // recorded at commit; >0 marks the trace complete
 
 	// tool extras
 	toolName    string

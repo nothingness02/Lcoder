@@ -25,6 +25,7 @@ func toComponent(b block) components.BlockComponent {
 		}
 		comp := components.NewAssistantComponent(b.id, b.thinking, b.raw, usage)
 		comp.SetExpanded(b.expanded)
+		comp.SetThinkingSecs(b.thinkingSecs)
 		return comp
 	case components.BlockTool:
 		comp := components.NewToolResultComponent(

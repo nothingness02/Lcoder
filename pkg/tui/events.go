@@ -49,6 +49,12 @@ func (m *Model) handleEvent(ev events.Event) tea.Cmd {
 			if final == "" {
 				final = m.streamLive
 			}
+			// Same fallback as the text: a provider whose final message omits
+			// the thinking trace must not erase the streamed one.
+			thinking := e.Message.Thinking()
+			if thinking == "" {
+				thinking = m.streamLiveThinking
+			}
 			// The provider may finalize with a message object whose ID differs from
 			// the partial we streamed. Patch the in-flight block using the streaming
 			// ID we recorded so we don't append a duplicate assistant paragraph.
@@ -56,7 +62,7 @@ func (m *Model) handleEvent(ev events.Event) tea.Cmd {
 			if id == "" {
 				id = e.Message.ID
 			}
-			m.commitAssistant(id, final, e.Message.Thinking(), usagePtr(e.Message))
+			m.commitAssistant(id, final, thinking, usagePtr(e.Message))
 			m.streaming = false
 			m.streamLive = ""
 			m.streamLiveThinking = ""
@@ -253,6 +259,9 @@ func (m *Model) patchAssistant(content string) tea.Cmd {
 func (m *Model) patchThinking(thinking string) tea.Cmd {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == components.BlockAssistant && m.blocks[i].id == m.streamMsgID {
+			if m.blocks[i].thinkingStart.IsZero() {
+				m.blocks[i].thinkingStart = time.Now()
+			}
 			m.blocks[i].thinking = thinking
 			if ac, ok := m.components[i].(*components.AssistantComponent); ok {
 				ac.SetThinking(thinking)
@@ -274,6 +283,9 @@ func (m *Model) commitAssistant(id, content, thinking string, usage *blockUsage)
 			}
 			m.blocks[i].raw = content
 			m.blocks[i].thinking = thinking
+			if !m.blocks[i].thinkingStart.IsZero() && thinking != "" {
+				m.blocks[i].thinkingSecs = time.Since(m.blocks[i].thinkingStart).Seconds()
+			}
 			m.blocks[i].usage = usage
 			if usage != nil {
 				m.totalCost += usage.cost
@@ -324,12 +336,19 @@ func blocksFromMessages(msgs []models.AgentMessage) []block {
 		case models.RoleUser:
 			out = append(out, block{kind: components.BlockUser, id: msg.ID, raw: msg.Text()})
 		case models.RoleAssistant:
+			// Loaded traces are complete but their duration is unknown: -1
+			// renders the completion label without a seconds segment.
+			secs := 0.0
+			if msg.Thinking() != "" {
+				secs = -1
+			}
 			out = append(out, block{
-				kind:     components.BlockAssistant,
-				id:       msg.ID,
-				raw:      msg.Text(),
-				thinking: msg.Thinking(),
-				usage:    usagePtr(msg),
+				kind:         components.BlockAssistant,
+				id:           msg.ID,
+				raw:          msg.Text(),
+				thinking:     msg.Thinking(),
+				usage:        usagePtr(msg),
+				thinkingSecs: secs,
 			})
 			for _, tc := range msg.ToolCalls() {
 				toolIdx[tc.ID] = len(out)

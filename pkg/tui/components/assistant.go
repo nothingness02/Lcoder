@@ -26,6 +26,10 @@ type AssistantComponent struct {
 	usage    *UsageInfo
 	expanded bool
 
+	// thinkingSecs is the recorded thinking duration; >0 marks the trace as
+	// completed (opencode's "Thought: title · 12s" collapsed label).
+	thinkingSecs float64
+
 	// rendered cache keyed by width + content to avoid re-rendering glamour on
 	// every frame.
 	cachedRenderWidth   int
@@ -93,6 +97,12 @@ func (c *AssistantComponent) SetThinking(thinking string) {
 	c.thinking = thinking
 }
 
+// SetThinkingSecs records the thinking duration, marking the trace complete.
+// A negative value means completed with unknown duration (session reload).
+func (c *AssistantComponent) SetThinkingSecs(secs float64) {
+	c.thinkingSecs = secs
+}
+
 // renderedContent returns the glamour-rendered markdown for the current width.
 func (c *AssistantComponent) renderedContent(width int) string {
 	if c.cachedRenderWidth == width && c.cachedRenderContent == c.content {
@@ -106,14 +116,25 @@ func (c *AssistantComponent) renderedContent(width int) string {
 }
 
 // renderThinking renders the assistant's reasoning trace. Collapsed mode shows
-// the first non-empty line (so the user can tell what the model is reasoning
-// about without expanding) or a plain "Thinking…" placeholder; expanded mode
+// a single stable line: "Thinking: <first line>" while streaming, or
+// "Thought: <first line> · Ns" once the duration is recorded. Expanded mode
 // shows the full trace under a "Thinking:" header, dim and italic.
 func (c *AssistantComponent) renderThinking(expanded bool) string {
 	style := styleDim().Italic(true)
 	thinking := strings.TrimRight(c.thinking, "\n")
 	if !expanded {
-		if first := firstNonEmptyLine(thinking); first != "" {
+		first := firstNonEmptyLine(thinking)
+		if c.thinkingSecs != 0 {
+			label := "Thought:"
+			if first != "" {
+				label += " " + truncate(first, 60)
+			}
+			if c.thinkingSecs > 0 {
+				label += " · " + formatThinkingSecs(c.thinkingSecs)
+			}
+			return style.Render(label)
+		}
+		if first != "" {
 			return style.Render("Thinking: " + truncate(first, 60))
 		}
 		return style.Render("Thinking…")
@@ -125,6 +146,15 @@ func (c *AssistantComponent) renderThinking(expanded bool) string {
 		sb.WriteString(style.Render("  " + ln))
 	}
 	return sb.String()
+}
+
+// formatThinkingSecs renders a duration: one decimal under ten seconds,
+// whole seconds above.
+func formatThinkingSecs(secs float64) string {
+	if secs < 10 {
+		return fmt.Sprintf("%.1fs", secs)
+	}
+	return fmt.Sprintf("%.0fs", secs)
 }
 
 // firstNonEmptyLine returns the first trimmed non-empty line of s, or "".
