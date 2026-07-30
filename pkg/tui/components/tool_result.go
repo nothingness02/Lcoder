@@ -95,7 +95,7 @@ func (c *ToolResultComponent) Render(width int, expanded bool) string {
 	if expanded || c.expanded {
 		base = formatExpandedToolResult(c.toolName, c.toolArgs, c.isError, c.result, elapsed, c.running, width)
 	} else {
-		preview := toolPreview(c.result, 2, 1, width)
+		preview := collapseToolOutput(c.result, 2, 1, width)
 		base = formatCompactToolResult(c.toolName, c.toolArgs, c.isError, preview, elapsed, c.running)
 	}
 	// Header chip: compact result statistic, e.g. " · 12 lines".

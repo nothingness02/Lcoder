@@ -56,11 +56,14 @@ func toolResultBrief(elapsed time.Duration) string {
 	return ""
 }
 
-// toolPreview returns a head/tail sample of content: the first head lines and
-// last tail lines with an elision marker between when content is longer. Each
-// line is clipped to maxWidth. Keeping the tail matters for logs and stack
-// traces, where the salient error is usually at the end.
-func toolPreview(content string, head, tail, maxWidth int) string {
+// collapseToolOutput returns a head/tail sample of content: the first head
+// lines and last tail lines with an elision marker between when content is
+// longer. Each line is clipped to maxWidth, and the whole sample obeys a
+// character budget of one line-share (maxWidth-6, floored at 20) per sampled
+// line, so a minified-JSON wall can't dominate the transcript. Keeping the
+// tail matters for logs and stack traces, where the salient error is usually
+// at the end. (opencode's collapse-tool-output shape.)
+func collapseToolOutput(content string, head, tail, maxWidth int) string {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return ""
@@ -74,8 +77,9 @@ func toolPreview(content string, head, tail, maxWidth int) string {
 		sampled = append(sampled, lines[len(lines)-tail:]...)
 		lines = sampled
 	}
+	share := max(20, maxWidth-6)
 	for i, ln := range lines {
-		lines[i] = truncate(ln, maxWidth)
+		lines[i] = truncate(ln, min(maxWidth, share))
 	}
 	return strings.Join(lines, "\n")
 }

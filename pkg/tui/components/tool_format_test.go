@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestFriendlyToolLabel(t *testing.T) {
@@ -85,7 +87,7 @@ func TestToolPreviewHeadTail(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		lines = append(lines, fmt.Sprintf("line%d", i))
 	}
-	out := toolPreview(strings.Join(lines, "\n"), 2, 1, 80)
+	out := collapseToolOutput(strings.Join(lines, "\n"), 2, 1, 80)
 	if !strings.Contains(out, "line1") || !strings.Contains(out, "line2") {
 		t.Fatalf("expected head lines, got %q", out)
 	}
@@ -97,5 +99,33 @@ func TestToolPreviewHeadTail(t *testing.T) {
 	}
 	if strings.Contains(out, "line5") {
 		t.Fatalf("middle lines should be elided, got %q", out)
+	}
+}
+
+func TestCollapseToolOutputCharBudget(t *testing.T) {
+	// Three 30-cell lines at width 30: the budget is 3 * (30-6) = 72 cells,
+	// so each sampled line is clipped to its share instead of filling rows.
+	line := strings.Repeat("x", 30)
+	out := collapseToolOutput(line+"\n"+line+"\n"+line, 2, 1, 30)
+	for _, ln := range strings.Split(out, "\n") {
+		if lipgloss.Width(ln) > 24 {
+			t.Fatalf("line exceeds char budget share: %q (width %d)", ln, lipgloss.Width(ln))
+		}
+	}
+}
+
+func TestCollapseToolOutputHugeSingleLine(t *testing.T) {
+	out := collapseToolOutput(strings.Repeat("y", 5000), 2, 1, 40)
+	if lipgloss.Width(out) > 40 {
+		t.Fatalf("single huge line not clipped to width: width %d", lipgloss.Width(out))
+	}
+	if !strings.HasSuffix(out, "…") {
+		t.Fatalf("expected ellipsis on clipped line, got %q", out[len(out)-20:])
+	}
+}
+
+func TestCollapseToolOutputEmpty(t *testing.T) {
+	if out := collapseToolOutput("  \n  ", 2, 1, 80); out != "" {
+		t.Fatalf("expected empty output, got %q", out)
 	}
 }
