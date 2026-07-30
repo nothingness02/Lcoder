@@ -235,6 +235,24 @@ func boundStreamTail(s string, maxBytes int) string {
 	return tail
 }
 
+// closeOpenFence appends a closing code fence when s contains an odd number
+// of ``` lines. Streaming markdown is rendered mid-flight; an unclosed fence
+// makes glamour swallow all following text as code, and the style flips back
+// when the real closing line finally streams in. The closure is applied to
+// the render copy only — block raw and streamLive stay verbatim.
+func closeOpenFence(s string) string {
+	fences := 0
+	for _, ln := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimLeft(ln, " "), "```") {
+			fences++
+		}
+	}
+	if fences%2 == 1 {
+		return s + "\n```"
+	}
+	return s
+}
+
 // patchAssistant overwrites the raw content of the in-flight assistant block.
 // The rendered input is capped to streamLiveMaxBytes (see boundStreamTail); the
 // full text lives on in streamLive and is restored when commitAssistant runs.
@@ -245,7 +263,7 @@ func (m *Model) patchAssistant(content string) tea.Cmd {
 			rendered := boundStreamTail(content, streamLiveMaxBytes)
 			m.blocks[i].raw = rendered
 			if ac, ok := m.components[i].(*components.AssistantComponent); ok {
-				ac.SetContent(rendered)
+				ac.SetContent(closeOpenFence(rendered))
 			} else {
 				m.components[i] = toComponent(m.blocks[i])
 			}
