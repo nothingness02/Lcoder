@@ -56,6 +56,7 @@ func (a *Agent) captureWithReason(reason string) (*checkpoint.Checkpoint, error)
 			MaxTurnsPerRun: a.cfg.MaxTurnsPerRun,
 			DeferredTools:  a.cfg.DeferredTools,
 			CoreTools:      append([]string(nil), a.cfg.CoreTools...),
+			Goal:           goalSnapshotOf(a.goals.get()),
 		},
 		Context: &checkpoint.ContextSnapshot{
 			Budget:             mgrState.Budget,
@@ -92,6 +93,22 @@ func (a *Agent) captureWithReason(reason string) (*checkpoint.Checkpoint, error)
 
 // agentConfigHash returns a stable hash of the runtime-relevant configuration
 // so that Restore can detect environment drift.
+// goalSnapshotOf converts the live goal record to its checkpoint form.
+func goalSnapshotOf(g *GoalState) *checkpoint.GoalSnapshot {
+	if g == nil {
+		return nil
+	}
+	return &checkpoint.GoalSnapshot{
+		Objective:   g.Objective,
+		Status:      string(g.Status),
+		TurnBudget:  g.TurnBudget,
+		TokenBudget: g.TokenBudget,
+		TurnsUsed:   g.TurnsUsed,
+		TokensUsed:  g.TokensUsed,
+		BlockReason: g.BlockReason,
+	}
+}
+
 func (a *Agent) agentConfigHash() string {
 	snap := checkpoint.AgentSnapshot{
 		Mode:           a.cfg.Mode,
@@ -139,6 +156,27 @@ func (a *Agent) restore(cp *checkpoint.Checkpoint) error {
 	a.cfg.MaxTurnsPerRun = cp.Agent.MaxTurnsPerRun
 	a.cfg.DeferredTools = cp.Agent.DeferredTools
 	a.cfg.CoreTools = append([]string(nil), cp.Agent.CoreTools...)
+
+	// A checkpointed active goal always degrades to paused: the process died
+	// mid-pursuit, so resuming is the user's explicit decision (/goal resume).
+	if cp.Agent.Goal != nil {
+		g := &GoalState{
+			Objective:   cp.Agent.Goal.Objective,
+			Status:      GoalStatus(cp.Agent.Goal.Status),
+			TurnBudget:  cp.Agent.Goal.TurnBudget,
+			TokenBudget: cp.Agent.Goal.TokenBudget,
+			TurnsUsed:   cp.Agent.Goal.TurnsUsed,
+			TokensUsed:  cp.Agent.Goal.TokensUsed,
+			BlockReason: cp.Agent.Goal.BlockReason,
+		}
+		if g.Status == GoalActive {
+			g.Status = GoalPaused
+			if g.BlockReason == "" {
+				g.BlockReason = "restored after crash"
+			}
+		}
+		a.goals.set(g)
+	}
 
 	mgrState := &contextmgr.ManagerState{
 		Budget:             cp.Context.Budget,

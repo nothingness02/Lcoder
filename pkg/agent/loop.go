@@ -167,6 +167,7 @@ type Agent struct {
 	streamer  *streamer
 	executor  *executor
 	taskMgr   *task.Manager
+	goals     *goalHolder
 	cpMgr     *checkpointManager
 	rc        *reminderCoordinator
 
@@ -317,8 +318,9 @@ func New(cfg Config, llmClient *llm.Client, registry *tools.Registry, perms *per
 	ag.emitter = &eventEmitter{bus: bus}
 	ag.loopState = newStateHolder()
 	ag.taskMgr = task.NewManager()
+	ag.goals = &goalHolder{}
 	ag.streamer = &streamer{cfg: &ag.cfg, llm: ag.llm, mgr: ag.mgr, emitter: ag.emitter}
-	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter, taskMgr: ag.taskMgr}
+	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter, taskMgr: ag.taskMgr, goals: ag.goals}
 	ag.cpMgr = newCheckpointManager(ag)
 	ag.rc = newReminderCoordinator(ag.taskMgr, cfg.ReminderProducers)
 	return ag
@@ -466,6 +468,7 @@ func (a *Agent) WithMode(mode string) Runner {
 		streamer:                &streamer{cfg: &cfg, llm: a.llm, mgr: cfg.ContextManager, obs: a.obsCollector, emitter: emitter},
 		executor:                newExecutor(&cfg, cfg.ContextManager, a.registry, a.executor.permissions, emitter, a.taskMgr),
 		taskMgr:                 a.taskMgr,
+		goals:                   a.goals,
 		contextSnapshotRecorder: a.contextSnapshotRecorder,
 		// Carry the reminder bookkeeping across the switch. Left at zero,
 		// modeReminder would see no previous mode and skip the notice that the old
@@ -475,6 +478,7 @@ func (a *Agent) WithMode(mode string) Runner {
 		modeReminderTurns: a.modeReminderTurns,
 	}
 	fresh.cpMgr = newCheckpointManager(fresh)
+	fresh.executor.goals = a.goals // share the goal record across the mode switch
 	fresh.rc = newReminderCoordinator(fresh.taskMgr, fresh.cfg.ReminderProducers)
 	fresh.loopState.restore(a.loopState.snapshot())
 	fresh.loopState.SetResuming(true)
@@ -566,6 +570,12 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			Usage:       usage,
 		})
 
+		// Goal budget accounting: the run loop is the ONLY writer to the
+		// ledger (turn boundary, after the turn's usage is known).
+		if g := a.goals.get(); g != nil && g.Status == GoalActive {
+			a.goals.mutate(func(live *GoalState) { live.RecordUsage(usage) })
+		}
+
 		turn++
 		a.loopState.SetTurn(turn)
 
@@ -644,10 +654,10 @@ func (a *Agent) LastEndReason() events.AgentEndReason {
 }
 
 // builtinContinuationDeciders returns hard vetoes that run before the
-// configured chain (currently the goal budget veto, goal.go). A built-in
-// can only stop the loop — it is never consulted for continuation.
+// configured chain. A built-in can only stop the loop — it is never
+// consulted for continuation.
 func (a *Agent) builtinContinuationDeciders() []ContinuationDecider {
-	return nil
+	return []ContinuationDecider{a.goalBudgetVeto}
 }
 
 // refreshEphemeralReminders stages reminders for the upcoming turn.

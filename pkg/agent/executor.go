@@ -57,6 +57,7 @@ type executor struct {
 	mu             sync.Mutex
 	activeDeferred map[string]bool
 	taskMgr        *task.Manager
+	goals          *goalHolder
 
 	// skillFilter is the active skill's tool restriction (nil = unrestricted).
 	// Set when a use_skill call activates a skill whose frontmatter declares
@@ -431,6 +432,27 @@ func (e *executor) runToolCall(ctx context.Context, turn int, assistantMsg model
 					Tasks: reconciled,
 				})
 			}
+		}
+	}
+
+	// Apply a model-requested goal transition (update_goal is inert; the
+	// executor owns the record, same as task reconciliation).
+	if call.Name == builtin.UpdateGoalToolName && e.goals != nil && !isError {
+		status, _ := args["status"].(string)
+		reason, _ := args["reason"].(string)
+		newStatus, applyErr := e.goals.applyUpdate(status, reason)
+		if applyErr != nil {
+			result = models.NewToolExecutionResultError(applyErr.Error())
+			isError = true
+		} else {
+			g := e.goals.get()
+			result = models.NewToolExecutionResultText("Goal marked " + string(newStatus))
+			e.emitter.emit(ctx, events.GoalUpdatedEvent{
+				Base:     events.Base{Type: events.GoalUpdated, Turn: turn},
+				Objective: g.Objective,
+				Status:   string(newStatus),
+				Reason:   g.BlockReason,
+			})
 		}
 	}
 

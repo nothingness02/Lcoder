@@ -49,6 +49,18 @@ type AgentSnapshot struct {
 	MaxTurnsPerRun int             `json:"max_turns_per_run,omitempty"`
 	DeferredTools  bool            `json:"deferred_tools,omitempty"`
 	CoreTools      []string        `json:"core_tools,omitempty"`
+	Goal           *GoalSnapshot   `json:"goal,omitempty"`
+}
+
+// GoalSnapshot persists the goal record across crashes.
+type GoalSnapshot struct {
+	Objective   string `json:"objective"`
+	Status      string `json:"status"`
+	TurnBudget  int    `json:"turn_budget,omitempty"`
+	TokenBudget int    `json:"token_budget,omitempty"`
+	TurnsUsed   int    `json:"turns_used,omitempty"`
+	TokensUsed  int    `json:"tokens_used,omitempty"`
+	BlockReason string `json:"block_reason,omitempty"`
 }
 
 // MarshalJSON sets default Version and CreatedAt before serialization.

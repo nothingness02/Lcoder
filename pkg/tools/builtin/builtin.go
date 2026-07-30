@@ -15,5 +15,6 @@ func Factories() []tools.Factory {
 		NewGrep,
 		NewFind,
 		NewTodoWrite,
+		NewUpdateGoal,
 	}
 }
