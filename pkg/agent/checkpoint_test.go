@@ -59,8 +59,6 @@ func TestAgentCheckpointRoundTrip(t *testing.T) {
 	})
 	steerMsg := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "steer me"})
 	original.Steer(steerMsg)
-	followUpMsg := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: "follow up"})
-	original.FollowUp(followUpMsg)
 	original.executor.activateDeferredTool("read")
 
 	cp, err := original.Checkpoint()
@@ -98,9 +96,6 @@ func TestAgentCheckpointRoundTrip(t *testing.T) {
 
 	if len(restored.loopState.steeringQueue) != 1 || !reflect.DeepEqual(restored.loopState.steeringQueue, []models.AgentMessage{steerMsg}) {
 		t.Errorf("steering queue = %+v, want %+v", restored.loopState.steeringQueue, []models.AgentMessage{steerMsg})
-	}
-	if len(restored.loopState.followUpQueue) != 1 || !reflect.DeepEqual(restored.loopState.followUpQueue, []models.AgentMessage{followUpMsg}) {
-		t.Errorf("follow-up queue = %+v, want %+v", restored.loopState.followUpQueue, []models.AgentMessage{followUpMsg})
 	}
 
 	if !reflect.DeepEqual(restored.executor.activeDeferred, map[string]bool{"read": true}) {

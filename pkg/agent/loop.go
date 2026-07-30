@@ -320,11 +320,6 @@ func (a *Agent) Steer(msg models.AgentMessage) {
 	a.loopState.Steer(msg)
 }
 
-// FollowUp queues a message after the agent would otherwise stop.
-func (a *Agent) FollowUp(msg models.AgentMessage) {
-	a.loopState.FollowUp(msg)
-}
-
 // Abort signals the current run to stop gracefully. Safe to call multiple times.
 func (a *Agent) Abort() {
 	a.loopState.Abort()
@@ -547,28 +542,20 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			break
 		}
 
-		if a.shouldStop(ctx, assistantMsg, toolResults) {
-			if a.cfg.ShouldContinueAfterStop != nil {
-				// Hook-driven decision: receives full turn context.
-				cont, err := a.cfg.ShouldContinueAfterStop(ctx, TurnSummary{
-					Message:     assistantMsg,
-					ToolResults: toolResults,
-					Context:     a.mgr.AllMessages(),
-				})
-				if err != nil || !cont {
-					break
-				}
-			} else {
-				// Legacy: drain follow-up queue.
-				followUps := a.loopState.DrainFollowUpQueue()
-				if len(followUps) == 0 {
-					break
-				}
-				for _, msg := range followUps {
-					a.appendMessage(msg)
-				}
+	if a.shouldStop(ctx, assistantMsg, toolResults) {
+		if a.cfg.ShouldContinueAfterStop != nil {
+			cont, err := a.cfg.ShouldContinueAfterStop(ctx, TurnSummary{
+				Message:     assistantMsg,
+				ToolResults: toolResults,
+				Context:     a.mgr.AllMessages(),
+			})
+			if err != nil || !cont {
+				break
 			}
+		} else {
+			break
 		}
+	}
 	}
 
 	if a.contextSnapshotRecorder != nil {

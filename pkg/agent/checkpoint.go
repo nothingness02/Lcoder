@@ -70,7 +70,6 @@ func (a *Agent) captureWithReason(reason string) (*checkpoint.Checkpoint, error)
 			Turn:             stateSnap.Turn,
 			IsAtTurnBoundary: stateSnap.State == StateIdle,
 			SteeringQueue:    stateSnap.SteeringQueue,
-			FollowUpQueue:    stateSnap.FollowUpQueue,
 			ActiveDeferred:   execSnap.ActiveDeferred,
 			TaskManagerState: &tmState,
 		},
@@ -170,7 +169,6 @@ func (a *Agent) restore(cp *checkpoint.Checkpoint) error {
 		State:         State(cp.Runtime.State),
 		Turn:          cp.Runtime.Turn,
 		SteeringQueue: cp.Runtime.SteeringQueue,
-		FollowUpQueue: cp.Runtime.FollowUpQueue,
 	})
 
 	// Mark the holder so the next run continues from the restored turn counter

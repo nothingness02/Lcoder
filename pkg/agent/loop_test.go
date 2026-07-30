@@ -250,9 +250,7 @@ func TestAgentWithModeSnapshot(t *testing.T) {
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
 	steerMsg := models.UserMessage("steer me")
-	followUpMsg := models.UserMessage("follow up")
 	ag.Steer(steerMsg)
-	ag.FollowUp(followUpMsg)
 	ag.executor.activateDeferredTool("edit")
 
 	reviewAg := ag.WithMode("review").(*Agent)
@@ -266,9 +264,6 @@ func TestAgentWithModeSnapshot(t *testing.T) {
 	}
 	if len(reviewAg.loopState.steeringQueue) != 1 || !reflect.DeepEqual(reviewAg.loopState.steeringQueue, []models.AgentMessage{steerMsg}) {
 		t.Errorf("steering queue = %+v, want %+v", reviewAg.loopState.steeringQueue, []models.AgentMessage{steerMsg})
-	}
-	if len(reviewAg.loopState.followUpQueue) != 1 || !reflect.DeepEqual(reviewAg.loopState.followUpQueue, []models.AgentMessage{followUpMsg}) {
-		t.Errorf("follow-up queue = %+v, want %+v", reviewAg.loopState.followUpQueue, []models.AgentMessage{followUpMsg})
 	}
 	if !reflect.DeepEqual(reviewAg.executor.activeDeferred, map[string]bool{"edit": true}) {
 		t.Errorf("active deferred = %+v, want %+v", reviewAg.executor.activeDeferred, map[string]bool{"edit": true})

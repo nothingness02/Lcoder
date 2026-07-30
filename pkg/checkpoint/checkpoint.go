@@ -104,7 +104,6 @@ type RuntimeSnapshot struct {
 	Turn             int               `json:"turn,omitempty"`
 	IsAtTurnBoundary bool              `json:"is_at_turn_boundary,omitempty"`
 	SteeringQueue    []models.AgentMessage `json:"steering_queue,omitempty"`
-	FollowUpQueue    []models.AgentMessage `json:"follow_up_queue,omitempty"`
 	ActiveDeferred   map[string]bool       `json:"active_deferred,omitempty"`
 	TaskManagerState *task.ManagerState    `json:"task_manager_state,omitempty"`
 }

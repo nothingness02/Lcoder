@@ -50,7 +50,6 @@ func TestCheckpointRoundTrip(t *testing.T) {
 		Runtime: &checkpoint.RuntimeSnapshot{
 			State:          1,
 			SteeringQueue:  []models.AgentMessage{models.UserMessage("steer")},
-			FollowUpQueue:  []models.AgentMessage{models.UserMessage("follow")},
 			ActiveDeferred: map[string]bool{"edit": true},
 		},
 	}
@@ -83,8 +82,6 @@ func TestCheckpointRoundTrip(t *testing.T) {
 	require.Equal(t, 1, got.Runtime.State)
 	require.Len(t, got.Runtime.SteeringQueue, 1)
 	require.Equal(t, "steer", got.Runtime.SteeringQueue[0].Text())
-	require.Len(t, got.Runtime.FollowUpQueue, 1)
-	require.Equal(t, "follow", got.Runtime.FollowUpQueue[0].Text())
 	require.Equal(t, map[string]bool{"edit": true}, got.Runtime.ActiveDeferred)
 }
 

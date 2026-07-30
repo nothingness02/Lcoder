@@ -12,7 +12,6 @@ type RuntimeState struct {
 	State          State
 	Turn           int
 	SteeringQueue  []models.AgentMessage
-	FollowUpQueue  []models.AgentMessage
 	ActiveDeferred map[string]bool
 }
 
@@ -24,7 +23,6 @@ func (s *stateHolder) snapshot() RuntimeState {
 		State:          s.state,
 		Turn:           s.turn,
 		SteeringQueue:  append([]models.AgentMessage(nil), s.steeringQueue...),
-		FollowUpQueue:  append([]models.AgentMessage(nil), s.followUpQueue...),
 		ActiveDeferred: nil,
 	}
 }
@@ -37,7 +35,6 @@ func (s *stateHolder) restore(rs RuntimeState) {
 	s.state = rs.State
 	s.turn = rs.Turn
 	s.steeringQueue = append([]models.AgentMessage(nil), rs.SteeringQueue...)
-	s.followUpQueue = append([]models.AgentMessage(nil), rs.FollowUpQueue...)
 	s.abortCh = make(chan struct{})
 	s.abortOnce = sync.Once{}
 	s.streamAbort = nil

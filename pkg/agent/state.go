@@ -7,7 +7,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-// stateHolder owns the agent runtime state, steering/follow-up queues, and
+// stateHolder owns the agent runtime state, steering queue, and
 // per-stream abort control. It exists so the top-level Agent can stay a
 // coordinator rather than a God Object.
 type stateHolder struct {
@@ -16,7 +16,6 @@ type stateHolder struct {
 	turn          int
 	resuming      bool
 	steeringQueue []models.AgentMessage
-	followUpQueue []models.AgentMessage
 
 	// Loop-level abort.
 	abortCh   chan struct{}
@@ -105,13 +104,6 @@ func (s *stateHolder) Steer(msg models.AgentMessage) {
 	s.steeringQueue = append(s.steeringQueue, msg)
 }
 
-// FollowUp queues a message after the agent would otherwise stop.
-func (s *stateHolder) FollowUp(msg models.AgentMessage) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.followUpQueue = append(s.followUpQueue, msg)
-}
-
 // Abort signals the current run to stop gracefully. Safe to call multiple times.
 func (s *stateHolder) Abort() {
 	s.CancelRun()
@@ -169,14 +161,5 @@ func (s *stateHolder) DrainSteeringQueue() []models.AgentMessage {
 	defer s.mu.Unlock()
 	msgs := s.steeringQueue
 	s.steeringQueue = nil
-	return msgs
-}
-
-// DrainFollowUpQueue returns and clears the follow-up queue.
-func (s *stateHolder) DrainFollowUpQueue() []models.AgentMessage {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	msgs := s.followUpQueue
-	s.followUpQueue = nil
 	return msgs
 }
