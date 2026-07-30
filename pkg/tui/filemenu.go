@@ -1,12 +1,9 @@
 package tui
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sahilm/fuzzy"
 )
 
 // fileMenuMax caps how many file suggestions the @-picker shows at once.
@@ -37,46 +34,12 @@ func activeMentionAt(text string, cursor int) (partial string, at, end int, ok b
 
 func isMentionSpaceRune(r rune) bool { return r == ' ' || r == '\t' || r == '\n' }
 
-// fileMatches lists up to fileMenuMax cwd-relative file paths fuzzy-matching
-// partial. It skips .git, node_modules, and hidden directories.
-func fileMatches(cwd, partial string) []string {
-	var files []string
-	_ = filepath.WalkDir(cwd, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if path == cwd {
-				return nil
-			}
-			name := d.Name()
-			if name == ".git" || name == "node_modules" || strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, err := filepath.Rel(cwd, path)
-		if err != nil {
-			return nil
-		}
-		files = append(files, filepath.ToSlash(rel))
-		return nil
-	})
-
-	if partial == "" {
-		if len(files) > fileMenuMax {
-			files = files[:fileMenuMax]
-		}
-		return files
-	}
-	var out []string
-	for _, m := range fuzzy.Find(partial, files) {
-		out = append(out, files[m.Index])
-		if len(out) >= fileMenuMax {
-			break
-		}
-	}
-	return out
+// renderIndexingHint draws the placeholder shown while the file index warms up.
+func renderIndexingHint() string {
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorFaint)
+	return box.Render(styleDim().Render("  indexing…"))
 }
 
 // renderFileMenu draws the @-file suggestion dropdown.

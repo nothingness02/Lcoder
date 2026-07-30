@@ -78,6 +78,12 @@ type Model struct {
 	fileMenuVisible  bool
 	fileMenuSelected int
 	fileMenuItems    []string
+	// fileMenuIndexing shows an "indexing…" placeholder while the suggester
+	// warms up (first @ on a cold index).
+	fileMenuIndexing bool
+	// fileSuggester backs @-completion; prewarmed at startup so the first @
+	// usually hits a warm cache. Stopped by Close.
+	fileSuggester fileSuggester
 
 	// Command output panel (ephemeral, above the composer within stateInput).
 	cmdPanel cmdPanel
@@ -200,6 +206,8 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		m.blocks = blocksFromMessages(msgs)
 		m.components = componentsFromBlocks(m.blocks)
 	}
+	m.fileSuggester = newFileSuggester(cwd)
+	m.fileSuggester.EnsureStarted() // prewarm: first @ usually hits a warm index
 	if ag.TaskManager() != nil {
 		m.tasks = ag.TaskManager().List()
 	}
@@ -289,6 +297,9 @@ func (m *Model) persistFromEvent(ctx context.Context, ev events.Event) error {
 func (m *Model) Close() {
 	if m.runnerCancel != nil {
 		m.runnerCancel()
+	}
+	if m.fileSuggester != nil {
+		m.fileSuggester.Stop()
 	}
 	if m.persistUnsubscribe != nil {
 		m.persistUnsubscribe()

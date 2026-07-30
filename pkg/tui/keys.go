@@ -581,13 +581,18 @@ func (m *Model) refreshMenu() {
 	}
 
 	if partial, _, _, ok := activeMentionAt(val, m.input.CursorOffset()); ok && !m.menuVisible {
-		m.fileMenuItems = fileMatches(m.cwd, partial)
-		m.fileMenuVisible = len(m.fileMenuItems) > 0
+		// EnsureStarted doubles as the TTL refresh check: a stale index triggers
+		// a background rescan while the old list keeps serving.
+		m.fileSuggester.EnsureStarted()
+		m.fileMenuItems = m.fileSuggester.Matches(partial, fileMenuMax)
+		m.fileMenuIndexing = !m.fileSuggester.Ready()
+		m.fileMenuVisible = m.fileMenuIndexing || len(m.fileMenuItems) > 0
 		if m.fileMenuSelected >= len(m.fileMenuItems) {
 			m.fileMenuSelected = 0
 		}
 	} else {
 		m.fileMenuVisible = false
+		m.fileMenuIndexing = false
 		m.fileMenuSelected = 0
 		m.fileMenuItems = nil
 	}

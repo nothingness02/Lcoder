@@ -3,7 +3,6 @@ package tui
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
 
@@ -42,26 +41,6 @@ func TestActiveMentionAt(t *testing.T) {
 					c.val, c.cursor, partial, at, end, ok, c.partial, c.at, c.end, c.ok)
 			}
 		})
-	}
-}
-
-func TestFileMatches(t *testing.T) {
-	dir := t.TempDir()
-	mustWrite(t, filepath.Join(dir, "main.go"), "x")
-	mustWrite(t, filepath.Join(dir, "pkg", "loop.go"), "x")
-	mustWrite(t, filepath.Join(dir, ".git", "config"), "x")
-	mustWrite(t, filepath.Join(dir, "node_modules", "dep.js"), "x")
-
-	all := fileMatches(dir, "")
-	for _, f := range all {
-		if f == ".git/config" || f == "node_modules/dep.js" {
-			t.Fatalf("fileMatches included skipped dir entry: %q (all=%v)", f, all)
-		}
-	}
-
-	got := fileMatches(dir, "loop")
-	if !reflect.DeepEqual(got, []string{"pkg/loop.go"}) {
-		t.Fatalf("fileMatches(loop) = %v", got)
 	}
 }
 

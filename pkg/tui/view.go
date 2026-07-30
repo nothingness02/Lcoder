@@ -61,7 +61,11 @@ func (m *Model) bottomRegion() string {
 		matches := menuMatches(m.input.Value())
 		sections = append(sections, renderMenu(matches, m.menuSelected, m.mainWidth))
 	} else if m.fileMenuVisible {
-		sections = append(sections, renderFileMenu(m.fileMenuItems, m.fileMenuSelected, m.mainWidth))
+		if m.fileMenuIndexing {
+			sections = append(sections, renderIndexingHint())
+		} else {
+			sections = append(sections, renderFileMenu(m.fileMenuItems, m.fileMenuSelected, m.mainWidth))
+		}
 	} else if m.cmdPanel.visible {
 		sections = append(sections, renderCmdPanel(m.cmdPanel, m.mainWidth))
 	}
