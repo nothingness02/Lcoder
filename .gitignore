@@ -3,6 +3,7 @@
 docs/*
 !docs/*-report.md
 !docs/*-optimization.md
+!docs/*-spec.md
 !docs/superpowers/
 !docs/superpowers/**
 reference/*
