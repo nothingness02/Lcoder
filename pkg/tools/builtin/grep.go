@@ -108,6 +108,15 @@ type grepParams struct {
 	offset        int
 }
 
+// DeclareAccesses implements tools.AccessDeclarer: grep searches a tree read-only.
+func (g *Grep) DeclareAccesses(args map[string]any) []tools.ToolAccess {
+	root := g.cwd
+	if v := tools.String(args, "path", ""); v != "" {
+		root = v
+	}
+	return []tools.ToolAccess{{Op: tools.OpSearch, Path: resolveInCwd(g.cwd, root), Recursive: true}}
+}
+
 func (g *Grep) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	pattern, err := tools.RequiredString(args, "pattern")
 	if err != nil {

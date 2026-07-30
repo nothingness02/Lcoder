@@ -39,6 +39,16 @@ func (l *Ls) Definition() models.ToolDefinition {
 	}
 }
 
+// DeclareAccesses implements tools.AccessDeclarer: listing a directory is
+// affected by writes anywhere below it, so the read is declared recursive.
+func (l *Ls) DeclareAccesses(args map[string]any) []tools.ToolAccess {
+	path := l.cwd
+	if v, ok := args["path"].(string); ok && v != "" {
+		path = v
+	}
+	return []tools.ToolAccess{{Op: tools.OpRead, Path: resolveInCwd(l.cwd, path), Recursive: true}}
+}
+
 func (l *Ls) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	path := l.cwd
 	if v, ok := args["path"].(string); ok && v != "" {

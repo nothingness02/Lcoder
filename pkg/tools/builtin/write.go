@@ -42,6 +42,15 @@ func (w *Write) Definition() models.ToolDefinition {
 	}
 }
 
+// DeclareAccesses implements tools.AccessDeclarer: a write only touches its file.
+func (w *Write) DeclareAccesses(args map[string]any) []tools.ToolAccess {
+	path, err := tools.RequiredString(args, "path")
+	if err != nil {
+		return []tools.ToolAccess{{Op: tools.OpAll}}
+	}
+	return []tools.ToolAccess{{Op: tools.OpWrite, Path: resolveInCwd(w.cwd, path)}}
+}
+
 func (w *Write) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	path, err := tools.RequiredString(args, "path")
 	if err != nil {

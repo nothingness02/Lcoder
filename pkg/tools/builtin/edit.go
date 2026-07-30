@@ -129,6 +129,15 @@ func applyEdits(text string, edits []editOp) (string, error) {
 	return text, nil
 }
 
+// DeclareAccesses implements tools.AccessDeclarer: an edit reads and writes its file.
+func (e *Edit) DeclareAccesses(args map[string]any) []tools.ToolAccess {
+	path, err := tools.RequiredString(args, "path")
+	if err != nil {
+		return []tools.ToolAccess{{Op: tools.OpAll}}
+	}
+	return []tools.ToolAccess{{Op: tools.OpReadWrite, Path: resolveInCwd(e.cwd, path)}}
+}
+
 func (e *Edit) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	path, err := tools.RequiredString(args, "path")
 	if err != nil {

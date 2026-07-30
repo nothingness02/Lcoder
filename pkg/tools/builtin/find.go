@@ -47,6 +47,15 @@ func (f *Find) Definition() models.ToolDefinition {
 	}
 }
 
+// DeclareAccesses implements tools.AccessDeclarer: find searches a tree read-only.
+func (f *Find) DeclareAccesses(args map[string]any) []tools.ToolAccess {
+	path := f.cwd
+	if v, ok := args["path"].(string); ok && v != "" {
+		path = v
+	}
+	return []tools.ToolAccess{{Op: tools.OpSearch, Path: resolveInCwd(f.cwd, path), Recursive: true}}
+}
+
 func (f *Find) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	pattern, err := tools.RequiredString(args, "pattern")
 	if err != nil {

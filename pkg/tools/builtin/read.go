@@ -47,6 +47,15 @@ func (r *Read) Definition() models.ToolDefinition {
 	}
 }
 
+// DeclareAccesses implements tools.AccessDeclarer: a read only touches its file.
+func (r *Read) DeclareAccesses(args map[string]any) []tools.ToolAccess {
+	path, err := tools.RequiredString(args, "path")
+	if err != nil {
+		return []tools.ToolAccess{{Op: tools.OpAll}}
+	}
+	return []tools.ToolAccess{{Op: tools.OpRead, Path: resolveInCwd(r.cwd, path)}}
+}
+
 func (r *Read) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	path, err := tools.RequiredString(args, "path")
 	if err != nil {

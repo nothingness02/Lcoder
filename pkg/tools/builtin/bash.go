@@ -49,6 +49,12 @@ func (b *Bash) Definition() models.ToolDefinition {
 	}
 }
 
+// DeclareAccesses implements tools.AccessDeclarer: a shell command may have
+// arbitrary side effects, so it conflicts with everything.
+func (b *Bash) DeclareAccesses(args map[string]any) []tools.ToolAccess {
+	return []tools.ToolAccess{{Op: tools.OpAll}}
+}
+
 func (b *Bash) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
 	command := tools.String(args, "command", "")
 	if command == "" {
