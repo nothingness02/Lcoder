@@ -9,20 +9,31 @@ import (
 )
 
 // rebuildViewport re-renders all blocks into the viewport and pins to bottom
-// while streaming or when the user is already at the bottom. When a block is
-// focused, the viewport is scrolled to keep that block visible. Every rebuild
+// when the user is already at the bottom (sticky bottom — a user who scrolled
+// up is never yanked back, even mid-stream). When a block is focused, the
+// viewport is scrolled to keep that block visible. The virtual window is
+// materialized for the TARGET offset (computed before SetContent), so the
+// final view never lands in a region of blank placeholders. Every rebuild
 // counts as a flush: it clears the scheduler's dirty flag and stamps the
 // flush time, so the frame scheduler never re-renders right behind it.
 func (m *Model) rebuildViewport() {
 	layouts := layoutComponents(m.components, m.viewport.Width, m.toolsExpanded, m.focusedBlockIndex)
-	if m.focusedBlockIndex >= 0 && m.focusedBlockIndex < len(layouts) {
-		focused := layouts[m.focusedBlockIndex]
-		m.viewport.SetYOffset(clamp(focused.offset, 0, maxTotalHeight(layouts)-m.viewport.Height))
-	}
+	total := maxTotalHeight(layouts)
+
 	atBottom := m.viewport.AtBottom()
-	content := buildVirtualContent(layouts, m.viewport.Height, m.viewport.YOffset, m.toolsExpanded, m.focusedBlockIndex)
-	m.viewport.SetContent(content)
-	if m.focusedBlockIndex < 0 && (m.streaming || atBottom) {
+	scrollY := m.viewport.YOffset
+	switch {
+	case m.focusedBlockIndex >= 0 && m.focusedBlockIndex < len(layouts):
+		scrollY = clamp(layouts[m.focusedBlockIndex].offset, 0, total-m.viewport.Height)
+	case atBottom:
+		scrollY = max(0, total-m.viewport.Height)
+	}
+
+	m.viewport.SetContent(buildVirtualContent(layouts, m.viewport.Height, scrollY, m.toolsExpanded, m.focusedBlockIndex))
+	switch {
+	case m.focusedBlockIndex >= 0 && m.focusedBlockIndex < len(layouts):
+		m.viewport.SetYOffset(scrollY)
+	case atBottom:
 		m.viewport.GotoBottom()
 	}
 	m.rebuilds++

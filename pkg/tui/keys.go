@@ -102,6 +102,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
+		// The wheel only moves YOffset; rebuild so the virtual window is
+		// materialized for the new offset instead of showing blank placeholders.
+		m.rebuildViewport()
 		return m, cmd
 
 	case components.ComponentMsg:
@@ -538,8 +541,12 @@ func (m *Model) submit(text string) tea.Cmd {
 
 // startPrompt records the user block and enqueues the prompt with the runner.
 // The runner worker appends the message to the session and calls agent.Prompt.
+// Submitting scrolls history back to the bottom (the user wants to watch the
+// new exchange, even if they were reading older messages).
 func (m *Model) startPrompt(text string) tea.Cmd {
 	m.addUser(text)
+	m.viewport.GotoBottom()
+	m.rebuildViewport()
 	m.state = stateProcessing
 	m.input.SetProcessing(true)
 	m.errMsg = ""
@@ -958,6 +965,9 @@ func (m *Model) loadSession(sess *session.Session) {
 	m.completedTurns = 0
 	m.focusedBlockIndex = -1
 	m.updateSizes()
+	// A freshly loaded session shows the latest messages, not the top of history.
+	m.viewport.GotoBottom()
+	m.rebuildViewport()
 }
 
 // openSessionPicker switches to the picker overlay.
