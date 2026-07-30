@@ -58,9 +58,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case frameTickMsg:
+		m.flushStreamFrame()
+		return m, nil
+
 	case EventMsg:
-		m.handleEvent(msg.Event)
-		return m, waitForEventCmd(m.eventCh)
+		return m, tea.Batch(waitForEventCmd(m.eventCh), m.handleEvent(msg.Event))
 
 	case AgentDoneMsg:
 		if cmd := m.onAgentDone(msg.Err); cmd != nil {

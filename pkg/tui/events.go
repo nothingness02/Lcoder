@@ -4,14 +4,17 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
-// handleEvent applies one agent event to the model's block history.
-func (m *Model) handleEvent(ev events.Event) {
+// handleEvent applies one agent event to the model's block history. It returns
+// a non-nil cmd when a stream repaint was scheduled (the caller must deliver
+// it to the bubbletea runtime).
+func (m *Model) handleEvent(ev events.Event) tea.Cmd {
 	switch e := ev.(type) {
 	case events.AgentStartEvent:
 		m.streaming = false
@@ -35,11 +38,10 @@ func (m *Model) handleEvent(ev events.Event) {
 		}
 		if e.IsThinking {
 			m.streamLiveThinking += e.Delta
-			m.patchThinking(m.streamLiveThinking)
-		} else {
-			m.streamLive += e.Delta
-			m.patchAssistant(m.streamLive)
+			return m.patchThinking(m.streamLiveThinking)
 		}
+		m.streamLive += e.Delta
+		return m.patchAssistant(m.streamLive)
 
 	case events.MessageEndEvent:
 		if e.Message.Role == models.RoleAssistant {
@@ -110,18 +112,20 @@ func (m *Model) handleEvent(ev events.Event) {
 		m.errMsg = e.Message
 
 	case events.SubagentActivityEvent:
-		m.handleSubagentActivity(e)
+		return m.handleSubagentActivity(e)
 
 	case events.BackgroundNoticeEvent:
 		m.addSystem(e.Text)
 	}
+	return nil
 }
 
 // handleSubagentActivity routes one mirrored child-agent activity event into
 // the tool block of the parent's subagent call, rendering it as nested
 // activity (kimi-code's nested subagent display). Events whose parent tool
-// call is not on screen are dropped silently.
-func (m *Model) handleSubagentActivity(e events.SubagentActivityEvent) {
+// call is not on screen are dropped silently. Repaints go through the frame
+// scheduler: mirrored activity can stream as fast as assistant deltas.
+func (m *Model) handleSubagentActivity(e events.SubagentActivityEvent) tea.Cmd {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		b := &m.blocks[i]
 		if b.kind != components.BlockTool || b.id != e.ParentToolCallID {
@@ -159,9 +163,9 @@ func (m *Model) handleSubagentActivity(e events.SubagentActivityEvent) {
 			}
 		}
 		m.components[i] = toComponent(m.blocks[i])
-		m.rebuildViewport()
-		return
+		return m.requestStreamRender()
 	}
+	return nil
 }
 
 // subagentChildFor returns (creating if needed) the per-child state row for
@@ -228,7 +232,8 @@ func boundStreamTail(s string, maxBytes int) string {
 // patchAssistant overwrites the raw content of the in-flight assistant block.
 // The rendered input is capped to streamLiveMaxBytes (see boundStreamTail); the
 // full text lives on in streamLive and is restored when commitAssistant runs.
-func (m *Model) patchAssistant(content string) {
+// Repaints go through the frame scheduler (one per scheduler interval at most).
+func (m *Model) patchAssistant(content string) tea.Cmd {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == components.BlockAssistant && m.blocks[i].id == m.streamMsgID {
 			rendered := boundStreamTail(content, streamLiveMaxBytes)
@@ -238,14 +243,14 @@ func (m *Model) patchAssistant(content string) {
 			} else {
 				m.components[i] = toComponent(m.blocks[i])
 			}
-			m.rebuildViewport()
-			return
+			return m.requestStreamRender()
 		}
 	}
+	return nil
 }
 
 // patchThinking overwrites the thinking trace of the in-flight assistant block.
-func (m *Model) patchThinking(thinking string) {
+func (m *Model) patchThinking(thinking string) tea.Cmd {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == components.BlockAssistant && m.blocks[i].id == m.streamMsgID {
 			m.blocks[i].thinking = thinking
@@ -254,10 +259,10 @@ func (m *Model) patchThinking(thinking string) {
 			} else {
 				m.components[i] = toComponent(m.blocks[i])
 			}
-			m.rebuildViewport()
-			return
+			return m.requestStreamRender()
 		}
 	}
+	return nil
 }
 
 // commitAssistant finalizes the assistant block with content, thinking, and usage.

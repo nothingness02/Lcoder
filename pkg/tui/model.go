@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -60,6 +61,11 @@ type Model struct {
 	streamLiveThinking string
 	streamMsgID        string
 	turnTools          []toolResultEntry
+
+	// sched coalesces stream-driven viewport rebuilds; rebuilds counts actual
+	// rebuildViewport executions (acceptance probe for the frame scheduler).
+	sched    frameScheduler
+	rebuilds int
 
 	input   InputModel
 	spinner spinner
@@ -198,6 +204,7 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		contextPct:         -1,
 		contextUsedTok:     0,
 		contextLimitTok:    0,
+		sched:              frameScheduler{minInterval: termProfile(), now: time.Now},
 	}
 	// Restore the display from the agent's already-loaded context window so a
 	// session reloaded at startup shows its prior conversation (and task

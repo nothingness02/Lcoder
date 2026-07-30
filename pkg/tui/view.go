@@ -10,7 +10,9 @@ import (
 
 // rebuildViewport re-renders all blocks into the viewport and pins to bottom
 // while streaming or when the user is already at the bottom. When a block is
-// focused, the viewport is scrolled to keep that block visible.
+// focused, the viewport is scrolled to keep that block visible. Every rebuild
+// counts as a flush: it clears the scheduler's dirty flag and stamps the
+// flush time, so the frame scheduler never re-renders right behind it.
 func (m *Model) rebuildViewport() {
 	layouts := layoutComponents(m.components, m.viewport.Width, m.toolsExpanded, m.focusedBlockIndex)
 	if m.focusedBlockIndex >= 0 && m.focusedBlockIndex < len(layouts) {
@@ -23,6 +25,9 @@ func (m *Model) rebuildViewport() {
 	if m.focusedBlockIndex < 0 && (m.streaming || atBottom) {
 		m.viewport.GotoBottom()
 	}
+	m.rebuilds++
+	m.sched.dirty = false
+	m.sched.lastFlush = m.now()
 }
 
 // bottomHeight reports how many terminal rows the bottom region occupies. It is
