@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestInputAutoGrow(t *testing.T) {
@@ -58,6 +60,41 @@ func TestInputValue(t *testing.T) {
 	m.textarea.SetValue("hi")
 	if m.Value() != "hi" {
 		t.Fatalf("Value = %q", m.Value())
+	}
+}
+
+// Regression: typing past the wrap width grows the composer, but the
+// textarea scrolled its internal viewport while it was still one row high —
+// the grown view then shows only the tail and the head of the input is lost.
+// The per-keystroke View() call mirrors the real TUI render loop; without it
+// the textarea viewport has no content and the scroll never engages (which is
+// why this only reproduces with View in the loop).
+func TestInputGrowKeepsHeadVisible(t *testing.T) {
+	m := NewInputModel()
+	m.SetWidth(40) // 38-cell wrap width
+	m.SyncHeight()
+	for range 50 {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+		m.SyncHeight()
+		_ = m.textarea.View() // real TUI renders every frame
+	}
+	view := m.textarea.View()
+	if !strings.Contains(view, strings.Repeat("a", 38)) {
+		t.Fatalf("first wrapped row hidden after auto-grow:\n%q", view)
+	}
+}
+
+// Mid-text editing: the scroll reset must not teleport the cursor to the end
+// of the input.
+func TestInputGrowPreservesCursor(t *testing.T) {
+	m := NewInputModel()
+	m.SetWidth(40)
+	m.textarea.SetValue(strings.Repeat("b", 50)) // 2 visual rows
+	m.textarea.CursorStart()                     // row 0? cursor to line start
+	before := m.CursorOffset()
+	m.SyncHeight()
+	if got := m.CursorOffset(); got != before {
+		t.Fatalf("cursor moved by SyncHeight: before=%d after=%d", before, got)
 	}
 }
 

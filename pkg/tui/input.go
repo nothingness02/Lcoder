@@ -110,8 +110,36 @@ func wrapRows(line string, width int) int {
 	return rows
 }
 
-// SyncHeight applies desiredHeight to the textarea.
-func (m *InputModel) SyncHeight() { m.textarea.SetHeight(m.desiredHeight()) }
+// SyncHeight applies desiredHeight to the textarea. A height change also
+// resets the textarea's internal scroll: the viewport scrolls down when a
+// soft-wrap boundary is crossed while the area is still short, and nothing
+// scrolls it back afterwards (repositionView only moves when the cursor
+// leaves the window) — the stale offset would hide the first rows.
+func (m *InputModel) SyncHeight() {
+	h := m.desiredHeight()
+	if h == m.textarea.Height() {
+		return
+	}
+	m.textarea.SetHeight(h)
+	m.resetScroll()
+}
+
+// resetScroll re-anchors the textarea viewport to the top, preserving the
+// cursor. SetValue (Reset) is the only exported way to re-scroll the
+// textarea's internal viewport; content that fits in the new height is then
+// fully visible, and oversized content re-scrolls to the cursor on the next
+// update.
+func (m *InputModel) resetScroll() {
+	val := m.textarea.Value()
+	row := m.textarea.Line()
+	li := m.textarea.LineInfo()
+	col := li.StartColumn + li.ColumnOffset
+	m.textarea.SetValue(val)
+	for i := 0; i < 10000 && m.textarea.Line() > row; i++ {
+		m.textarea.CursorUp()
+	}
+	m.textarea.SetCursor(col)
+}
 
 func (m *InputModel) SetProcessing(p bool) { m.processing = p }
 
