@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestInputAutoGrow(t *testing.T) {
 	m := NewInputModel()
@@ -17,6 +20,36 @@ func TestInputHeightCapped(t *testing.T) {
 	m.textarea.SetValue("a\nb\nc\nd\ne\nf\ng\nh\ni")
 	if h := m.desiredHeight(); h > 6 {
 		t.Fatalf("desiredHeight = %d, want <= 6", h)
+	}
+}
+
+// SetWidth(40) leaves a 38-cell wrap width (2-cell prompt). Expected rows
+// below are hand-computed against bubbles/textarea's greedy word-wrap.
+func TestInputVisualHeight(t *testing.T) {
+	words20 := strings.Repeat("aaaaa ", 19) + "aaaaa"
+	cases := []struct {
+		name string
+		val  string
+		want int
+	}{
+		{"empty", "", 1},
+		{"short single line", "hello", 1},
+		{"long unbroken ascii", strings.Repeat("a", 100), 3},
+		{"cjk double width", strings.Repeat("改", 20), 2},
+		{"exact fit wraps", strings.Repeat("a", 38), 2},
+		{"one under exact fit", strings.Repeat("a", 37), 1},
+		{"word wrap", words20, 4},
+		{"mixed hard and soft", strings.Repeat("a", 40) + "\nbb", 3},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := NewInputModel()
+			m.SetWidth(40)
+			m.textarea.SetValue(c.val)
+			if h := m.desiredHeight(); h != c.want {
+				t.Fatalf("desiredHeight = %d, want %d (value %q)", h, c.want, c.val)
+			}
+		})
 	}
 }
 

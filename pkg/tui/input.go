@@ -2,10 +2,12 @@ package tui
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 const (
@@ -51,16 +53,61 @@ func (m *InputModel) SetWidth(width int) {
 	m.textarea.SetWidth(width)
 }
 
-// desiredHeight returns the auto-grow height clamped to [min,max].
+// desiredHeight returns the auto-grow height clamped to [min,max]. It counts
+// soft-wrapped visual rows (textarea.Width() already excludes the prompt), so
+// a long unbroken line grows the composer instead of hiding its head.
 func (m InputModel) desiredHeight() int {
-	lines := strings.Count(m.textarea.Value(), "\n") + 1
-	if lines < inputMinHeight {
-		lines = inputMinHeight
+	lines := visualLineCount(m.textarea.Value(), m.textarea.Width())
+	return clamp(lines, inputMinHeight, inputMaxHeight)
+}
+
+// visualLineCount returns the total soft-wrapped row count of text at the
+// given cell width, mirroring bubbles/textarea's greedy word-wrap so the
+// composer height tracks the textarea's actual layout.
+func visualLineCount(text string, width int) int {
+	if width <= 0 {
+		return strings.Count(text, "\n") + 1
 	}
-	if lines > inputMaxHeight {
-		lines = inputMaxHeight
+	total := 0
+	for _, hard := range strings.Split(text, "\n") {
+		total += wrapRows(hard, width)
 	}
-	return lines
+	return total
+}
+
+// wrapRows counts the soft-wrapped rows of one hard line. It mirrors
+// textarea.wrap: words flush at space boundaries, over-long words break by
+// cells, and an exactly-full final row wraps once more (textarea reserves a
+// trailing cell for the cursor).
+func wrapRows(line string, width int) int {
+	rows, rowW, wordW, spaces := 1, 0, 0, 0
+	for _, r := range line {
+		if unicode.IsSpace(r) {
+			spaces++
+		} else {
+			wordW += runewidth.RuneWidth(r)
+		}
+		if spaces > 0 {
+			if rowW+wordW+spaces > width {
+				rows++
+				rowW = wordW + spaces
+			} else {
+				rowW += wordW + spaces
+			}
+			wordW, spaces = 0, 0
+		} else if wordW+runewidth.RuneWidth(r) > width {
+			// The word alone fills the row; move it to a fresh one.
+			if rowW > 0 {
+				rows++
+			}
+			rowW = wordW
+			wordW = 0
+		}
+	}
+	if rowW+wordW+spaces >= width {
+		rows++
+	}
+	return rows
 }
 
 // SyncHeight applies desiredHeight to the textarea.
