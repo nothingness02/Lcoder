@@ -1,6 +1,11 @@
 # 工具执行并发优化
 
-> 状态: 待实施 | 优先级: 低 | 参考: Kimi Code `ToolAccesses` + `ToolScheduler`
+> 状态: 已实施(2026-07-30) | 参考: Kimi Code `ToolAccesses` + `ToolScheduler`
+>
+> 实施注记: `ExecutionMode` 标签已完全退役(含 agent 级 `ToolExecutionMode`、
+> HTTP 工具 `execution_mode` 配置、checkpoint 字段);`switch_mode` 的整批串行
+> veto 一并移除——mode 的消费(守卫确认)全部在串行 prepare 阶段完成,run 阶段
+> 没有 mode 读者。同批次重复读通过调度器 `addWait` 边保证 dedup 确定性命中。
 
 ## 现状
 
