@@ -12,23 +12,30 @@ import (
 // fileMenuMax caps how many file suggestions the @-picker shows at once.
 const fileMenuMax = 10
 
-// activeMention returns the partial path being typed after a trailing '@' word
-// (the '@' preceded by start-of-input or whitespace, with no whitespace after
-// it). It reports false when no such in-progress mention exists.
-func activeMention(val string) (string, bool) {
-	at := strings.LastIndex(val, "@")
-	if at < 0 {
-		return "", false
+// activeMentionAt returns the partial path and rune span [at, end) of the
+// '@' mention the cursor sits in. The token before the cursor is found by
+// scanning back to the last delimiter; it is a mention only when it starts
+// with '@'. The cursor may sit anywhere inside the token; end marks the
+// token's full extent so a completion can replace the whole word, not just
+// the part before the cursor.
+func activeMentionAt(text string, cursor int) (partial string, at, end int, ok bool) {
+	runes := []rune(text)
+	cursor = max(0, min(cursor, len(runes)))
+	at = cursor
+	for at > 0 && !isMentionSpaceRune(runes[at-1]) {
+		at--
 	}
-	if at > 0 && !isMentionSpace(val[at-1]) {
-		return "", false
+	if at >= cursor || runes[at] != '@' {
+		return "", 0, 0, false
 	}
-	partial := val[at+1:]
-	if strings.ContainsAny(partial, " \t\n") {
-		return "", false
+	end = cursor
+	for end < len(runes) && !isMentionSpaceRune(runes[end]) {
+		end++
 	}
-	return partial, true
+	return string(runes[at+1 : cursor]), at, end, true
 }
+
+func isMentionSpaceRune(r rune) bool { return r == ' ' || r == '\t' || r == '\n' }
 
 // fileMatches lists up to fileMenuMax cwd-relative file paths fuzzy-matching
 // partial. It skips .git, node_modules, and hidden directories.

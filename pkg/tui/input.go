@@ -85,6 +85,24 @@ func (m *InputModel) Value() string {
 	return m.textarea.Value()
 }
 
+// CursorOffset returns the cursor's absolute rune offset within Value().
+// textarea exposes the cursor as (hard-line row, rune column); the offset is
+// the sum of the preceding lines' rune lengths plus their newline separators.
+func (m InputModel) CursorOffset() int {
+	val := m.textarea.Value()
+	row := m.textarea.Line()
+	li := m.textarea.LineInfo()
+	col := li.StartColumn + li.ColumnOffset
+	off := 0
+	for i, line := range strings.Split(val, "\n") {
+		if i == row {
+			return off + min(col, len([]rune(line)))
+		}
+		off += len([]rune(line)) + 1
+	}
+	return off
+}
+
 // Reset clears the input.
 func (m *InputModel) Reset() {
 	m.textarea.Reset()

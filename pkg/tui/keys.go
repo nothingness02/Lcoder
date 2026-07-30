@@ -569,7 +569,7 @@ func (m *Model) refreshMenu() {
 		m.menuSelected = 0
 	}
 
-	if partial, ok := activeMention(val); ok && !m.menuVisible {
+	if partial, _, _, ok := activeMentionAt(val, m.input.CursorOffset()); ok && !m.menuVisible {
 		m.fileMenuItems = fileMatches(m.cwd, partial)
 		m.fileMenuVisible = len(m.fileMenuItems) > 0
 		if m.fileMenuSelected >= len(m.fileMenuItems) {
@@ -582,12 +582,14 @@ func (m *Model) refreshMenu() {
 	}
 }
 
-// acceptFileMenu replaces the in-progress @mention with the selected file path.
+// acceptFileMenu replaces the mention token under the cursor with the selected
+// file path, preserving any text after the token.
 func (m *Model) acceptFileMenu() (*Model, tea.Cmd) {
 	val := m.input.Value()
 	if m.fileMenuSelected < len(m.fileMenuItems) {
-		if at := strings.LastIndex(val, "@"); at >= 0 {
-			m.input.textarea.SetValue(val[:at] + "@" + m.fileMenuItems[m.fileMenuSelected] + " ")
+		if _, at, end, ok := activeMentionAt(val, m.input.CursorOffset()); ok {
+			runes := []rune(val)
+			m.input.textarea.SetValue(string(runes[:at]) + "@" + m.fileMenuItems[m.fileMenuSelected] + " " + string(runes[end:]))
 		}
 	}
 	m.fileMenuVisible = false
