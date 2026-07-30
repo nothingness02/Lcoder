@@ -43,7 +43,9 @@ func layoutComponents(comps []components.BlockComponent, width int, expanded boo
 
 // buildVirtualContent renders only the components that intersect the visible
 // window. Off-screen components are replaced with blank lines so the total
-// height and scroll position remain consistent.
+// height and scroll position remain consistent. The line slice is pre-sized
+// to the total height: off-screen regions keep their zero value ("") without
+// per-line appends, which matters for 10k-line histories rebuilt every frame.
 func buildVirtualContent(layouts []componentLayout, height, scrollY int, expanded bool, focusedIndex int) string {
 	if height <= 0 {
 		return ""
@@ -51,15 +53,14 @@ func buildVirtualContent(layouts []componentLayout, height, scrollY int, expande
 	startLine := scrollY
 	endLine := scrollY + height
 
-	allLines := make([]string, 0)
+	allLines := make([]string, maxTotalHeight(layouts))
+	pos := 0
 	for i, layout := range layouts {
 		compStart := layout.offset
 		compEnd := layout.offset + layout.height
 		if compEnd <= startLine || compStart >= endLine {
-			// Off-screen: emit blank lines to preserve total height.
-			for range layout.height {
-				allLines = append(allLines, "")
-			}
+			// Off-screen: blank lines are already in place.
+			pos += layout.height
 			continue
 		}
 		contentWidth := layout.width
@@ -76,13 +77,11 @@ func buildVirtualContent(layouts []componentLayout, height, scrollY int, expande
 				lines[j] = blockFocusStyle.Render(lines[j])
 			}
 		}
-		for len(lines) < layout.height {
-			lines = append(lines, "")
-		}
 		if len(lines) > layout.height {
 			lines = lines[:layout.height]
 		}
-		allLines = append(allLines, lines...)
+		copy(allLines[pos:pos+layout.height], lines)
+		pos += layout.height
 	}
 	return strings.Join(allLines, "\n")
 }
