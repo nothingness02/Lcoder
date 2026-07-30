@@ -51,10 +51,11 @@ func (a *Agent) captureWithReason(reason string) (*checkpoint.Checkpoint, error)
 			ConfigHash:   a.agentConfigHash(),
 		},
 		Agent: &checkpoint.AgentSnapshot{
-			Mode:          a.cfg.Mode,
-			Model:         a.cfg.Model,
-			DeferredTools: a.cfg.DeferredTools,
-			CoreTools:     append([]string(nil), a.cfg.CoreTools...),
+			Mode:           a.cfg.Mode,
+			Model:          a.cfg.Model,
+			MaxTurnsPerRun: a.cfg.MaxTurnsPerRun,
+			DeferredTools:  a.cfg.DeferredTools,
+			CoreTools:      append([]string(nil), a.cfg.CoreTools...),
 		},
 		Context: &checkpoint.ContextSnapshot{
 			Budget:             mgrState.Budget,
@@ -93,10 +94,11 @@ func (a *Agent) captureWithReason(reason string) (*checkpoint.Checkpoint, error)
 // so that Restore can detect environment drift.
 func (a *Agent) agentConfigHash() string {
 	snap := checkpoint.AgentSnapshot{
-		Mode:          a.cfg.Mode,
-		Model:         a.cfg.Model,
-		DeferredTools: a.cfg.DeferredTools,
-		CoreTools:     a.cfg.CoreTools,
+		Mode:           a.cfg.Mode,
+		Model:          a.cfg.Model,
+		MaxTurnsPerRun: a.cfg.MaxTurnsPerRun,
+		DeferredTools:  a.cfg.DeferredTools,
+		CoreTools:      a.cfg.CoreTools,
 	}
 	data, _ := json.Marshal(snap)
 	sum := sha256.Sum256(data)
@@ -134,6 +136,7 @@ func (a *Agent) restore(cp *checkpoint.Checkpoint) error {
 
 	a.cfg.Mode = cp.Agent.Mode
 	a.cfg.Model = cp.Agent.Model
+	a.cfg.MaxTurnsPerRun = cp.Agent.MaxTurnsPerRun
 	a.cfg.DeferredTools = cp.Agent.DeferredTools
 	a.cfg.CoreTools = append([]string(nil), cp.Agent.CoreTools...)
 

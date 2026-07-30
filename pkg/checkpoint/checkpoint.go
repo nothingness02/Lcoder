@@ -44,10 +44,11 @@ type SessionSnapshot struct {
 // AgentSnapshot captures the runtime configuration that affects agent behavior
 // and cannot be derived from the context manager alone.
 type AgentSnapshot struct {
-	Mode          string          `json:"mode"`
-	Model         models.ModelRef `json:"model"`
-	DeferredTools bool            `json:"deferred_tools,omitempty"`
-	CoreTools     []string        `json:"core_tools,omitempty"`
+	Mode           string          `json:"mode"`
+	Model          models.ModelRef `json:"model"`
+	MaxTurnsPerRun int             `json:"max_turns_per_run,omitempty"`
+	DeferredTools  bool            `json:"deferred_tools,omitempty"`
+	CoreTools      []string        `json:"core_tools,omitempty"`
 }
 
 // MarshalJSON sets default Version and CreatedAt before serialization.

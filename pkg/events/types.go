@@ -54,6 +54,10 @@ const (
 	EndReasonTerminated  AgentEndReason = "terminated"
 	EndReasonInterrupted AgentEndReason = "interrupted"
 	EndReasonError       AgentEndReason = "error"
+	// EndReasonMaxTurns marks a run ended by the MaxTurnsPerRun hard cap.
+	// It is a clean boundary, not an error: a GoalDriver may continue the
+	// pursuit in a fresh run (kimi-code's isMaxStepsTurnFailure).
+	EndReasonMaxTurns AgentEndReason = "max_turns"
 )
 
 // AgentEndEvent signals the end of an agent run.

@@ -63,7 +63,12 @@ type Config struct {
 	SystemPrompt     string
 	BaseSystemPrompt string
 	Model            models.ModelRef
-	ContextManager   *contextmgr.Manager
+	// MaxTurnsPerRun caps the number of provider turns in one Prompt run.
+	// 0 means unlimited. Exceeding it ends the run IMMEDIATELY with
+	// EndReasonMaxTurns — it does NOT pass the continuation chain (mirrors
+	// Kimi's maxSteps throw: a hard, one-shot terminal condition).
+	MaxTurnsPerRun int
+	ContextManager *contextmgr.Manager
 	TransformContext  TransformContext
 	BeforeToolCall    BeforeToolCallHook
 	AfterToolCall     AfterToolCallHook
@@ -488,6 +493,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 	a.loopState.ResetAbort()
 
 	turn := a.loopState.StartRun()
+	turnsThisRun := 0
 	for _, msg := range initialPrompts {
 		a.appendMessage(msg)
 	}
@@ -496,6 +502,12 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 	endReason := events.EndReasonCompleted
 	for {
+		if a.cfg.MaxTurnsPerRun > 0 && turnsThisRun >= a.cfg.MaxTurnsPerRun {
+			endReason = events.EndReasonMaxTurns
+			break
+		}
+		turnsThisRun++
+
 		pending := a.loopState.DrainSteeringQueue()
 		if len(pending) > 0 {
 			for _, msg := range pending {
@@ -592,6 +604,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 		}
 	}
 
+	a.loopState.SetEndReason(endReason)
 	a.emit(ctx, events.AgentEndEvent{
 		Base:     events.Base{Type: events.AgentEnd, Turn: turn},
 		Reason:   endReason,
@@ -599,6 +612,13 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 	})
 	a.loopState.SetState(StateIdle)
 	return nil
+}
+
+// LastEndReason returns how the most recent run ended. It is synchronized by
+// Prompt's return, so a driver calling Prompt serially can read it without
+// subscribing to the event bus.
+func (a *Agent) LastEndReason() events.AgentEndReason {
+	return a.loopState.LastEndReason()
 }
 
 // refreshEphemeralReminders stages reminders for the upcoming turn.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -26,6 +27,10 @@ type stateHolder struct {
 
 	// runCancel cancels the entire agent run context (stream + tools + compaction).
 	runCancel context.CancelFunc
+
+	// endReason is how the most recent run ended; read by loop-external
+	// drivers (GoalDriver) after Prompt returns.
+	endReason events.AgentEndReason
 }
 
 func newStateHolder() *stateHolder {
@@ -83,6 +88,20 @@ func (s *stateHolder) State() State {
 }
 
 // SetState updates the agent state.
+// SetEndReason records how the current run ended.
+func (s *stateHolder) SetEndReason(r events.AgentEndReason) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.endReason = r
+}
+
+// LastEndReason returns how the most recent run ended.
+func (s *stateHolder) LastEndReason() events.AgentEndReason {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.endReason
+}
+
 func (s *stateHolder) SetState(st State) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
