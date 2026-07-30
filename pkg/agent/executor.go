@@ -110,11 +110,46 @@ func (e *executor) installGuardPolicies() {
 	e.permissions.SetGuardPolicies(modeGuardPolicy{ex: e}, skillGuardPolicy{ex: e}, modeTransitionPolicy{ex: e})
 }
 
+// preparedToolCall is the output of the serial prepare phase. Exactly one of
+// resolved/run is set: resolved for calls short-circuited before execution
+// (meta tools, validation, path guard, permission, hook block), run for
+// calls approved and ready to execute.
+type preparedToolCall struct {
+	call     models.ToolCallContent
+	args     map[string]any
+	accesses []tools.ToolAccess
+	// alsoWaitFor, when >= 0, adds a non-resource ordering edge: this call is
+	// a same-batch duplicate of that runnable index and must await it so its
+	// dedup lookup is a guaranteed hit (kimi-code v2's toolDedupe).
+	alsoWaitFor int
+	resolved    models.AgentMessage
+	run         func(ctx context.Context) models.AgentMessage
+}
+
 func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.AgentMessage, calls []models.ToolCallContent, execMode models.ExecutionMode) ([]models.AgentMessage, bool) {
 	e.dedupMu.Lock()
 	e.dedup = make(map[string]models.AgentMessage)
 	e.dedupMu.Unlock()
 	e.batchLen = len(calls)
+
+	// Phase 1: serial preparation in provider order. Validation, the path
+	// guard, interactive permission prompts, and before-hooks all run here so
+	// they cannot interleave; only pure execution overlaps in phase 2.
+	prepared := make([]preparedToolCall, len(calls))
+	firstRunnableByKey := make(map[string]int)
+	for i, call := range calls {
+		prepared[i] = e.prepareToolCall(ctx, turn, assistantMsg, call)
+		p := &prepared[i]
+		if p.run == nil || !isCacheableTool(p.call.Name) {
+			continue
+		}
+		key := dedupKey(p.call.Name, p.args)
+		if j, seen := firstRunnableByKey[key]; seen {
+			p.alsoWaitFor = j
+		} else {
+			firstRunnableByKey[key] = i
+		}
+	}
 
 	sequential := execMode == models.ExecutionSequential
 	if !sequential {
@@ -125,72 +160,96 @@ func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.Ag
 				sequential = true
 				break
 			}
-			if exec, ok := e.registry.Get(call.Name); ok {
-				if exec.Definition().ExecutionMode == models.ExecutionSequential {
-					sequential = true
-					break
-				}
-			}
 		}
 	}
-
 	if sequential {
-		return e.executeSequential(ctx, turn, assistantMsg, calls)
+		return e.runSequential(ctx, prepared)
 	}
-	return e.executeParallel(ctx, turn, assistantMsg, calls)
+	return e.runScheduled(ctx, prepared)
 }
 
-func (e *executor) executeSequential(ctx context.Context, turn int, assistantMsg models.AgentMessage, calls []models.ToolCallContent) ([]models.AgentMessage, bool) {
-	var results []models.AgentMessage
-	allTerminate := true
-	for _, call := range calls {
-		resultMsg := e.executeOneToolCall(ctx, turn, assistantMsg, call)
-		results = append(results, resultMsg)
-		if !isToolResultTerminate(resultMsg) {
+// finalizeBatch reports the ordered results and whether every call asked to
+// terminate the turn.
+func finalizeBatch(results []models.AgentMessage) ([]models.AgentMessage, bool) {
+	allTerminate := len(results) > 0
+	for _, r := range results {
+		if !isToolResultTerminate(r) {
 			allTerminate = false
 		}
 	}
-	return results, allTerminate && len(calls) > 0
+	return results, allTerminate
 }
 
-func (e *executor) executeParallel(ctx context.Context, turn int, assistantMsg models.AgentMessage, calls []models.ToolCallContent) ([]models.AgentMessage, bool) {
-	type pair struct {
-		call   models.ToolCallContent
-		result models.AgentMessage
+func (e *executor) runSequential(ctx context.Context, prepared []preparedToolCall) ([]models.AgentMessage, bool) {
+	results := make([]models.AgentMessage, len(prepared))
+	for i, p := range prepared {
+		if p.run == nil {
+			results[i] = p.resolved
+		} else {
+			results[i] = p.run(ctx)
+		}
+	}
+	return finalizeBatch(results)
+}
+
+func (e *executor) runScheduled(ctx context.Context, prepared []preparedToolCall) ([]models.AgentMessage, bool) {
+	accesses := make([][]tools.ToolAccess, len(prepared))
+	for i, p := range prepared {
+		accesses[i] = p.accesses
+	}
+	sched := newBatchScheduler(accesses)
+	for i, p := range prepared {
+		if p.alsoWaitFor >= 0 {
+			sched.addWait(i, p.alsoWaitFor)
+		}
 	}
 
+	results := make([]models.AgentMessage, len(prepared))
 	var wg sync.WaitGroup
-	pairs := make([]pair, len(calls))
-	for i, call := range calls {
+	for i, p := range prepared {
+		if p.run == nil {
+			// Short-circuited calls never execute: no side effects and
+			// nothing for later calls to wait on.
+			results[i] = p.resolved
+			sched.finish(i)
+			continue
+		}
 		wg.Add(1)
-		go func(idx int, c models.ToolCallContent) {
+		go func(idx int, pc preparedToolCall) {
 			defer wg.Done()
-			pairs[idx] = pair{call: c, result: e.executeOneToolCall(ctx, turn, assistantMsg, c)}
-		}(i, call)
+			defer sched.finish(idx)
+			if err := sched.wait(ctx, idx); err != nil {
+				results[idx] = e.makeToolResultMessage(pc.call,
+					models.NewToolExecutionResultError("canceled before execution: "+err.Error()), true)
+				return
+			}
+			results[idx] = pc.run(ctx)
+		}(i, p)
 	}
 	wg.Wait()
-
-	var results []models.AgentMessage
-	allTerminate := true
-	for _, p := range pairs {
-		results = append(results, p.result)
-		if !isToolResultTerminate(p.result) {
-			allTerminate = false
-		}
-	}
-	return results, allTerminate && len(calls) > 0
+	return finalizeBatch(results)
 }
 
-func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMsg models.AgentMessage, call models.ToolCallContent) models.AgentMessage {
+// prepareToolCall runs everything that must stay serial and ordered:
+// meta-tool handling, validation, the path security guard, the permission
+// chain (possibly interactive), and the before-hook. On any short-circuit
+// the final tool_result is produced here and no ToolExecutionStart event is
+// ever emitted. Approved calls return a runnable closure plus the resource
+// accesses used for scheduling, computed from the final (post-hook) args.
+func (e *executor) prepareToolCall(ctx context.Context, turn int, assistantMsg models.AgentMessage, call models.ToolCallContent) preparedToolCall {
 	// Normalize arguments first so validation sees a non-nil map.
 	args := call.Arguments
 	if args == nil {
 		args = make(map[string]any)
 	}
 
+	shortCircuit := func(result models.ToolExecutionResult, isError bool) preparedToolCall {
+		return preparedToolCall{call: call, alsoWaitFor: -1, resolved: e.makeToolResultMessage(call, result, isError)}
+	}
+
 	// tool_search is a meta-tool resolved locally: it never reaches the registry.
 	if call.Name == tools.ToolSearchName {
-		return e.handleToolSearch(ctx, turn, assistantMsg, call)
+		return preparedToolCall{call: call, alsoWaitFor: -1, resolved: e.handleToolSearch(ctx, turn, assistantMsg, call)}
 	}
 
 	// switch_mode is a meta-tool that changes the agent mode for the next
@@ -213,9 +272,9 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 			if reason == "" {
 				reason = "denied"
 			}
-			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(reason), true)
+			return shortCircuit(models.NewToolExecutionResultError(reason), true)
 		}
-		return e.handleSwitchMode(ctx, turn, assistantMsg, call)
+		return preparedToolCall{call: call, alsoWaitFor: -1, resolved: e.handleSwitchMode(ctx, turn, assistantMsg, call)}
 	}
 
 	// Swarm exclusivity: a swarm subagent call (prompt_template + items) is
@@ -226,7 +285,7 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 	// calls proceed.
 	if e.batchLen > 1 && call.Name == "subagent" {
 		if _, swarm := args["items"]; swarm {
-			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(swarmExclusivityMessage), true)
+			return shortCircuit(models.NewToolExecutionResultError(swarmExclusivityMessage), true)
 		}
 	}
 
@@ -241,7 +300,7 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 	// tool_result is fed back so the LLM can self-correct next turn.
 	if exec, ok := e.registry.Get(call.Name); ok {
 		if err := tools.ValidateArgs(exec.Definition(), args); err != nil {
-			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(err.Error()), true)
+			return shortCircuit(models.NewToolExecutionResultError(err.Error()), true)
 		}
 	}
 
@@ -255,7 +314,7 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		toolOp := pathOpForTool(call.Name)
 		cwd, _ := os.Getwd()
 		if _, err := builtin.ResolvePathAccess(rawPath, cwd, toolOp); err != nil {
-			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(err.Error()), true)
+			return shortCircuit(models.NewToolExecutionResultError(err.Error()), true)
 		}
 	}
 
@@ -275,7 +334,7 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 		if reason == "" {
 			reason = "denied"
 		}
-		return e.makeToolResultMessage(call, models.NewToolExecutionResultError(reason), true)
+		return shortCircuit(models.NewToolExecutionResultError(reason), true)
 	}
 
 	// Declarative before-tool hooks (e.g. extensions) run after permission approval.
@@ -287,10 +346,10 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 			Context:          e.mgr.AllMessages(),
 		})
 		if err != nil {
-			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(err.Error()), true)
+			return shortCircuit(models.NewToolExecutionResultError(err.Error()), true)
 		}
 		if beforeResult != nil && beforeResult.Block {
-			return e.makeToolResultMessage(call, models.NewToolExecutionResultError(beforeResult.Reason), true)
+			return shortCircuit(models.NewToolExecutionResultError(beforeResult.Reason), true)
 		}
 		if beforeResult != nil && beforeResult.ModifiedArgs != nil {
 			args = beforeResult.ModifiedArgs
@@ -298,15 +357,43 @@ func (e *executor) executeOneToolCall(ctx context.Context, turn int, assistantMs
 			// original arguments.
 			if exec, ok := e.registry.Get(call.Name); ok {
 				if err := tools.ValidateArgs(exec.Definition(), args); err != nil {
-					return e.makeToolResultMessage(call, models.NewToolExecutionResultError(err.Error()), true)
+					return shortCircuit(models.NewToolExecutionResultError(err.Error()), true)
 				}
 			}
 		}
 	}
 
+	// Resource accesses for the scheduler, from the final args. Tools that do
+	// not declare accesses default to OpAll (serial with everything).
+	accesses := []tools.ToolAccess{{Op: tools.OpAll}}
+	if exec, ok := e.registry.Get(call.Name); ok {
+		if declarer, ok := exec.(tools.AccessDeclarer); ok {
+			if declared := declarer.DeclareAccesses(args); len(declared) > 0 {
+				accesses = declared
+			}
+		}
+	}
+
+	return preparedToolCall{
+		call:        call,
+		args:        args,
+		accesses:    accesses,
+		alsoWaitFor: -1,
+		run: func(runCtx context.Context) models.AgentMessage {
+			return e.runToolCall(runCtx, turn, assistantMsg, call, args)
+		},
+	}
+}
+
+// runToolCall is the concurrent phase: dedup, execution, after-hook, and
+// events. It only runs after prepareToolCall approved the call and the batch
+// scheduler unblocked it.
+func (e *executor) runToolCall(ctx context.Context, turn int, assistantMsg models.AgentMessage, call models.ToolCallContent, args map[string]any) models.AgentMessage {
 	// Same-turn deduplication for read-only idempotent tools, keyed on the
 	// final (post-hook) args. A dedup hit returns before ToolExecutionStart, so
-	// duplicate calls never emit a Start without a matching End.
+	// duplicate calls never emit a Start without a matching End. The scheduler
+	// orders same-batch duplicates after the original (alsoWaitFor edge), so
+	// this lookup is deterministic even under concurrent execution.
 	if isCacheableTool(call.Name) {
 		key := dedupKey(call.Name, args)
 		e.dedupMu.Lock()

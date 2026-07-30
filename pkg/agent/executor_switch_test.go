@@ -88,7 +88,8 @@ func TestSwitchMode_InterceptsExecution(t *testing.T) {
 		Name:      switchModeToolName,
 		Arguments: map[string]any{"mode": "code"},
 	}
-	msg := e.executeOneToolCall(context.Background(), 0, models.AgentMessage{}, call)
+	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, []models.ToolCallContent{call}, models.ExecutionParallel)
+	msg := results[0]
 
 	if cfg.Mode != "code" {
 		t.Fatalf("expected mode switched to code, got %q", cfg.Mode)

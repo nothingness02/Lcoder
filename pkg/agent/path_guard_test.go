@@ -69,13 +69,13 @@ func newPathGuardExecutor(t *testing.T) (*executor, string) {
 	}, dir
 }
 
-// pathGuardToolResult is a shortcut that calls executeOneToolCall and returns
-// the result content + error flag.
+// pathGuardToolResult is a shortcut that executes a single-call batch and
+// returns the result content + error flag.
 func pathGuardToolResult(e *executor, name string, args map[string]any) (string, bool) {
-	msg := e.executeOneToolCall(context.Background(), 0, models.AgentMessage{}, models.ToolCallContent{
-		ID: "call_test", Name: name, Arguments: args,
-	})
-	tr := msg.Content[0].(models.ToolResultContent)
+	results, _ := e.execute(context.Background(), 0, models.AgentMessage{}, []models.ToolCallContent{
+		{ID: "call_test", Name: name, Arguments: args},
+	}, models.ExecutionParallel)
+	tr := results[0].Content[0].(models.ToolResultContent)
 	return tr.Text(), tr.IsError
 }
 
