@@ -246,14 +246,38 @@ type AfterToolCallResult struct {
 // Return true if the agent has completed its task and should stop.
 type ShouldStopFunc func(ctx context.Context, turn TurnSummary) (bool, error)
 
+// StopReason classifies why the loop is about to stop. Only StopEndTurn
+// currently reaches the continuation chain; terminated / max_turns /
+// interrupted / error are hard terminal conditions that bypass it.
+type StopReason string
+
+const (
+	StopEndTurn     StopReason = "end_turn"    // 无 tool calls,自然完成
+	StopTerminated  StopReason = "terminated"  // 工具 terminate 标记
+	StopMaxTurns    StopReason = "max_turns"   // MaxTurnsPerRun 硬上限
+	StopInterrupted StopReason = "interrupted" // abort / 用户中断
+	StopError       StopReason = "error"       // stream 或执行错误
+)
+
+// StopContext is the continuation decision's input. It embeds TurnSummary and
+// adds why the loop is stopping, how far it got, and an LLM handle so a
+// decider can call the model (goal evaluation, summary generation).
+type StopContext struct {
+	TurnSummary
+	Reason StopReason
+	Turn   int
+	Usage  models.LLMUsage
+	LLM    *llm.Client
+}
+
 // ShouldContinueAfterStopFunc is called when the model signals completion
 // (ShouldStop returns true). Return true to keep the loop running, false
-// to stop. It receives full turn context — it can inspect the stop reason,
+// to stop. It receives full stop context — it can inspect the stop reason,
 // call the LLM, wait for async tasks, or inject follow-up messages before
 // deciding. Mirrors Kimi Code's shouldContinueAfterStop hook.
 //
 // When ShouldContinueAfterStop is nil, the loop simply stops.
-type ShouldContinueAfterStopFunc func(ctx context.Context, turn TurnSummary) (bool, error)
+type ShouldContinueAfterStopFunc func(ctx context.Context, stop StopContext) (bool, error)
 
 // TurnSummary provides context for a stop decision.
 type TurnSummary struct {
@@ -519,10 +543,12 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			a.loopState.SetState(StateStreaming)
 		}
 
+		usage, _ := a.streamer.takeUsage()
 		a.emit(ctx, events.TurnEndEvent{
 			Base:        events.Base{Type: events.TurnEnd, Turn: turn},
 			Message:     assistantMsg,
 			ToolResults: toolResults,
+			Usage:       usage,
 		})
 
 		turn++
@@ -539,10 +565,17 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 	if a.shouldStop(ctx, assistantMsg, toolResults) {
 		if a.cfg.ShouldContinueAfterStop != nil {
-			cont, err := a.cfg.ShouldContinueAfterStop(ctx, TurnSummary{
-				Message:     assistantMsg,
-				ToolResults: toolResults,
-				Context:     a.mgr.AllMessages(),
+			usage, _ := a.streamer.takeUsage()
+			cont, err := a.cfg.ShouldContinueAfterStop(ctx, StopContext{
+				TurnSummary: TurnSummary{
+					Message:     assistantMsg,
+					ToolResults: toolResults,
+					Context:     a.mgr.AllMessages(),
+				},
+				Reason: StopEndTurn,
+				Turn:   turn,
+				Usage:  usage,
+				LLM:    a.llm,
 			})
 			if err != nil || !cont {
 				break

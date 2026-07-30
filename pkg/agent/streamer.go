@@ -22,6 +22,11 @@ type streamer struct {
 	mgr     *contextmgr.Manager
 	obs     *observability.Collector
 	emitter *eventEmitter
+
+	// lastUsage is the provider usage of the most recent completed stream,
+	// consumed by the run loop for StopContext and goal accounting.
+	lastUsage    models.LLMUsage
+	lastUsageSet bool
 }
 
 // stream runs one assistant turn and returns the finalized assistant message.
@@ -32,6 +37,8 @@ func (s *streamer) stream(ctx context.Context, turn int, modelRef models.ModelRe
 		clearAbort()
 		streamCancel()
 	}()
+
+	s.lastUsageSet = false
 
 	req, err := s.mgr.BuildTurnRequest(modelRef, tools)
 	if err != nil {
@@ -150,6 +157,8 @@ loop:
 					// Feed the provider's real prompt-token accounting back to the
 					// context manager so budget decisions use real counts.
 					s.mgr.RecordRealUsage(usage)
+					s.lastUsage = usage
+					s.lastUsageSet = true
 				}
 				return msg, nil
 			case provider.KindError:
@@ -173,6 +182,12 @@ loop:
 		Message: partial,
 	})
 	return partial, nil
+}
+
+// takeUsage returns the usage of the last completed stream, if the provider
+// reported one.
+func (s *streamer) takeUsage() (models.LLMUsage, bool) {
+	return s.lastUsage, s.lastUsageSet
 }
 
 func updateText(msg models.AgentMessage, delta string) models.AgentMessage {

@@ -608,8 +608,17 @@ func TestShouldContinueAfterStopHook(t *testing.T) {
 	ag := New(Config{
 		SystemPrompt: "x",
 		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ShouldContinueAfterStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
+		ShouldContinueAfterStop: func(ctx context.Context, stop StopContext) (bool, error) {
 			hookCalled = true
+			if stop.Reason != StopEndTurn {
+				t.Errorf("Reason = %q, want end_turn", stop.Reason)
+			}
+			if stop.Turn < 1 {
+				t.Errorf("Turn = %d, want >= 1", stop.Turn)
+			}
+			if stop.LLM == nil {
+				t.Error("LLM must be passed through")
+			}
 			return false, nil
 		},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())

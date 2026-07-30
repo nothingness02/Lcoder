@@ -71,6 +71,9 @@ type TurnEndEvent struct {
 	Base
 	Message     models.AgentMessage   `json:"message"`
 	ToolResults []models.AgentMessage `json:"tool_results"`
+	// Usage is the provider's token accounting for this turn (display and
+	// observability only; goal budget accounting happens in the run loop).
+	Usage models.LLMUsage `json:"usage"`
 }
 
 // MessageStartEvent signals that a message is about to be added.
