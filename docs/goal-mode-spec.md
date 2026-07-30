@@ -1,6 +1,6 @@
 # Goal 模式与 Stop 机制完善 Spec
 
-> 状态: 待评审(v2,经读者测试修订) | 前置分析: `docs/stop-conditions-comparison.md`(两层结构对比)
+> 状态: 已实施(2026-07-31) | 前置分析: `docs/stop-conditions-comparison.md`(两层结构对比)
 > 参考实现: Kimi Code `agent/turn/index.ts`(driveGoal)、`loop/run-turn.ts`(shouldContinueAfterStop)
 >
 > v2 修订(经无背景读者测试):max_turns 改为不过链的硬终局(消除再入问题);
@@ -304,3 +304,17 @@ goal 状态展示走 footer(仿 Kimi 的 goal-panel,第一版只做一行状态�
 - print/one-shot 模式的后台任务 drain(Kimi 层 1 的 1.5 号位)
 - goal 的 system prompt 模板化(第一版用固定 reminder 文本)
 - 子代理 goal(Kimi v2 明确拒绝 `reject subagent goals`,Lcoder 同样不支持)
+
+## 实施注记(2026-07-31)
+
+- **continuation 注入方式**:GoalDriver 经 `Prompt`(新 run 的用户消息)注入
+  continuation,而非 spec 原文的 Steer——Steer 是 run 中途注入语义,跨 run 用
+  Prompt 才贴合 Kimi 的 turnInput 模型。
+- **TUI 续跑不走 GoalDriver**:TUI 的所有 Prompt 必须经 runnerQueue 串行化,
+  因此续跑在 `onAgentDone` 里接线,与 headless GoalDriver 共享 `NextGoalAction`
+  纯函数,逻辑不重复。
+- **decider 链语义修正**(实施中发现):空链必须停(否则默认永不停止,测试超时
+  暴露);内置 veto 只能停不能续——veto 常驻但自守卫,goal 为 nil 时放行,
+  由配置链决定续跑,空配置链 = 停。
+- Runner 接口扩容(Goal/StartGoal/PauseGoal/ResumeGoal/CancelGoal/LastEndReason),
+  testutil.FakeAgent 同步实现。
