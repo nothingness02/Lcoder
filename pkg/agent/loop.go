@@ -248,14 +248,11 @@ type ShouldStopFunc func(ctx context.Context, turn TurnSummary) (bool, error)
 
 // ShouldContinueAfterStopFunc is called when the model signals completion
 // (ShouldStop returns true). Return true to keep the loop running, false
-// to stop. Unlike the followUp queue, this hook receives full turn context
-// — it can inspect stopReason, call the LLM, wait for async tasks, or
-// inject follow-up messages before deciding. Mirrors Kimi Code's
-// shouldContinueAfterStop hook.
+// to stop. It receives full turn context — it can inspect the stop reason,
+// call the LLM, wait for async tasks, or inject follow-up messages before
+// deciding. Mirrors Kimi Code's shouldContinueAfterStop hook.
 //
-// When ShouldContinueAfterStop is nil, the legacy followUp queue is
-// consulted: if it has messages, they are injected and the loop continues;
-// otherwise the loop stops.
+// When ShouldContinueAfterStop is nil, the loop simply stops.
 type ShouldContinueAfterStopFunc func(ctx context.Context, turn TurnSummary) (bool, error)
 
 // TurnSummary provides context for a stop decision.
