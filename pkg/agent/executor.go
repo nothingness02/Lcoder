@@ -286,9 +286,14 @@ func (e *executor) prepareToolCall(ctx context.Context, turn int, assistantMsg m
 	// files and relative-path workspace escapes are denied here so the model
 	// receives an actionable error without ever triggering a user approval
 	// prompt. The guard only validates; it does not rewrite args — each tool
-	// still resolves its path via resolveInCwd as before.
+	// still resolves its path via resolveInCwd as before. The operation for
+	// error messages comes from the tool's own access declaration (the single
+	// source of truth for what a tool does with its path argument).
 	if rawPath, ok := args["path"].(string); ok && rawPath != "" {
-		toolOp := pathOpForTool(call.Name)
+		toolOp := builtin.OpRead
+		if exec, ok := e.registry.Get(call.Name); ok {
+			toolOp = pathOpForDeclaredAccess(exec, args)
+		}
 		cwd, _ := os.Getwd()
 		if _, err := builtin.ResolvePathAccess(rawPath, cwd, toolOp); err != nil {
 			return shortCircuit(models.NewToolExecutionResultError(err.Error()), true)
@@ -904,13 +909,22 @@ func isCacheableTool(name string) bool {
 	return false
 }
 
-// pathOpForTool maps a tool name to the PathOperation used for error messages.
-// Mirrors Kimi Code's per-tool operation annotation.
-func pathOpForTool(toolName string) builtin.PathOperation {
-	switch toolName {
-	case "write", "edit":
+// pathOpForDeclaredAccess derives the path-guard operation (used for error
+// messages) from the tool's own access declaration — the single source of
+// truth for what a tool does with its path argument.
+func pathOpForDeclaredAccess(exec tools.Executable, args map[string]any) builtin.PathOperation {
+	declarer, ok := exec.(tools.AccessDeclarer)
+	if !ok {
+		return builtin.OpRead
+	}
+	accesses := declarer.DeclareAccesses(args)
+	if len(accesses) == 0 {
+		return builtin.OpRead
+	}
+	switch accesses[0].Op {
+	case tools.OpWrite, tools.OpReadWrite:
 		return builtin.OpWrite
-	case "grep", "find":
+	case tools.OpSearch:
 		return builtin.OpSearch
 	default:
 		return builtin.OpRead

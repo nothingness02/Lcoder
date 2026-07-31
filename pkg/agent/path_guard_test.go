@@ -37,6 +37,8 @@ func newPathGuardExecutor(t *testing.T) (*executor, string) {
 	r.Register("read", builtin.NewRead(dir))
 	r.Register("write", builtin.NewWrite(dir))
 	r.Register("ls", builtin.NewLs(dir))
+	r.Register("grep", builtin.NewGrep(dir))
+	r.Register("find", builtin.NewFind(dir))
 
 	engine := permissions.NewEngine(permissions.Config{
 		Rules: map[string]permissions.RuleTable{
