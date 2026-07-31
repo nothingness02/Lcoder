@@ -80,6 +80,10 @@ type Config struct {
 	// Built-in hard vetoes (goal budget, goal.go) run before this chain and
 	// can only stop the loop, never continue it.
 	ContinuationDeciders []ContinuationDecider
+	// ExtraGuardPolicies are appended after the built-in mode/skill guard
+	// policies (and still ahead of user rules). Extension permission hooks
+	// plug in here (opencode's permission.ask equivalent).
+	ExtraGuardPolicies []permissions.Policy
 	Mode              string
 	ModeManager       *ModeManager
 
@@ -657,6 +661,14 @@ func (a *Agent) LastEndReason() events.AgentEndReason {
 // construction. Wiring-time only: it must be called before the first Prompt.
 func (a *Agent) AddContinuationDeciders(fns ...ContinuationDecider) {
 	a.cfg.ContinuationDeciders = append(a.cfg.ContinuationDeciders, fns...)
+}
+
+// AddGuardPolicies appends extra permission guard policies after
+// construction. Wiring-time only: the executor re-reads them on every
+// permission evaluation (installGuardPolicies), so they take effect from
+// the next tool call.
+func (a *Agent) AddGuardPolicies(policies ...permissions.Policy) {
+	a.cfg.ExtraGuardPolicies = append(a.cfg.ExtraGuardPolicies, policies...)
 }
 
 // builtinContinuationDeciders returns hard vetoes that run before the

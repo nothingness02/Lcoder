@@ -39,6 +39,7 @@ const (
 	MethodHookInput         = "hook/input"
 	MethodHookStop          = "hook/stop"
 	MethodHookSessionStart  = "hook/session_start"
+	MethodHookPermission    = "hook/permission"
 	MethodCommandInvoke     = "command/invoke"
 	// EventMethodPrefix prefixes event notifications: "event/<event-type>".
 	EventMethodPrefix = "event/"
@@ -59,6 +60,7 @@ const (
 	HookInput         = "input"
 	HookStop          = "stop"
 	HookSessionStart  = "session_start"
+	HookPermission    = "permission"
 )
 
 type InitializeParams struct {
@@ -145,6 +147,19 @@ type SessionStartParams struct {
 
 type SessionStartResult struct {
 	Context string `json:"context,omitempty"`
+}
+
+// hook/permission: consulted during permission evaluation (opencode's
+// permission.ask equivalent). A non-empty Decision is an opinion;
+// empty passes to the next policy.
+type PermissionParams struct {
+	Tool string         `json:"tool"`
+	Args map[string]any `json:"args"`
+}
+
+type PermissionResult struct {
+	Decision string `json:"decision,omitempty"` // "allow" | "deny" | "ask"
+	Reason   string `json:"reason,omitempty"`
 }
 
 // command/invoke.

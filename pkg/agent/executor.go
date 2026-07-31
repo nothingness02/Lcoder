@@ -108,7 +108,9 @@ func (e *executor) installGuardPolicies() {
 	if e.permissions == nil {
 		return
 	}
-	e.permissions.SetGuardPolicies(modeGuardPolicy{ex: e}, skillGuardPolicy{ex: e}, modeTransitionPolicy{ex: e})
+	e.permissions.SetGuardPolicies(append([]permissions.Policy{
+		modeGuardPolicy{ex: e}, skillGuardPolicy{ex: e}, modeTransitionPolicy{ex: e},
+	}, e.cfg.ExtraGuardPolicies...)...)
 }
 
 // preparedToolCall is the output of the serial prepare phase. Exactly one of

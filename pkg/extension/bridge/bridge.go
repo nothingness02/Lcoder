@@ -16,6 +16,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/extension/proto"
 	"github.com/lcoder/lcoder/pkg/extension/runtime"
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/permissions"
 	"github.com/lcoder/lcoder/pkg/session"
 )
 
@@ -216,4 +217,25 @@ func validateCustomType(customType string) error {
 		return fmt.Errorf("custom_type must be namespaced as \"<ext-name>/<key>\", got %q", customType)
 	}
 	return nil
+}
+
+// PermissionPolicy adapts the permission hook chain to permissions.Policy
+// (opencode's permission.ask equivalent).
+func (b *Bridge) PermissionPolicy() permissions.Policy { return &permissionPolicy{host: b.host} }
+
+type permissionPolicy struct{ host *runtime.Host }
+
+func (p *permissionPolicy) Name() string { return "extension" }
+
+func (p *permissionPolicy) Decide(req permissions.Request) (permissions.Decision, string, bool) {
+	decision, reason := p.host.RunPermissionHooks(context.Background(), req.Tool, req.Args)
+	switch decision {
+	case "allow":
+		return permissions.Allow, reason, true
+	case "deny":
+		return permissions.Deny, reason, true
+	case "ask":
+		return permissions.Ask, reason, true
+	}
+	return "", "", false
 }

@@ -311,6 +311,25 @@ func (h *Host) RunSessionStartHooks(ctx context.Context, sessionID string, resum
 	return strings.Join(parts, "\n\n")
 }
 
+// RunPermissionHooks asks the first declaring extension for a permission
+// opinion. Empty decision means no declarer or no opinion — the caller
+// passes to the next policy.
+func (h *Host) RunPermissionHooks(ctx context.Context, tool string, args map[string]any) (decision, reason string) {
+	for _, ext := range h.live() {
+		if !hasString(ext.caps.Hooks, proto.HookPermission) {
+			continue
+		}
+		var out proto.PermissionResult
+		if err := h.call(ctx, ext, proto.MethodHookPermission,
+			proto.PermissionParams{Tool: tool, Args: args}, &out); err != nil {
+			h.warn(fmt.Sprintf("extension %s hook/permission: %v", ext.caps.Name, err))
+			return "", ""
+		}
+		return out.Decision, out.Reason
+	}
+	return "", ""
+}
+
 // RunBeforeCompactHook asks the first declaring extension for a summary.
 // ok=false means: no hook, or the hook failed — caller falls back.
 func (h *Host) RunBeforeCompactHook(ctx context.Context, conversation string, tokensBefore int) (summary string, ok bool) {

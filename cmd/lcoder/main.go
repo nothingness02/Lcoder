@@ -397,6 +397,8 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		ag.AddContinuationDeciders(extBridge.StopDecider(func(reason string) {
 			ag.Steer(models.UserMessage("[stop hook] " + reason))
 		}))
+		// Extension permission hook joins the guard policies (permission.ask).
+		ag.AddGuardPolicies(extBridge.PermissionPolicy())
 	}
 
 	// The session store owns the message history; load it first. The checkpoint
