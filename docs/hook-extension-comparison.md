@@ -1,6 +1,12 @@
 # Hook 与 Extension 机制对比
 
-> 状态: 分析完成(2026-07-31) | 参考: Kimi Code v2 `externalHooks`、opencode `packages/plugin`、pi `core/extensions`
+> 状态: ★★★/★★ 项已实施(2026-07-31) | 参考: Kimi Code v2 `externalHooks`、opencode `packages/plugin`、pi `core/extensions`
+>
+> 实施注记:shell `on_stop` 已包成 `ContinuationDecider`(exit 2 续跑 + stderr 经
+> Steer 反馈);shell `before_compact` 已包装内建 summarizer;`tool_extensions`
+> (JSON 描述符)已整体退役,外部工具一律走 MCP;extension 新增 `stop` /
+> `session_start` / `permission` 三个 hook;权限插槽以 `Config.ExtraGuardPolicies`
+> 落地(executor 装在 guard policies 末尾)。
 
 ## 1. Lcoder 现状盘点
 
@@ -82,12 +88,12 @@ goal 模式落地后,`ContinuationDecider` 链成为 Stop hook 的标准插槽:e
 
 ## 5. 建议(按优先级)
 
-| 优先级 | 行动 | 理由 |
+| 优先级 | 行动 | 状态 |
 |:---:|------|------|
-| ★★★ | 接线或删除 shell 死配置:`on_stop` 包成 ContinuationDecider,`before_compact` 接到 SummarizeFunc | 消除误导性配置;on_stop 是最常被需求的 hook(Claude Code 的 Stop hook 生态) |
-| ★★★ | 退役 JSON 描述符 HTTP 工具,文档引导到 MCP | 减少第三套重叠机制 |
-| ★★ | extension runtime 增加 `stop` hook(经 decider 链)+ `session_start` | 对齐 Kimi 高频 hook 点 |
-| ★★ | 权限引擎增加 hook 插槽(guard policy 形式已现成,把 extension 包成一个 policy) | permission.ask 是 opencode 的企业级能力 |
-| ★ | extension 支持注册一等工具(host 侧代理回扩展进程执行) | 消除"小工具也得开 MCP"的重感 |
-| ★ | SessionStart / Notification / PostToolUseFailure 区分 | 补齐 Kimi 高频点 |
+| ★★★ | 接线或删除 shell 死配置:`on_stop` 包成 ContinuationDecider,`before_compact` 接到 SummarizeFunc | ✅ 已实施(2026-07-31) |
+| ★★★ | 退役 JSON 描述符 HTTP 工具,文档引导到 MCP | ✅ 已实施(2026-07-31) |
+| ★★ | extension runtime 增加 `stop` hook(经 decider 链)+ `session_start` | ✅ 已实施(2026-07-31) |
+| ★★ | 权限引擎增加 hook 插槽(guard policy 形式已现成,把 extension 包成一个 policy) | ✅ 已实施(2026-07-31,`ExtraGuardPolicies`) |
+| ★ | extension 支持注册一等工具(host 侧代理回扩展进程执行) | 未做 |
+| ★ | SessionStart / Notification / PostToolUseFailure 区分 | SessionStart ✅;其余未做 |
 | — | LLM params/headers 改写 | 等企业网关需求出现再做 |
