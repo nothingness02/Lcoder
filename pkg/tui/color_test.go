@@ -22,7 +22,7 @@ func TestColorPanelOpensAndAppliesAccent(t *testing.T) {
 	bus := events.New()
 	ag := &fakeAgent{}
 	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 24
 	m.state = stateInput

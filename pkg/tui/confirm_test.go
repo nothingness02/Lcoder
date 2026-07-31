@@ -125,7 +125,7 @@ func TestConfirmPanelSelectionAndDecision(t *testing.T) {
 }
 
 func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 24
 	m.blocks = append(m.blocks, block{kind: components.BlockUser, raw: "hello"})
@@ -157,7 +157,7 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 }
 
 func TestConfirmPanelArrowSelection(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	resp := make(chan confirmResult, 1)
 	m.Update(confirmRequestMsg{req: confirmRequest{
 		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
@@ -178,7 +178,7 @@ func TestConfirmPanelArrowSelection(t *testing.T) {
 }
 
 func TestConfirmPanelEnterDecision(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	resp := make(chan confirmResult, 1)
 	m.Update(confirmRequestMsg{req: confirmRequest{
 		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
@@ -211,7 +211,7 @@ func TestConfirmPanelEnterDecision(t *testing.T) {
 }
 
 func TestConfirmPanelUltraDestructiveHidesGlobal(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	resp := make(chan confirmResult, 1)
 	m2, _ := m.Update(confirmRequestMsg{req: confirmRequest{
 		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "rm -rf /"}}},
@@ -230,7 +230,7 @@ func TestConfirmPanelUltraDestructiveHidesGlobal(t *testing.T) {
 }
 
 func TestConfirmPanelCanScrollLog(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 10
 	m.updateSizes()
@@ -256,7 +256,7 @@ func TestConfirmPanelCanScrollLog(t *testing.T) {
 }
 
 func TestConfirmPanelStateTransitions(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 
 	resp := make(chan confirmResult, 1)
 	info := agent.ToolCallInfo{

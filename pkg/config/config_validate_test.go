@@ -61,17 +61,6 @@ func TestValidate_ContextNumericRanges(t *testing.T) {
 }
 
 
-func TestValidate_InvalidHTTPTool(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.HTTPTools = []HTTPToolConfig{{
-		Name:     "bad",
-		Endpoint: "not-a-url",
-	}}
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "http_tools") {
-		t.Fatalf("expected http_tools error, got %v", err)
-	}
-}
-
 func TestValidate_InvalidMCPServer(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.MCPServers = []MCPServerConfig{{

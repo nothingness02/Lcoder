@@ -24,7 +24,7 @@ func newStartupModel(prior []models.AgentMessage) *Model {
 	}
 	sess := &fakeSession{ID: "sess1"}
 	store := &fakeSessionStore{}
-	m := NewModel(bus, ag, sess, store, ".", "sess1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(bus, ag, sess, store, ".", "sess1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	return m
 }
 
@@ -121,7 +121,7 @@ func newTestModelWithStore(t *testing.T, prior []models.AgentMessage) (*Model, *
 	}
 
 	bus := events.New()
-	m := NewModel(bus, ag, sess, store, "/project", sess.ID, "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(bus, ag, sess, store, "/project", sess.ID, "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 24
 	return m, ag, store

@@ -13,15 +13,6 @@ import (
 	"github.com/lcoder/lcoder/internal/paths"
 )
 
-// HTTPToolConfig describes an external HTTP tool.
-type HTTPToolConfig struct {
-	Name        string            `yaml:"name"`
-	Endpoint    string            `yaml:"endpoint"`
-	Description string            `yaml:"description"`
-	Parameters  map[string]any    `yaml:"parameters"`
-	Headers     map[string]string `yaml:"headers"`
-}
-
 // MCPServerConfig describes an MCP server connection.
 type MCPServerConfig struct {
 	Name      string            `yaml:"name"`
@@ -84,7 +75,6 @@ type Config struct {
 	TUI            TUIConfig               `yaml:"tui"`
 	Context        ContextConfig           `yaml:"context"`
 	Permissions    PermissionConfig        `yaml:"permissions"`
-	HTTPTools      []HTTPToolConfig        `yaml:"http_tools"`
 	MCPServers     []MCPServerConfig       `yaml:"mcp_servers"`
 	Skills         SkillsConfig            `yaml:"skills"`
 	Hooks          HookConfig              `yaml:"hooks"`

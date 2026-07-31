@@ -33,10 +33,10 @@ func SetInputHook(hook func(text string) (string, bool, string)) {
 // onSessionChange, when non-nil, is notified whenever the active session is
 // swapped (/sessions, /new) so the compaction sink records folds to the session
 // actually in use.
-func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, capabilities []string, llmClient *llm.Client, cfg config.Config, needsProviderSetup bool, onSessionChange func(*session.Session), subagentHost *agenthost.Host, skillCatalog *skills.Catalog) error {
+func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, capabilities []string, llmClient *llm.Client, cfg config.Config, needsProviderSetup bool, onSessionChange func(*session.Session), subagentHost *agenthost.Host, skillCatalog *skills.Catalog) error {
 	checkpointDir := filepath.Join(session.DefaultDir(), "checkpoints")
 	checkpointStore := checkpoint.NewFileStore(checkpointDir)
-	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, httpTools, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, needsProviderSetup, skillCatalog)
+	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, needsProviderSetup, skillCatalog)
 	model.SetCapabilities(capabilities)
 	model.SetInputHook(runInputHook)
 	model.SetOnSessionChange(onSessionChange)
@@ -73,10 +73,10 @@ func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session
 }
 
 // RunWithIO starts the TUI with custom input/output for testing.
-func RunWithIO(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, input *os.File, output *os.File, skillCatalog *skills.Catalog) (tea.Model, error) {
+func RunWithIO(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, input *os.File, output *os.File, skillCatalog *skills.Catalog) (tea.Model, error) {
 	checkpointDir := filepath.Join(session.DefaultDir(), "checkpoints")
 	checkpointStore := checkpoint.NewFileStore(checkpointDir)
-	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, httpTools, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, false, skillCatalog)
+	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, false, skillCatalog)
 	defer model.Close()
 
 	program := tea.NewProgram(

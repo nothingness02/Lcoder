@@ -8,16 +8,8 @@ import (
 	"github.com/lcoder/lcoder/pkg/mcp"
 )
 
-// HTTPToolItem describes an external HTTP tool for display.
-type HTTPToolItem struct {
-	Name        string
-	Endpoint    string
-	Description string
-}
-
-// ExtensionsPanelModel renders HTTP extension tools and MCP server status.
+// ExtensionsPanelModel renders MCP server status.
 type ExtensionsPanelModel struct {
-	HTTPTools  []HTTPToolItem
 	MCPServers []mcp.ServerStatus
 	Visible    bool
 }
@@ -42,18 +34,8 @@ func (m ExtensionsPanelModel) View(width, maxHeight int) string {
 	var lines []string
 	lines = append(lines, accent.Render("Extension Tools"))
 
-	if len(m.HTTPTools) == 0 && len(m.MCPServers) == 0 {
+	if len(m.MCPServers) == 0 {
 		lines = append(lines, styleDim().Render("No extensions configured."))
-	}
-
-	if len(m.HTTPTools) > 0 {
-		lines = append(lines, accent.Render("HTTP Tools"))
-		for _, t := range m.HTTPTools {
-			name := accent.Render(t.Name)
-			desc := styleDim().Render(truncate(t.Description, width-8))
-			endpoint := styleDim().Render(truncate(t.Endpoint, width-8))
-			lines = append(lines, fmt.Sprintf("%s\n  %s\n  %s", name, desc, endpoint))
-		}
 	}
 
 	if len(m.MCPServers) > 0 {

@@ -137,18 +137,7 @@ permissions:
       "halt": deny
       ":(){ :|:& };:": deny
 
-# http_tools:
-#   - name: deploy
-#     endpoint: http://localhost:9001/deploy
-#     description: Deploy service to staging
-#     parameters:
-#       type: object
-#       properties:
-#         service:
-#           type: string
-#       required: [service]
-#     headers:
-#       Authorization: Bearer ${DEPLOY_TOKEN}
+# 外部工具一律走 MCP(http_tools 与 JSON 描述符 tool_extensions 已退役)。
 
 # mcp_servers:
 #   - name: filesystem

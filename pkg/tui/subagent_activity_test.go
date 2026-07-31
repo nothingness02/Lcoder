@@ -23,7 +23,7 @@ func activity(callID string, kind events.SubagentActivityKind, text string) even
 
 func newActivityModel(t *testing.T) *Model {
 	t.Helper()
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	return m
 }
 

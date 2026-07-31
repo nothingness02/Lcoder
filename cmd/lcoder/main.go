@@ -180,16 +180,6 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		return nil, fmt.Errorf("register built-in tools: %w", err)
 	}
 	registry.Register(skills.UseSkillToolName, builtinTools.NewUseSkill(cwd, skillCatalog))
-	for _, cfgTool := range cfg.HTTPTools {
-		registry.Register(cfgTool.Name, tools.NewHTTPExecutable(tools.HTTPConfig{
-			Name:        cfgTool.Name,
-			Endpoint:    tools.ExpandEndpointEnv(cfgTool.Endpoint),
-			Description: cfgTool.Description,
-			Parameters:  cfgTool.Parameters,
-			Headers:     cfgTool.Headers,
-		}))
-	}
-
 	mcpConfigs := make([]mcp.ServerConfig, 0, len(cfg.MCPServers))
 	for _, s := range cfg.MCPServers {
 		mcpConfigs = append(mcpConfigs, mcp.ServerConfig{
@@ -635,14 +625,6 @@ func runOneShot(ctx context.Context, setup *agentSetup, prompt string) error {
 }
 
 func runTUI(ctx context.Context, setup *agentSetup) error {
-	httpTools := make([]tui.HTTPToolItem, 0, len(setup.cfg.HTTPTools))
-	for _, t := range setup.cfg.HTTPTools {
-		httpTools = append(httpTools, tui.HTTPToolItem{
-			Name:        t.Name,
-			Endpoint:    t.Endpoint,
-			Description: t.Description,
-		})
-	}
 	modelRef := setup.cfg.Provider + "/" + setup.cfg.Model
 
 	var caps []string
@@ -673,7 +655,7 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 		}
 	}
 
-	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, httpTools, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup,
+	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup,
 		func(s *session.Session) {
 			setup.activeSession.Set(s)
 			if setup.subagentHost != nil {

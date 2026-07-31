@@ -22,11 +22,6 @@ func (c Config) Validate() error {
 	if err := c.Subagent.Validate(); err != nil {
 		return fmt.Errorf("subagent: %w", err)
 	}
-	for i, ht := range c.HTTPTools {
-		if err := ht.Validate(); err != nil {
-			return fmt.Errorf("http_tools[%d]: %w", i, err)
-		}
-	}
 	for i, m := range c.MCPServers {
 		if err := m.Validate(); err != nil {
 			return fmt.Errorf("mcp_servers[%d]: %w", i, err)
@@ -66,21 +61,6 @@ func (c ContextConfig) Validate() error {
 
 // Validate checks subagent settings.
 func (c SubagentConfig) Validate() error {
-	return nil
-}
-
-// Validate checks an external HTTP tool configuration.
-func (c HTTPToolConfig) Validate() error {
-	if strings.TrimSpace(c.Name) == "" {
-		return fmt.Errorf("name is required")
-	}
-	if strings.TrimSpace(c.Endpoint) == "" {
-		return fmt.Errorf("endpoint is required")
-	}
-	u, err := url.Parse(c.Endpoint)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return fmt.Errorf("endpoint %q must be an http or https URL", c.Endpoint)
-	}
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
@@ -13,7 +14,7 @@ import (
 // transcript visible above, not as a full-screen replacement — the unified
 // editor-replacement layout.
 func TestPanelsRenderAsBottomStrip(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 24
 	m.mainWidth = 80
@@ -22,7 +23,7 @@ func TestPanelsRenderAsBottomStrip(t *testing.T) {
 	m.updateSizes()
 
 	m.extPanel.Visible = true
-	m.extPanel.HTTPTools = []HTTPToolItem{{Name: "deploy", Description: "deploy tool", Endpoint: "http://x"}}
+	m.extPanel.MCPServers = []mcp.ServerStatus{{Name: "deploy", Connected: true}}
 	m.state = stateExtensions
 	out := m.View()
 	if !strings.Contains(out, "hello transcript") {

@@ -19,7 +19,7 @@ func newTestModel() (*Model, *testutil.FakeAgent, *testutil.FakeSession) {
 	ag := &testutil.FakeAgent{}
 	sess := &testutil.FakeSession{ID: "abc123"}
 	store := &testutil.FakeSessionStore{}
-	m := NewModel(bus, ag, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(bus, ag, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
 	m.width = 80
 	m.height = 24
 	return m, ag, sess

@@ -93,7 +93,7 @@ func (f *fakeCheckpointAgent) Restore(cp *checkpoint.Checkpoint) error {
 func newCheckpointTestModel(agent AgentRunner, chkStore checkpoint.Store) *Model {
 	bus := events.New()
 	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, agent, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, nil, config.Config{}, chkStore, false, nil)
+	m := NewModel(bus, agent, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, chkStore, false, nil)
 	m.width = 80
 	m.height = 24
 	m.state = stateInput

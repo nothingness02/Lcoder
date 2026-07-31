@@ -178,7 +178,7 @@ type Model struct {
 }
 
 // NewModel keeps the exact signature the call sites and tests rely on.
-func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store SessionStore, cwd, sessionID, model, themeStyle string, httpTools []HTTPToolItem, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, checkpointStore checkpoint.Store, needsProviderSetup bool, skillCatalog *skills.Catalog) *Model {
+func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store SessionStore, cwd, sessionID, model, themeStyle string, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, checkpointStore checkpoint.Store, needsProviderSetup bool, skillCatalog *skills.Catalog) *Model {
 	// Theme override: honor explicit "light"/"dark", else auto-detect.
 	switch themeStyle {
 	case "light":
@@ -203,7 +203,7 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		spinner:            newSpinner(),
 		paste:              newPasteStash(),
 		history:            newInputHistory(),
-		extPanel:           ExtensionsPanelModel{HTTPTools: httpTools, MCPServers: mcpServers(mcpRegistry)},
+		extPanel:           ExtensionsPanelModel{MCPServers: mcpServers(mcpRegistry)},
 		model:              model,
 		themeStyle:         themeStyle,
 		skills:             skillCatalog,
