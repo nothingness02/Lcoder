@@ -261,6 +261,7 @@ func (m *Model) handleProviderKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 
 // handleInputKey handles keys while composing.
 func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
+	defer m.syncBottomLayout()
 	if k.Type == tea.KeyCtrlT {
 		m.toggleTaskSidebar()
 		return m, nil
@@ -412,6 +413,7 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		m.menuVisible = false
 		m.menuSelected = 0
 		m.fileMenuVisible = false
+		m.mentionChips = nil
 		m.history.add(text)
 		return m, m.submit(text)
 
@@ -439,6 +441,7 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 
 // handleProcessingKey handles keys while the agent runs.
 func (m *Model) handleProcessingKey(k tea.KeyMsg) (*Model, tea.Cmd) {
+	defer m.syncBottomLayout()
 	switch k.Type {
 	case tea.KeyEsc:
 		if m.focusedBlockIndex != -1 {
@@ -577,8 +580,14 @@ func (m *Model) onAgentDone(err error) tea.Cmd {
 	return nil
 }
 
+// refreshMentionChips recomputes the resolved-mention chips row.
+func (m *Model) refreshMentionChips() {
+	m.mentionChips = mentionLabels(m.cwd, m.input.Value())
+}
+
 // refreshMenu toggles the slash and @file menus based on the current input.
 func (m *Model) refreshMenu() {
+	defer m.refreshMentionChips()
 	val := m.input.Value()
 	if strings.HasPrefix(val, "/") && !strings.Contains(val, " ") && !strings.Contains(val, "\n") {
 		m.menuVisible = true
@@ -620,6 +629,7 @@ func (m *Model) acceptFileMenu() (*Model, tea.Cmd) {
 	}
 	m.fileMenuVisible = false
 	m.fileMenuSelected = 0
+	m.refreshMentionChips()
 	m.input.SyncHeight()
 	return m, nil
 }

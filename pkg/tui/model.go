@@ -91,6 +91,16 @@ type Model struct {
 	// usually hits a warm cache. Stopped by Close.
 	fileSuggester fileSuggester
 
+	// mentionChips lists the resolved @file mention basenames for the live
+	// chips row under the composer (nil when empty). Unresolvable mentions
+	// are silently omitted; submit-time validateMentions is the only negative
+	// feedback path.
+	mentionChips []string
+
+	// bottomRows caches the reserved bottom-region height so per-keystroke
+	// growth (composer, menus, chips) resizes the viewport only on change.
+	bottomRows int
+
 	// Command output panel (ephemeral, above the composer within stateInput).
 	cmdPanel cmdPanel
 
@@ -356,6 +366,7 @@ func (m *Model) updateSizes() {
 	m.input.SetWidth(mw - 2)
 	m.input.SyncHeight()
 	bottom := m.bottomHeight()
+	m.bottomRows = bottom
 	vh := m.height - bottom - m.topBarHeight()
 	if vh < 3 {
 		vh = 3

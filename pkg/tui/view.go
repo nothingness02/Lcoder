@@ -50,6 +50,26 @@ func (m *Model) bottomHeight() int {
 	return lipgloss.Height(m.bottomRegion())
 }
 
+// syncBottomLayout resizes the viewport when the bottom region's height
+// changed outside a resize (composer growth, menu/chips rows). Without it
+// the frame grows past the terminal and the top lines are pushed off-screen.
+func (m *Model) syncBottomLayout() {
+	if m.width == 0 {
+		return
+	}
+	h := lipgloss.Height(m.bottomRegion())
+	if h == m.bottomRows {
+		return
+	}
+	m.bottomRows = h
+	vh := m.height - h - m.topBarHeight()
+	if vh < 3 {
+		vh = 3
+	}
+	m.viewport.Height = vh
+	m.rebuildViewport()
+}
+
 // bottomRegion renders the composer, optional slash menu, suggestion, and status.
 // Interactive panels (permission confirm, session picker, extensions, provider)
 // occupy the region instead of the composer — kimi-code's editor-replacement
@@ -93,6 +113,12 @@ func (m *Model) bottomRegion() string {
 	}
 
 	sections = append(sections, m.input.View())
+
+	// Live mention chips: resolved @file basenames under the composer, dimmed
+	// like the attachment row on committed user blocks.
+	if len(m.mentionChips) > 0 {
+		sections = append(sections, styleDim().Render("  ↳ "+strings.Join(m.mentionChips, ", ")))
+	}
 
 	if m.suggestion != "" {
 		sections = append(sections, styleFaint().Render("  "+m.suggestion))
