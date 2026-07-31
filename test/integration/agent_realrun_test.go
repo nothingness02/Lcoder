@@ -354,7 +354,11 @@ func TestAgentRealRun(t *testing.T) {
 	// Errors are non-fatal: missing files simply mean empty blocks.
 	contextText, _ := contextloader.NewLoader(repoRoot).Load()
 	loadedSkillCatalog, _ := skills.LoadCatalog(skills.DefaultPaths(repoRoot))
-	skillsBlock := skills.ToCatalogBlock(loadedSkillCatalog)
+	scopedSkills := make([]skills.ScopedMeta, 0, len(loadedSkillCatalog))
+	for _, m := range loadedSkillCatalog {
+		scopedSkills = append(scopedSkills, skills.ScopedMeta{SkillMeta: m})
+	}
+	skillsBlock := skills.NewCatalog(scopedSkills).Block()
 
 	// Context manager built exactly as the real binary builds it (shared
 	// agentsetup.NewContextManager): same window policy, budget, and blocks. The

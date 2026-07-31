@@ -49,24 +49,6 @@ type Skill struct {
 	Body string
 }
 
-// ToCatalogBlock renders a list of skill metadata for the system prompt. It
-// tells the model to activate a matching skill via the use_skill tool, which
-// returns the full skill body as a tool result.
-func ToCatalogBlock(catalog []SkillMeta) string {
-	if len(catalog) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("You have access to the following skills. When the user's request matches a skill's purpose, call the " + UseSkillToolName + " tool with the skill name to load its full instructions before proceeding:\n\n")
-	for _, s := range catalog {
-		b.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, s.Description))
-		if len(s.Keywords) > 0 {
-			b.WriteString(fmt.Sprintf("  keywords: %s\n", strings.Join(s.Keywords, ", ")))
-		}
-	}
-	return b.String()
-}
-
 // RenderActiveSkill renders the full content of an activated skill for injection
 // into the context window.
 func RenderActiveSkill(skill Skill) string {

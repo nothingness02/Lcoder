@@ -88,13 +88,18 @@ Improve the provided code without changing its external behavior.
 	sb.WriteString("```\n\n")
 
 	sb.WriteString("## 3. 注入系统提示的目录块\n\n")
-	sb.WriteString("这是启动后常驻上下文的内容：\n\n")
+	sb.WriteString("这是启动后常驻上下文的内容(生产渲染路径 Catalog.Block):\n\n")
+	scoped := make([]ScopedMeta, 0, len(catalog))
+	for _, m := range catalog {
+		scoped = append(scoped, ScopedMeta{SkillMeta: m})
+	}
+	cat := NewCatalog(scoped)
 	sb.WriteString("```text\n")
-	sb.WriteString(ToCatalogBlock(catalog))
+	sb.WriteString(cat.Block())
 	sb.WriteString("\n```\n\n")
 
 	sb.WriteString("## 4. 用户触发 `/skill:security-review`\n\n")
-	meta, ok := FindByName(catalog, "security-review")
+	meta, ok := cat.Find("security-review")
 	if !ok {
 		t.Fatal("security-review not found")
 	}

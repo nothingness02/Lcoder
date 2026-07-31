@@ -6,16 +6,6 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-// FindByName looks up a skill by name in a loaded skill catalog.
-func FindByName(catalog []SkillMeta, name string) (SkillMeta, bool) {
-	for _, s := range catalog {
-		if s.Name == name {
-			return s, true
-		}
-	}
-	return SkillMeta{}, false
-}
-
 // ParseManualTrigger checks if text is a manual skill trigger like "/skill:name".
 // It returns the skill name and the remaining user text (if any).
 func ParseManualTrigger(text string) (name string, rest string, ok bool) {

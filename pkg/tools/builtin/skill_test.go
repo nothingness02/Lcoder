@@ -26,11 +26,15 @@ func writeTestSkill(t *testing.T, dir, name, frontmatter, body string) skills.Sk
 	if err != nil {
 		t.Fatalf("load catalog: %v", err)
 	}
-	meta, ok := skills.FindByName(catalog, name)
+	scoped := make([]skills.ScopedMeta, 0, len(catalog))
+	for _, m := range catalog {
+		scoped = append(scoped, skills.ScopedMeta{SkillMeta: m})
+	}
+	meta, ok := skills.NewCatalog(scoped).Find(name)
 	if !ok {
 		t.Fatalf("skill %q not in catalog", name)
 	}
-	return meta
+	return meta.SkillMeta
 }
 
 func TestUseSkillDefinition(t *testing.T) {
