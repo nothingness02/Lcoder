@@ -3,6 +3,7 @@ package provider
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/lcoder/lcoder/pkg/models"
@@ -221,5 +222,39 @@ func TestAnthropicStreamToolUse(t *testing.T) {
 	}
 	if calls[0].Arguments["path"] != "x" {
 		t.Errorf("args=%+v", calls[0].Arguments)
+	}
+}
+
+func TestAnthropicStreamErrorEvent(t *testing.T) {
+	body := "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"
+	srv := sseServer(t, body)
+
+	ad := Anthropic{}
+	ch, err := ad.Stream(context.Background(),
+		Conn{BaseURL: srv.URL, APIKey: "k", Route: "anthropic"},
+		models.TurnRequest{Model: models.ModelRef{Provider: "anthropic", ID: "claude-sonnet-4"},
+			Messages: []models.AgentMessage{models.UserMessage("hi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(t, ch)
+
+	var errEv *Event
+	for i := range evs {
+		if evs[i].Kind == KindError {
+			errEv = &evs[i]
+		}
+		if evs[i].Kind == KindDone {
+			t.Fatalf("stream error must not be reported as done: %+v", evs[i])
+		}
+	}
+	if errEv == nil || errEv.Err == nil {
+		t.Fatal("no error event emitted for anthropic error frame")
+	}
+	if errEv.Err.Code != "rate_limit" {
+		t.Fatalf("overloaded_error should classify as rate_limit, got %q", errEv.Err.Code)
+	}
+	if !strings.Contains(errEv.Err.Message, "Overloaded") {
+		t.Fatalf("error message lost: %q", errEv.Err.Message)
 	}
 }

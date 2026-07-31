@@ -161,6 +161,23 @@ func (a Anthropic) Stream(ctx context.Context, conn Conn, req models.TurnRequest
 				}
 			case "message_stop":
 				// stream finished; loop will end at EOF
+			case "error":
+				code := "internal"
+				msg := "anthropic stream error"
+				if ev.Error != nil {
+					// overloaded_error / rate_limit_error are transient and
+					// worth an upstream retry; anything else is not.
+					if ev.Error.Type == "overloaded_error" || ev.Error.Type == "rate_limit_error" {
+						code = "rate_limit"
+					}
+					if ev.Error.Message != "" {
+						msg = ev.Error.Message
+					} else if ev.Error.Type != "" {
+						msg = ev.Error.Type
+					}
+				}
+				emit(ctx, out, Event{Kind: KindError, Err: &EventError{Code: code, Message: msg}})
+				return
 			}
 		}
 		if err := scanner.Err(); err != nil {
@@ -424,6 +441,10 @@ type anthropicEvent struct {
 		PartialJSON string `json:"partial_json"`
 	} `json:"delta"`
 	Usage *anthropicUsage `json:"usage"`
+	Error *struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 type anthropicUsage struct {
