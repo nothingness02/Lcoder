@@ -66,11 +66,37 @@ func (s *streamer) stream(ctx context.Context, turn int, modelRef models.ModelRe
 		req.Generation.MaxTokens = s.mgr.Budget().ResolveMaxTokens(inputTokens)
 	}
 
-	turnStartTime := time.Now()
-	stream, err := s.llm.StreamTurnRetry(streamCtx, req, llm.DefaultRetryConfig())
-	if err != nil {
-		return models.AgentMessage{}, err
+	rc := llm.DefaultRetryConfig()
+	for attempt := 0; ; attempt++ {
+		stream, err := s.llm.StreamTurnRetry(streamCtx, req, rc)
+		if err != nil {
+			// 建流阶段的重试已在 StreamTurnRetry 内耗尽,不再嵌套重试。
+			return models.AgentMessage{}, err
+		}
+		gotContent, msg, err := s.consume(streamCtx, stream, turn)
+		if err == nil {
+			return msg, nil
+		}
+		if gotContent || !llm.IsRetryable(err) || attempt == rc.MaxAttempts-1 {
+			return msg, err
+		}
+		// 未流出任何内容的流内失败:整轮重试是安全的(没有任何
+		// partial 输出被 emit 或持久化)。
+		timer := time.NewTimer(llm.Backoff(rc, attempt, 0))
+		select {
+		case <-streamCtx.Done():
+			timer.Stop()
+			return msg, err
+		case <-timer.C:
+		}
 	}
+}
+
+// consume drains one established event stream and assembles the assistant
+// message. gotContent reports whether any content event (start/delta) was
+// seen — false means a failure is safe to retry as a whole turn.
+func (s *streamer) consume(streamCtx context.Context, stream <-chan provider.Event, turn int) (gotContent bool, msg models.AgentMessage, err error) {
+	turnStartTime := time.Now()
 
 	var partial models.AgentMessage
 	started := false
@@ -80,7 +106,7 @@ loop:
 	for {
 		select {
 		case <-streamCtx.Done():
-			return partial, streamCtx.Err()
+			return started, partial, streamCtx.Err()
 		case ev, ok := <-stream:
 			if !ok {
 				break loop
@@ -161,12 +187,12 @@ loop:
 					s.lastUsage = usage
 					s.lastUsageSet = true
 				}
-				return msg, nil
+				return started, msg, nil
 			case provider.KindError:
 				if ev.Err != nil {
-					return models.AgentMessage{}, ev.Err
+					return started, models.AgentMessage{}, ev.Err
 				}
-				return models.AgentMessage{}, fmt.Errorf("unknown engine error")
+				return started, models.AgentMessage{}, fmt.Errorf("unknown engine error")
 			}
 		}
 	}
@@ -182,7 +208,7 @@ loop:
 		Base:    events.Base{Type: events.MessageEnd, Turn: turn},
 		Message: partial,
 	})
-	return partial, nil
+	return started, partial, nil
 }
 
 // takeUsage returns the usage of the last completed stream, if the provider
