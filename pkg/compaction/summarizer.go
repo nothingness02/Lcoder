@@ -15,6 +15,19 @@ import (
 // top of the caller's context, whichever fires first.
 const summaryTimeout = 90 * time.Second
 
+// SummarizeFunc generates a summary from a slice of messages.
+// In production this calls the LLM engine. The context carries the agent's
+// run cancellation so abort/Ctrl+C interrupts in-flight summarization.
+//
+// prior is the previous compaction's summary, or empty on the first fold. It is
+// passed separately rather than left among messages so repeated compactions
+// carry the earlier summary forward verbatim instead of summarizing it again:
+// a summary of a summary loses detail on every pass, and the original task
+// statement is what degrades first. It matches contextmgr.SummarizeFunc
+// without importing it (contextmgr imports this package, so the reverse
+// would be a cycle).
+type SummarizeFunc func(ctx context.Context, messages []models.AgentMessage, prior string) (string, error)
+
 // summaryToolResultChars caps one tool result inside the serialized input.
 const summaryToolResultChars = 2000
 
@@ -74,7 +87,6 @@ When the input contains a <previous_summary> block, it is the summary of an EARL
 
 // NewLLMSummarizer returns a SummarizeFunc that asks the LLM engine to compact
 // older messages into a dual-stage summary, keeping only the <summary> block.
-// The returned function matches contextmgr.SummarizeFunc without importing it.
 func NewLLMSummarizer(client *llm.Client, model models.ModelRef) SummarizeFunc {
 	return func(ctx context.Context, messages []models.AgentMessage, prior string) (string, error) {
 		if client == nil {
