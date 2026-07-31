@@ -290,7 +290,7 @@ func (m InputModel) desiredHeight() int {
 |---|---|---|---|
 | M1（P0） | W1 帧调度 + VSCode 自适应；W2 补全子系统（光标感知 + FileIndex + fd）；W3.1 行高 | known-issues #1–#4、gap#1 | ✅ 完成（另修复滚动物化/吸底 `09c158f`、行高滚动 `06c128f`） |
 | M2（P1） | W4 标题栏；W5 组件收尾 | gap#3、#2、#5 | ✅ 完成 |
-| M3（P2） | W3.2 chips 行；W3.3 粘贴增强；自研 editor 评估报告（mention 高亮、原子 paste marker、IME 光标的真实成本） | gap#4 | 未开始 |
+| M3（P2） | W3.2 chips 行；W3.3 粘贴增强；自研 editor 评估报告（mention 高亮、原子 paste marker、IME 光标的真实成本） | gap#4 | ✅ 完成（chips `437d457`、粘贴失配告警 `7f4cf32`、评估 `tui-editor-evaluation-report.md`：不自研，触发条件与 fork 中间路线） |
 
 每个里程碑结束：全量测试 + race + §8 适用项人工验证 + 更新 `docs/tui-known-issues.md` 状态。
 
