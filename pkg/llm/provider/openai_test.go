@@ -258,3 +258,14 @@ func TestOpenAIStreamHTTPErrorClassified(t *testing.T) {
 		t.Fatalf("want rate_limit EventError from Stream, got %v", err)
 	}
 }
+
+func TestOpenAISendsIncludeUsage(t *testing.T) {
+	body := captureRequestBody(t, OpenAICompat{}, models.TurnRequest{
+		Model:    models.ModelRef{ID: "gpt-4o"},
+		Messages: []models.AgentMessage{models.UserMessage("hi")},
+	})
+	so, ok := body["stream_options"].(map[string]any)
+	if !ok || so["include_usage"] != true {
+		t.Fatalf("stream_options.include_usage missing: %v", body["stream_options"])
+	}
+}

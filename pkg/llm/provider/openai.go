@@ -30,6 +30,9 @@ func (OpenAICompat) Stream(ctx context.Context, conn Conn, req models.TurnReques
 		"model":    req.Model.ID,
 		"messages": withSystem(req.SystemPrompt, openAIMessages(req.Messages)),
 		"stream":   true,
+		// Ask for the trailing usage chunk; without it OpenAI sends no usage
+		// and cost accounting / RecordRealUsage silently see zero.
+		"stream_options": map[string]any{"include_usage": true},
 	}
 	if tools := openAITools(req.Tools); tools != nil {
 		body["tools"] = tools
