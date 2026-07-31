@@ -34,9 +34,8 @@ func TestToolCallDeltaMarkedNotText(t *testing.T) {
 
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ToolExecutionMode: models.ExecutionParallel,
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
 			return true, nil
 		},
