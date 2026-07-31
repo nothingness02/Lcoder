@@ -5,9 +5,14 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/lcoder/lcoder/pkg/llm/catalog"
+	"github.com/lcoder/lcoder/pkg/llm/engine"
 	"github.com/lcoder/lcoder/pkg/llm/provider"
 	"github.com/lcoder/lcoder/pkg/models"
 )
@@ -105,5 +110,34 @@ func TestStreamTurnRetryRespectsContext(t *testing.T) {
 	_, err := c.StreamTurnRetry(ctx, models.TurnRequest{}, RetryConfig{MaxAttempts: 3, BaseBackoff: time.Hour})
 	if err == nil {
 		t.Fatal("expected error for canceled context")
+	}
+}
+
+func TestStreamTurnRetryRetriesOn429(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"slow down"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n"))
+	}))
+	t.Cleanup(srv.Close)
+
+	eng := engine.New(catalog.New(catalog.Options{Refresh: false}))
+	eng.RegisterProvider("openai", provider.Conn{BaseURL: srv.URL, Route: "openai"})
+	c := NewClient(eng)
+	stream, err := c.StreamTurnRetry(context.Background(), models.TurnRequest{
+		Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"},
+	}, RetryConfig{MaxAttempts: 3, BaseBackoff: time.Millisecond})
+	if err != nil {
+		t.Fatalf("retry should recover from 429: %v", err)
+	}
+	for range stream {
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("want 2 attempts, got %d", calls.Load())
 	}
 }

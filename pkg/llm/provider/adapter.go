@@ -4,6 +4,8 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 
 	"github.com/lcoder/lcoder/pkg/models"
 )
@@ -49,6 +51,27 @@ func ResolveBaseURL(conn Conn) string {
 		return conn.BaseURL
 	}
 	return DefaultBaseURL(conn.Route)
+}
+
+// maxErrorBodyBytes bounds how much of a failed response body is read into the
+// classified error (a proxy may answer with a large HTML page).
+const maxErrorBodyBytes = 64 * 1024
+
+// doStreamRequest sends req and returns the response only on 200 OK. Any other
+// status is classified and returned synchronously — before the event channel
+// exists — so StreamTurnRetry can see rate_limit/internal failures and retry
+// them. The body is drained (bounded) and closed on failure.
+func doStreamRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		_ = resp.Body.Close()
+		return nil, classifyHTTP(resp.StatusCode, data)
+	}
+	return resp, nil
 }
 
 // emit sends ev unless ctx is already cancelled (prevents goroutine leak on a

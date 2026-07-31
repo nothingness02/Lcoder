@@ -3,6 +3,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -250,14 +251,10 @@ func TestOpenAIStreamHTTPErrorClassified(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	ad := OpenAICompat{}
-	ch, err := ad.Stream(context.Background(), Conn{BaseURL: srv.URL, Route: "openai"},
+	_, err := ad.Stream(context.Background(), Conn{BaseURL: srv.URL, Route: "openai"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	evs := collect(t, ch)
-	last := evs[len(evs)-1]
-	if last.Kind != KindError || last.Err == nil || last.Err.Code != "rate_limit" {
-		t.Fatalf("want rate_limit error, got %+v", last)
+	var pe *EventError
+	if !errors.As(err, &pe) || pe.Code != "rate_limit" {
+		t.Fatalf("want rate_limit EventError from Stream, got %v", err)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -100,7 +99,7 @@ func (a Anthropic) Stream(ctx context.Context, conn Conn, req models.TurnRequest
 		httpReq.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := doStreamRequest(http.DefaultClient, httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -109,12 +108,6 @@ func (a Anthropic) Stream(ctx context.Context, conn Conn, req models.TurnRequest
 	go func() {
 		defer close(out)
 		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			data, _ := io.ReadAll(resp.Body)
-			emit(ctx, out, Event{Kind: KindError, Err: classifyHTTP(resp.StatusCode, data)})
-			return
-		}
 
 		emit(ctx, out, Event{Kind: KindStart})
 
