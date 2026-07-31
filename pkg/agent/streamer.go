@@ -131,9 +131,10 @@ loop:
 					})
 				}
 				s.emitter.emit(streamCtx, events.MessageUpdateEvent{
-					Base:    events.Base{Type: events.MessageUpdate, Turn: turn},
-					Delta:   ev.ArgumentsJSON,
-					Message: partial,
+					Base:       events.Base{Type: events.MessageUpdate, Turn: turn},
+					Delta:      ev.ArgumentsJSON,
+					IsToolCall: true, // argument JSON: not assistant text
+					Message:    partial,
 				})
 			case provider.KindDone:
 				msg := ev.Message

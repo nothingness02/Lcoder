@@ -95,8 +95,12 @@ type MessageEndEvent struct {
 // MessageUpdateEvent carries a streaming delta.
 type MessageUpdateEvent struct {
 	Base
-	Delta      string              `json:"delta"`
-	IsThinking bool                `json:"is_thinking"`
+	Delta   string `json:"delta"`
+	IsThinking bool `json:"is_thinking"`
+	// IsToolCall marks deltas that carry streamed tool-call argument JSON.
+	// They must not be rendered as assistant text (the raw JSON would leak
+	// into the visible transcript); UI consumers skip them.
+	IsToolCall bool                `json:"is_tool_call"`
 	Message    models.AgentMessage `json:"message"`
 }
 

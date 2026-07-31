@@ -33,7 +33,10 @@ func (m *Model) handleEvent(ev events.Event) tea.Cmd {
 		}
 
 	case events.MessageUpdateEvent:
-		if !m.streaming {
+		if !m.streaming || e.IsToolCall {
+			// Tool-call argument JSON is not display text; skip it so the raw
+			// arguments never leak into the assistant block (or the streamLive
+			// commit fallback on text-less turns).
 			break
 		}
 		if e.IsThinking {

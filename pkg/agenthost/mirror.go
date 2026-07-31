@@ -36,7 +36,9 @@ func (h *Host) mirrorChild(child *agent.Agent, agentID, profile, parentToolCallI
 	unsub := child.Subscribe(func(ctx context.Context, ev events.Event) error {
 		switch e := ev.(type) {
 		case events.MessageUpdateEvent:
-			if !e.IsThinking && e.Delta != "" {
+			// Skip tool-call argument JSON: it is not child-agent text and
+			// would render as raw JSON in the parent's nested display.
+			if !e.IsThinking && !e.IsToolCall && e.Delta != "" {
 				emit(events.SubagentText, e.Delta)
 			}
 		case events.ToolExecutionStartEvent:
