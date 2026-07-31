@@ -18,14 +18,11 @@ const (
 	MessageEnd          EventType = "message_end"
 	MessageUpdate       EventType = "message_update"
 	ToolExecutionStart  EventType = "tool_execution_start"
-	ToolExecutionUpdate EventType = "tool_execution_update"
 	ToolExecutionEnd    EventType = "tool_execution_end"
 	Audit               EventType = "audit"
 	Error               EventType = "error"
 	CompactionCommitted EventType = "compaction_committed"
 	CompactionStarted   EventType = "compaction_started"
-	SessionLoaded       EventType = "session_loaded"
-	PermissionRequest   EventType = "permission_request"
 	SubagentActivity    EventType = "subagent_activity"
 	BackgroundNotice    EventType = "background_notice"
 )
@@ -95,8 +92,8 @@ type MessageEndEvent struct {
 // MessageUpdateEvent carries a streaming delta.
 type MessageUpdateEvent struct {
 	Base
-	Delta   string `json:"delta"`
-	IsThinking bool `json:"is_thinking"`
+	Delta      string `json:"delta"`
+	IsThinking bool   `json:"is_thinking"`
 	// IsToolCall marks deltas that carry streamed tool-call argument JSON.
 	// They must not be rendered as assistant text (the raw JSON would leak
 	// into the visible transcript); UI consumers skip them.
@@ -110,13 +107,6 @@ type ToolExecutionStartEvent struct {
 	ToolCallID string         `json:"tool_call_id"`
 	ToolName   string         `json:"tool_name"`
 	Args       map[string]any `json:"args"`
-}
-
-// ToolExecutionUpdateEvent carries a partial tool result.
-type ToolExecutionUpdateEvent struct {
-	Base
-	ToolCallID string `json:"tool_call_id"`
-	Partial    string `json:"partial"`
 }
 
 // ToolExecutionEndEvent signals that a tool has finished.
@@ -171,23 +161,6 @@ type AuditEvent struct {
 	Allowed     bool           `json:"allowed"`
 	Blocked     bool           `json:"blocked"`
 	BlockReason string         `json:"block_reason,omitempty"`
-}
-
-// SessionLoadedEvent signals that the active session has changed and the UI
-// should replace its message list.
-type SessionLoadedEvent struct {
-	Base
-	SessionID string                `json:"session_id"`
-	Messages  []models.AgentMessage `json:"messages"`
-}
-
-// PermissionRequestEvent signals that a tool call needs user approval.
-type PermissionRequestEvent struct {
-	Base
-	RequestID  string         `json:"request_id"`
-	ToolCallID string         `json:"tool_call_id"`
-	ToolName   string         `json:"tool_name"`
-	Args       map[string]any `json:"args"`
 }
 
 // MarshalJSON serializes an event using its concrete fields.

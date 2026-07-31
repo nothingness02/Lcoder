@@ -27,9 +27,6 @@ type Bridge struct {
 
 func New(host *runtime.Host) *Bridge { return &Bridge{host: host} }
 
-// Host exposes the underlying host (command dispatch, capabilities).
-func (b *Bridge) Host() *runtime.Host { return b.host }
-
 // BeforeToolCall adapts the tool_call hook chain to agent.BeforeToolCallHook.
 func (b *Bridge) BeforeToolCall() agent.BeforeToolCallHook {
 	return func(ctx context.Context, info agent.ToolCallInfo) (*agent.BeforeToolCallResult, error) {

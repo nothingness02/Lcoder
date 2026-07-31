@@ -96,13 +96,6 @@ func NewBlock(kind BlockKind, name string, stability Stability, priority int, ms
 	}
 }
 
-// NewBlockWithCacheHint creates a block with a cache-placement hint.
-func NewBlockWithCacheHint(kind BlockKind, name string, stability Stability, priority int, hint CacheHint, msgs ...models.AgentMessage) *Block {
-	b := NewBlock(kind, name, stability, priority, msgs...)
-	b.CacheHint = hint
-	return b
-}
-
 // Text returns the concatenated text of all messages in the block.
 func (b *Block) Text() string {
 	var parts []string
