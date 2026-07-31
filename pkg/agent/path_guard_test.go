@@ -289,7 +289,7 @@ func TestPathGuard_BlocksBeforeUserConfirmation(t *testing.T) {
 func TestPathGuard_GrepSearchUsesCorrectOperation(t *testing.T) {
 	e, _ := newPathGuardExecutor(t)
 
-	text, isErr := pathGuardToolResult(e, "grep", map[string]any{"path": "../outside"})
+	text, isErr := pathGuardToolResult(e, "grep", map[string]any{"pattern": "x", "path": "../outside"})
 	if !isErr {
 		t.Fatal("must be blocked")
 	}
@@ -301,7 +301,7 @@ func TestPathGuard_GrepSearchUsesCorrectOperation(t *testing.T) {
 func TestPathGuard_FindSearchUsesCorrectOperation(t *testing.T) {
 	e, _ := newPathGuardExecutor(t)
 
-	text, isErr := pathGuardToolResult(e, "find", map[string]any{"path": "../outside"})
+	text, isErr := pathGuardToolResult(e, "find", map[string]any{"pattern": "x", "path": "../outside"})
 	if !isErr {
 		t.Fatal("must be blocked")
 	}
