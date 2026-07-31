@@ -235,33 +235,8 @@ func TestClampToMaxInput(t *testing.T) {
 	}
 }
 
-func TestResolveContextBudgetCompactThresholdDefault(t *testing.T) {
-	cfg := DefaultConfig()
-	budget, _ := cfg.ResolveContextBudget(0, 0)
-	if budget.CompactThreshold != 0.9 {
-		t.Fatalf("expected default compact threshold 0.9, got %v", budget.CompactThreshold)
-	}
-}
 
-func TestResolveContextBudgetCompactThresholdOverride(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.Context.CompactThreshold = 0.75
-	budget, _ := cfg.ResolveContextBudget(0, 0)
-	if budget.CompactThreshold != 0.75 {
-		t.Fatalf("expected compact threshold 0.75, got %v", budget.CompactThreshold)
-	}
-}
 
-func TestResolveContextBudgetCompactThresholdInvalidFallback(t *testing.T) {
-	for _, bad := range []float64{0, -0.5, 1.5} {
-		cfg := DefaultConfig()
-		cfg.Context.CompactThreshold = bad
-		budget, _ := cfg.ResolveContextBudget(0, 0)
-		if budget.CompactThreshold != 0.9 {
-			t.Fatalf("expected fallback 0.9 for invalid %v, got %v", bad, budget.CompactThreshold)
-		}
-	}
-}
 
 func TestResolveContextBudgetDropThreshold(t *testing.T) {
 	cfg := Config{Context: ContextConfig{MaxTokens: 100000, DropThreshold: 0.8}}

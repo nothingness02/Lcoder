@@ -43,8 +43,6 @@ func TestValidate_ContextNumericRanges(t *testing.T) {
 	}{
 		{"static_ratio low", func(c *Config) { c.Context.StaticRatio = -1 }},
 		{"static_ratio high", func(c *Config) { c.Context.StaticRatio = 101 }},
-		{"compact_threshold low", func(c *Config) { c.Context.CompactThreshold = -0.1 }},
-		{"compact_threshold high", func(c *Config) { c.Context.CompactThreshold = 1.1 }},
 		{"drop_threshold low", func(c *Config) { c.Context.DropThreshold = -0.1 }},
 		{"drop_threshold high", func(c *Config) { c.Context.DropThreshold = 1.1 }},
 		{"min_recent negative", func(c *Config) { c.Context.MinRecent = -1 }},

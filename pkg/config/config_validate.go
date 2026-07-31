@@ -44,9 +44,6 @@ func (c ContextConfig) Validate() error {
 	if c.StaticRatio < 0 || c.StaticRatio > 100 {
 		return fmt.Errorf("static_ratio must be between 0 and 100")
 	}
-	if c.CompactThreshold < 0 || c.CompactThreshold > 1 {
-		return fmt.Errorf("compact_threshold must be between 0 and 1")
-	}
 	if c.DropThreshold < 0 || c.DropThreshold > 1 {
 		return fmt.Errorf("drop_threshold must be between 0 and 1")
 	}

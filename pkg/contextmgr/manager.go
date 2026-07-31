@@ -19,9 +19,6 @@ type TokenBudget struct {
 	// the model's official ceiling and any explicit user cap. 0 means unknown,
 	// in which case ResolveMaxTokens falls back to a conservative default.
 	MaxOutput int
-	// CompactThreshold is the ratio of TargetTotal at which compaction starts.
-	// Zero defaults to 1.0 (compact only when exceeding target).
-	CompactThreshold float64
 	// DropThreshold is the ratio of MaxTotal at which old messages are dropped.
 	// Zero defaults to 1.0 (drop only when exceeding max).
 	DropThreshold float64
@@ -62,15 +59,6 @@ func (b TokenBudget) ResolveMaxTokens(inputTokens int) int {
 // EffectiveInput returns the budget left for input after reserving output.
 func (b TokenBudget) EffectiveInput() int {
 	return b.MaxTotal - b.ReserveOutput
-}
-
-// CompactLimit returns the token count at which compaction should start.
-func (b TokenBudget) CompactLimit() int {
-	thr := b.CompactThreshold
-	if thr <= 0 {
-		thr = 1.0
-	}
-	return int(float64(b.TargetTotal) * thr)
 }
 
 // DropLimit returns the token count at which old messages should be dropped.
@@ -545,7 +533,6 @@ func (m *Manager) Stats() map[string]int {
 	stats["budget_max"] = m.budget.MaxTotal
 	stats["budget_target"] = m.budget.TargetTotal
 	stats["budget_output_reserve"] = m.budget.ReserveOutput
-	stats["compact_limit"] = m.budget.CompactLimit()
 	stats["drop_limit"] = m.budget.DropLimit()
 	// Real provider-reported prompt-token accounting, when a turn has run.
 	if rt, ok := m.RealPromptTokens(); ok {

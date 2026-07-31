@@ -296,13 +296,12 @@ func (m *Model) commitProvider() {
 	m.agent.SwitchModel(
 		models.ModelRef{Provider: provName, ID: modelID},
 		contextmgr.TokenBudget{
-			MaxTotal:         budget.MaxTotal,
-			TargetTotal:      budget.TargetTotal,
-			ReserveOutput:    budget.ReserveOutput,
-			MaxOutput:        budget.MaxOutput,
-			CompactThreshold: budget.CompactThreshold,
-			DropThreshold:    budget.DropThreshold,
-			StaticRatio:      m.cfg.Context.StaticRatio,
+			MaxTotal:      budget.MaxTotal,
+			TargetTotal:   budget.TargetTotal,
+			ReserveOutput: budget.ReserveOutput,
+			MaxOutput:     budget.MaxOutput,
+			DropThreshold: budget.DropThreshold,
+			StaticRatio:   m.cfg.Context.StaticRatio,
 		},
 	)
 

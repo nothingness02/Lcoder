@@ -16,7 +16,7 @@ func TestSwitchModelUpdatesModelAndBudget(t *testing.T) {
 
 	a.SwitchModel(
 		models.ModelRef{Provider: "anthropic", ID: "claude-sonnet-4"},
-		contextmgr.TokenBudget{MaxTotal: 200000, TargetTotal: 180000, ReserveOutput: 8192, CompactThreshold: 0.9},
+		contextmgr.TokenBudget{MaxTotal: 200000, TargetTotal: 180000, ReserveOutput: 8192},
 	)
 
 	if a.cfg.Model.Provider != "anthropic" || a.cfg.Model.ID != "claude-sonnet-4" {

@@ -173,7 +173,6 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking st
 		TargetTotal:      budget.TargetTotal,
 		ReserveOutput:    budget.ReserveOutput,
 		MaxOutput:        budget.MaxOutput,
-		CompactThreshold: budget.CompactThreshold,
 		DropThreshold:    budget.DropThreshold,
 		StaticRatio:      cfg.Context.StaticRatio,
 	}, opts...)

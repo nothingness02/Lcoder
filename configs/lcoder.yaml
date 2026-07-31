@@ -60,7 +60,6 @@ context:
   static_ratio: 60         # target percentage for static/stable blocks
   min_recent: 10           # minimum recent messages to keep
   keep_recent_tokens: 20000  # 压缩时保留尾部的 token 预算(proactive 档);preflight 减半、reactive 取 1/5
-  compact_threshold: 0.9   # compact when usage reaches this ratio of target_tokens
   cache_hint_policy: default  # default | aggressive | none
 
 # Repository-level code intelligence is provided via MCP, not built in. Point

@@ -44,7 +44,6 @@ type ContextConfig struct {
 	StaticRatio      int      `yaml:"static_ratio"`       // ratio percentage for static/stable blocks
 	MinRecent        int      `yaml:"min_recent"`         // minimum recent messages to keep
 	KeepRecentTokens int      `yaml:"keep_recent_tokens"` // token budget for the kept tail at proactive pressure (0 = default 20000)
-	CompactThreshold float64  `yaml:"compact_threshold"`  // ratio of target at which compaction starts
 	CacheHintPolicy  string   `yaml:"cache_hint_policy"`  // "default", "aggressive", "none"
 	DeferredTools    bool     `yaml:"deferred_tools"`     // ship only core tools + tool_search
 	CoreTools        []string `yaml:"core_tools"`         // tools kept full under deferral
@@ -102,7 +101,6 @@ func DefaultConfig() Config {
 			StaticRatio:      60,
 			MinRecent:        10,
 			KeepRecentTokens: 20000,
-			CompactThreshold: 0.9,
 			CacheHintPolicy:  "default",
 			DeferredTools:    false,
 			CoreTools:        nil,
@@ -257,23 +255,17 @@ func (c Config) ResolveContextBudget(discoveredWindow, discoveredMaxOutput int) 
 		ceiling = cfg.MaxOutput
 	}
 
-	threshold := cfg.CompactThreshold
-	if threshold <= 0 || threshold > 1 {
-		threshold = 0.9
-	}
-
 	dropThreshold := cfg.DropThreshold
 	if dropThreshold <= 0 || dropThreshold > 1 {
 		dropThreshold = 1.0
 	}
 
 	return TokenBudget{
-		MaxTotal:         maxTotal,
-		TargetTotal:      target,
-		ReserveOutput:    reserve,
-		MaxOutput:        ceiling,
-		CompactThreshold: threshold,
-		DropThreshold:    dropThreshold,
+		MaxTotal:      maxTotal,
+		TargetTotal:   target,
+		ReserveOutput: reserve,
+		MaxOutput:     ceiling,
+		DropThreshold: dropThreshold,
 	}, source
 }
 
@@ -283,7 +275,6 @@ type TokenBudget struct {
 	TargetTotal      int
 	ReserveOutput    int
 	MaxOutput        int
-	CompactThreshold float64
 	DropThreshold    float64
 }
 
@@ -324,7 +315,6 @@ func Load() (Config, error) {
 			"static_ratio":       cfg.Context.StaticRatio,
 			"min_recent":         cfg.Context.MinRecent,
 			"keep_recent_tokens": cfg.Context.KeepRecentTokens,
-			"compact_threshold":  cfg.Context.CompactThreshold,
 			"cache_hint_policy":  cfg.Context.CacheHintPolicy,
 			"deferred_tools":     cfg.Context.DeferredTools,
 			"core_tools":         cfg.Context.CoreTools,

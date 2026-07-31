@@ -77,7 +77,6 @@ func (r *ContextSnapshotRecorder) render(state *contextmgr.ManagerState, phase s
 	b.WriteString(fmt.Sprintf("- TargetTotal: %d\n", state.Budget.TargetTotal))
 	b.WriteString(fmt.Sprintf("- ReserveOutput: %d\n", state.Budget.ReserveOutput))
 	b.WriteString(fmt.Sprintf("- MaxOutput: %d\n", state.Budget.MaxOutput))
-	b.WriteString(fmt.Sprintf("- CompactThreshold: %v\n", state.Budget.CompactThreshold))
 	b.WriteString(fmt.Sprintf("- DropThreshold: %v\n\n", state.Budget.DropThreshold))
 
 	b.WriteString(fmt.Sprintf("## Blocks (%d)\n\n", len(state.Blocks)))
