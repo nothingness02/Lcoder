@@ -23,3 +23,9 @@ func AfterToolCallFromConfig(cfg config.HookConfig, sessionID string) agent.Afte
 	}
 	return nil
 }
+
+// OnStopFromConfig builds a ContinuationDecider from the on_stop shell hook.
+// The steer callback feeds the hook's block reason back to the model.
+func OnStopFromConfig(cfg config.HookConfig, sessionID string, steer func(string)) agent.ContinuationDecider {
+	return ShellOnStop(cfg.OnStop, sessionID, steer)
+}

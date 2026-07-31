@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"path/filepath"
 	"context"
 	"strings"
 	"testing"
@@ -109,5 +110,40 @@ func TestShellBeforeToolCall_Timeout(t *testing.T) {
 	}
 	if result != nil {
 		t.Fatalf("timeout must fail-open (no block), got: %+v", result)
+	}
+}
+
+// exit 2 = 阻止停止(续跑),stderr 经 steer 回调反馈;exit 0 = 允许停止。
+func TestShellOnStopExitSemantics(t *testing.T) {
+	mark := filepath.Join(t.TempDir(), "mark")
+	cfg := config.ShellHookConfig{
+		Enabled: true,
+		Command: "if [ -f \"" + mark + "\" ]; then exit 0; else touch \"" + mark + "\"; echo 'keep going' >&2; exit 2; fi",
+		Timeout: 5,
+	}
+
+	var steered []string
+	decider := ShellOnStop(cfg, "sess", func(reason string) { steered = append(steered, reason) })
+
+	cont, err := decider(context.Background(), agent.StopContext{})
+	if err != nil || !cont {
+		t.Fatalf("exit 2 must continue, got cont=%v err=%v", cont, err)
+	}
+	if len(steered) != 1 || !strings.Contains(steered[0], "keep going") {
+		t.Fatalf("stderr must be steered to the model, got %v", steered)
+	}
+
+	cont, err = decider(context.Background(), agent.StopContext{})
+	if err != nil || cont {
+		t.Fatalf("exit 0 must stop, got cont=%v err=%v", cont, err)
+	}
+}
+
+// 未启用/未配置时直通:允许停止(空链语义)。
+func TestShellOnStopDisabled(t *testing.T) {
+	decider := ShellOnStop(config.ShellHookConfig{}, "sess", nil)
+	cont, err := decider(context.Background(), agent.StopContext{})
+	if err != nil || cont {
+		t.Fatalf("disabled hook must stop (pass-through), got cont=%v err=%v", cont, err)
 	}
 }

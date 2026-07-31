@@ -19,13 +19,15 @@ const defaultShellHookTimeout = 30 * time.Second
 // shellHookInput is the JSON payload sent to a shell hook via stdin.
 // Matches Kimi Code's hook input convention.
 type shellHookInput struct {
-	HookEvent  string         `json:"hook_event"`
-	ToolName   string         `json:"tool_name,omitempty"`
-	ToolInput  map[string]any `json:"tool_input,omitempty"`
-	ToolResult string         `json:"tool_result,omitempty"`
-	IsError    bool           `json:"is_error,omitempty"`
-	SessionID  string         `json:"session_id,omitempty"`
-	CWD        string         `json:"cwd,omitempty"`
+	HookEvent    string         `json:"hook_event"`
+	ToolName     string         `json:"tool_name,omitempty"`
+	ToolInput    map[string]any `json:"tool_input,omitempty"`
+	ToolResult   string         `json:"tool_result,omitempty"`
+	IsError      bool           `json:"is_error,omitempty"`
+	StopReason   string         `json:"stop_reason,omitempty"`
+	Conversation string         `json:"conversation,omitempty"`
+	SessionID    string         `json:"session_id,omitempty"`
+	CWD          string         `json:"cwd,omitempty"`
 }
 
 // runShellHook spawns a shell command, pipes JSON input to stdin, and
@@ -142,4 +144,36 @@ func resultText(r models.ToolExecutionResult) string {
 		}
 	}
 	return out
+}
+
+// ShellOnStop returns a ContinuationDecider that runs a shell command when
+// the agent is about to stop (Claude Code Stop hook semantics):
+//
+//	exit 0 — allow the stop
+//	exit 2 — block the stop: the loop continues and stderr is fed back to
+//	         the model via the steer callback
+//
+// A disabled or unconfigured hook passes through as "allow the stop"
+// (cont=false), matching the empty-chain default.
+func ShellOnStop(cfg config.ShellHookConfig, sessionID string, steer func(reason string)) agent.ContinuationDecider {
+	return func(ctx context.Context, stop agent.StopContext) (bool, error) {
+		if !cfg.Enabled || cfg.Command == "" {
+			return false, nil
+		}
+		res, err := runShellHook(ctx, cfg, shellHookInput{
+			HookEvent:  "on_stop",
+			StopReason: string(stop.Reason),
+			SessionID:  sessionID,
+		})
+		if err != nil {
+			return false, err
+		}
+		if res == nil || !res.Block {
+			return false, nil // exit 0:允许停止
+		}
+		if steer != nil {
+			steer(res.Reason)
+		}
+		return true, nil // exit 2:续跑
+	}
 }

@@ -653,6 +653,12 @@ func (a *Agent) LastEndReason() events.AgentEndReason {
 	return a.loopState.LastEndReason()
 }
 
+// AddContinuationDeciders appends deciders to the continuation chain after
+// construction. Wiring-time only: it must be called before the first Prompt.
+func (a *Agent) AddContinuationDeciders(fns ...ContinuationDecider) {
+	a.cfg.ContinuationDeciders = append(a.cfg.ContinuationDeciders, fns...)
+}
+
 // builtinContinuationDeciders returns hard vetoes that run before the
 // configured chain. A built-in can only stop the loop — it is never
 // consulted for continuation.

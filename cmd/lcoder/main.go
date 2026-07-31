@@ -374,6 +374,12 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		return nil, fmt.Errorf("build agent: %w", err)
 	}
 
+	// on_stop shell hook: a Stop-hook decider (Claude Code semantics) — exit 2
+	// blocks the stop, stderr is steered back to the model.
+	ag.AddContinuationDeciders(hooks.OnStopFromConfig(cfg.Hooks, sess.ID, func(reason string) {
+		ag.Steer(models.UserMessage("[on_stop hook] " + reason))
+	}))
+
 	// Process-external extensions: discover global + project manifests, gate
 	// project ones on trust, spawn and handshake, then bridge into the agent.
 	extHost, extBridge := startExtensions(cfg, cwd, sess, bus)
