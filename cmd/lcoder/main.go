@@ -304,6 +304,10 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	mgr := agentsetup.NewContextManager(cfg, budget, thinking, llmClient, contextText, skillsBlock,
 		sess.EffectiveMessages(), agentsetup.SessionCompactionSink(activeSession.Get), tmplCtx)
 
+	// before_compact shell hook wraps the built-in summarizer (extension
+	// runtime, when present, wraps this in turn at the extBridge site).
+	mgr.SetSummarizer(hooks.ShellBeforeCompact(cfg.Hooks.BeforeCompact, sess.ID, mgr.Summarizer()))
+
 	var reminderProducers []agent.ReminderProducer
 
 	var subagentHost *agenthost.Host

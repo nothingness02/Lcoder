@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/lcoder/lcoder/pkg/agent"
+	"github.com/lcoder/lcoder/pkg/compaction"
 	"github.com/lcoder/lcoder/pkg/config"
+	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -43,8 +46,15 @@ type shellHookInput struct {
 // Fail-open: timeout and abort signal result in "allow", never error,
 // so a wedged hook cannot block the agent.
 func runShellHook(ctx context.Context, cfg config.ShellHookConfig, input shellHookInput) (*agent.BeforeToolCallResult, error) {
+	_, res, err := runShellHookCapture(ctx, cfg, input)
+	return res, err
+}
+
+// runShellHookCapture is runShellHook plus stdout capture (before_compact
+// returns its summary on stdout).
+func runShellHookCapture(ctx context.Context, cfg config.ShellHookConfig, input shellHookInput) (string, *agent.BeforeToolCallResult, error) {
 	if !cfg.Enabled || cfg.Command == "" {
-		return nil, nil
+		return "", nil, nil
 	}
 
 	timeout := time.Duration(cfg.Timeout) * time.Second
@@ -75,30 +85,30 @@ func runShellHook(ctx context.Context, cfg config.ShellHookConfig, input shellHo
 
 	// Fail-open: timeout → allow.
 	if err != nil && hookCtx.Err() == context.DeadlineExceeded {
-		return nil, nil
+		return "", nil, nil
 	}
 
 	// Fail-open: abort → allow.
 	if err != nil && ctx.Err() != nil {
-		return nil, nil
+		return "", nil, nil
 	}
 
 	switch exitCode {
 	case 0:
-		return nil, nil // allow
+		return stdout.String(), nil, nil // allow
 	case 2:
 		reason := stderr.String()
 		if reason == "" {
 			reason = "blocked by shell hook"
 		}
-		return &agent.BeforeToolCallResult{Block: true, Reason: reason}, nil
+		return "", &agent.BeforeToolCallResult{Block: true, Reason: reason}, nil
 	default:
 		// Non-zero exit but not 2: allow. The hook is advisory — a crash or
 		// unexpected failure must not block the agent (fail-open).
 		if err != nil {
-			return nil, fmt.Errorf("shell hook exited %d: %s", exitCode, stderr.String())
+			return "", nil, fmt.Errorf("shell hook exited %d: %s", exitCode, stderr.String())
 		}
-		return nil, nil
+		return "", nil, nil
 	}
 }
 
@@ -175,5 +185,30 @@ func ShellOnStop(cfg config.ShellHookConfig, sessionID string, steer func(reason
 			steer(res.Reason)
 		}
 		return true, nil // exit 2:续跑
+	}
+}
+
+// ShellBeforeCompact wraps the built-in summarizer: when the hook succeeds
+// (exit 0, non-empty stdout), stdout replaces the LLM summary. The hook
+// receives the serialized conversation (prior summary prepended) on stdin,
+// mirroring the extension runtime's session_before_compact payload.
+func ShellBeforeCompact(cfg config.ShellHookConfig, sessionID string, fallback contextmgr.SummarizeFunc) contextmgr.SummarizeFunc {
+	return func(ctx context.Context, messages []models.AgentMessage, prior string) (string, error) {
+		if !cfg.Enabled || cfg.Command == "" {
+			return fallback(ctx, messages, prior)
+		}
+		conversation := compaction.SerializeConversation(messages, 2000)
+		if p := strings.TrimSpace(prior); p != "" {
+			conversation = "<previous_summary>\n" + p + "\n</previous_summary>\n\n" + conversation
+		}
+		stdout, _, err := runShellHookCapture(ctx, cfg, shellHookInput{
+			HookEvent:    "before_compact",
+			Conversation: conversation,
+			SessionID:    sessionID,
+		})
+		if err == nil && strings.TrimSpace(stdout) != "" {
+			return strings.TrimSpace(stdout), nil
+		}
+		return fallback(ctx, messages, prior)
 	}
 }

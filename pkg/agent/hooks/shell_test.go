@@ -147,3 +147,37 @@ func TestShellOnStopDisabled(t *testing.T) {
 		t.Fatalf("disabled hook must stop (pass-through), got cont=%v err=%v", cont, err)
 	}
 }
+
+// exit 0 且 stdout 非空 → stdout 作为摘要;否则回退内建 summarizer。
+func TestShellBeforeCompactUsesStdout(t *testing.T) {
+	cfg := config.ShellHookConfig{
+		Enabled: true,
+		Command: "cat >/dev/null; echo 'hook summary'",
+		Timeout: 5,
+	}
+	fallbackCalls := 0
+	fallback := func(context.Context, []models.AgentMessage, string) (string, error) {
+		fallbackCalls++
+		return "fallback summary", nil
+	}
+	sum := ShellBeforeCompact(cfg, "sess", fallback)
+	got, err := sum(context.Background(), []models.AgentMessage{models.UserMessage("hello")}, "")
+	if err != nil || got != "hook summary" {
+		t.Fatalf("got %q, %v; want hook summary", got, err)
+	}
+	if fallbackCalls != 0 {
+		t.Fatal("fallback must not run when the hook succeeds")
+	}
+}
+
+func TestShellBeforeCompactFallsBack(t *testing.T) {
+	cfg := config.ShellHookConfig{Enabled: false}
+	fallback := func(context.Context, []models.AgentMessage, string) (string, error) {
+		return "fallback summary", nil
+	}
+	sum := ShellBeforeCompact(cfg, "sess", fallback)
+	got, _ := sum(context.Background(), []models.AgentMessage{models.UserMessage("hello")}, "")
+	if got != "fallback summary" {
+		t.Fatalf("got %q, want fallback", got)
+	}
+}
