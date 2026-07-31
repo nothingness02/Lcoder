@@ -39,7 +39,7 @@ func TestGoalAccountingAtTurnBoundary(t *testing.T) {
 		SystemPrompt: "x",
 		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
-	ag.startGoal("test goal", 0, 0)
+	ag.StartGoal("test goal", 0, 0)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("go")); err != nil {
 		t.Fatalf("prompt: %v", err)
@@ -65,7 +65,7 @@ func TestUpdateGoalAppliedByExecutor(t *testing.T) {
 		SystemPrompt: "x",
 		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
-	ag.startGoal("test goal", 0, 0)
+	ag.StartGoal("test goal", 0, 0)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("go")); err != nil {
 		t.Fatalf("prompt: %v", err)
@@ -93,7 +93,7 @@ func TestGoalBudgetVetoStopsContinuation(t *testing.T) {
 			},
 		},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
-	ag.startGoal("test goal", 0, 100) // tokenBudget=100,一轮记账 150 → 超
+	ag.StartGoal("test goal", 0, 100) // tokenBudget=100,一轮记账 150 → 超
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("go")); err != nil {
 		t.Fatalf("prompt: %v", err)
