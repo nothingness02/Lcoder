@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/llm/catalog"
 	"github.com/lcoder/lcoder/pkg/llm/provider"
@@ -55,6 +56,46 @@ func TestEngineFillsCostOnDone(t *testing.T) {
 	}
 	if got.Provider != "openai" || got.Model != "gpt-4o" {
 		t.Fatalf("usage provider/model not stamped: %+v", got)
+	}
+}
+
+// blockingAdapter emits one buffered event and then keeps the channel open
+// forever, so engine.forward blocks on the unbuffered out send.
+type blockingAdapter struct{}
+
+func (blockingAdapter) Stream(ctx context.Context, conn provider.Conn, req models.TurnRequest) (<-chan provider.Event, error) {
+	ch := make(chan provider.Event, 1)
+	ch <- provider.Event{Kind: provider.KindTextDelta, Delta: "x"}
+	return ch, nil
+}
+
+func TestStreamTurnForwardStopsOnCancel(t *testing.T) {
+	cat := catalog.New(catalog.Options{Refresh: false})
+	eng := New(cat)
+	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+		return blockingAdapter{}
+	})
+	eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	out, err := eng.StreamTurn(ctx, models.TurnRequest{
+		Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Never read from out: forward is blocked sending the first event.
+	// Cancel first and give forward a moment to observe it, so the send and
+	// the cancellation don't race on the final read below.
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case _, ok := <-out:
+		if ok {
+			t.Fatal("expected closed channel after cancel")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("forward goroutine still blocked after cancel (leak)")
 	}
 }
 

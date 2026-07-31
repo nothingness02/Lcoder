@@ -132,12 +132,13 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 		return nil, err
 	}
 	out := make(chan provider.Event)
-	go e.forward(prov, req.Model.ID, src, out)
+	go e.forward(ctx, prov, req.Model.ID, src, out)
 	return out, nil
 }
 
-// forward copies events through, computing cost on the done event.
-func (e *Engine) forward(prov, model string, src <-chan provider.Event, out chan<- provider.Event) {
+// forward copies events through, computing cost on the done event. It stops
+// when ctx is cancelled so an abandoned consumer cannot leak the goroutine.
+func (e *Engine) forward(ctx context.Context, prov, model string, src <-chan provider.Event, out chan<- provider.Event) {
 	defer close(out)
 	table := e.catalog.PriceTable()
 	for ev := range src {
@@ -153,6 +154,10 @@ func (e *Engine) forward(prov, model string, src <-chan provider.Event, out chan
 			u.CacheWriteCost = cb.CacheWriteCost
 			u.TotalCost = cb.TotalCost
 		}
-		out <- ev
+		select {
+		case out <- ev:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
