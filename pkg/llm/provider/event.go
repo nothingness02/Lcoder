@@ -3,6 +3,7 @@ package provider
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/models"
 )
@@ -64,9 +65,12 @@ type Event struct {
 
 // EventError is a classified provider failure carried on KindError.
 type EventError struct {
-	Code          string         // bad_request | auth | rate_limit | internal
+	Code          string         // bad_request | auth | rate_limit | internal | context_overflow
 	Message       string         //
 	ProviderError map[string]any //
+	// RetryAfter is the provider-requested wait before retrying (from the
+	// Retry-After / Retry-After-Ms response headers); 0 when absent.
+	RetryAfter time.Duration
 }
 
 // Error implements the error interface so KindError events can be returned directly.

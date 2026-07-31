@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/models"
 )
@@ -59,5 +60,37 @@ func TestDefaultBaseURL(t *testing.T) {
 func TestEventKindString(t *testing.T) {
 	if KindTextDelta.String() != "text_delta" {
 		t.Errorf("KindTextDelta=%q", KindTextDelta.String())
+	}
+}
+
+func TestClassifyHTTPRetryAfter(t *testing.T) {
+	cases := []struct {
+		name    string
+		headers map[string]string
+		want    time.Duration
+	}{
+		{"seconds", map[string]string{"Retry-After": "2"}, 2 * time.Second},
+		{"millis", map[string]string{"Retry-After-Ms": "150"}, 150 * time.Millisecond},
+		{"http-date", map[string]string{"Retry-After": time.Now().Add(3 * time.Second).UTC().Format(http.TimeFormat)}, 0}, // 只校验 >0
+		{"absent", nil, 0},
+		{"garbage", map[string]string{"Retry-After": "soon"}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := http.Header{}
+			for k, v := range tc.headers {
+				h.Set(k, v)
+			}
+			err := classifyHTTP(429, []byte(`{}`), h)
+			if tc.name == "http-date" {
+				if err.RetryAfter <= 0 {
+					t.Fatalf("http-date Retry-After not parsed: %+v", err)
+				}
+				return
+			}
+			if err.RetryAfter != tc.want {
+				t.Fatalf("RetryAfter = %v, want %v", err.RetryAfter, tc.want)
+			}
+		})
 	}
 }

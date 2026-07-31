@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/models"
 )
@@ -69,7 +72,7 @@ func doStreamRequest(client *http.Client, req *http.Request) (*http.Response, er
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		_ = resp.Body.Close()
-		return nil, classifyHTTP(resp.StatusCode, data)
+		return nil, classifyHTTP(resp.StatusCode, data, resp.Header)
 	}
 	return resp, nil
 }
@@ -84,7 +87,9 @@ func emit(ctx context.Context, ch chan<- Event, ev Event) {
 }
 
 // classifyHTTP maps a provider HTTP status + body to a normalized EventError.
-func classifyHTTP(status int, body []byte) *EventError {
+// 400 responses whose body names a context-length limit are classified as
+// context_overflow (never retryable; the agent layer routes it to compaction).
+func classifyHTTP(status int, body []byte, headers http.Header) *EventError {
 	code := "internal"
 	switch {
 	case status == 429:
@@ -93,8 +98,44 @@ func classifyHTTP(status int, body []byte) *EventError {
 		code = "auth"
 	case status == 400:
 		code = "bad_request"
+		if isContextOverflowBody(body) {
+			code = "context_overflow"
+		}
 	}
 	pe := map[string]any{}
 	_ = json.Unmarshal(body, &pe)
-	return &EventError{Code: code, Message: string(body), ProviderError: pe}
+	return &EventError{Code: code, Message: string(body), ProviderError: pe, RetryAfter: parseRetryAfter(headers)}
+}
+
+// parseRetryAfter reads Retry-After (seconds or HTTP-date) and Retry-After-Ms.
+func parseRetryAfter(h http.Header) time.Duration {
+	if ms := h.Get("Retry-After-Ms"); ms != "" {
+		if n, err := strconv.Atoi(ms); err == nil && n > 0 {
+			return time.Duration(n) * time.Millisecond
+		}
+	}
+	ra := h.Get("Retry-After")
+	if ra == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(ra); err == nil {
+		if n < 0 {
+			return 0
+		}
+		return time.Duration(n) * time.Second
+	}
+	if t, err := http.ParseTime(ra); err == nil {
+		return max(time.Until(t), 0)
+	}
+	return 0
+}
+
+// isContextOverflowBody reports whether a 400 body says the prompt exceeded
+// the model's context window (openai "context_length_exceeded", anthropic
+// "prompt is too long", generic "maximum context length").
+func isContextOverflowBody(body []byte) bool {
+	s := strings.ToLower(string(body))
+	return strings.Contains(s, "context_length_exceeded") ||
+		strings.Contains(s, "prompt is too long") ||
+		strings.Contains(s, "maximum context length")
 }

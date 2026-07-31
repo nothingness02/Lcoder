@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net"
 	"time"
 
@@ -40,15 +41,51 @@ func IsRetryable(err error) bool {
 	return errors.As(err, &netErr)
 }
 
+// maxRetryAfterHonor caps how long a provider-requested Retry-After wait is
+// honored; computed backoff is capped at RetryConfig.MaxBackoff instead.
+const maxRetryAfterHonor = 2 * time.Minute
+
 // RetryConfig controls turn-establishment retries.
 type RetryConfig struct {
 	MaxAttempts int
 	BaseBackoff time.Duration
+	// MaxBackoff caps the computed exponential backoff (jitter included).
+	// Zero means 32s.
+	MaxBackoff time.Duration
 }
 
 // DefaultRetryConfig retries up to 3 times with 1s/2s exponential backoff.
 func DefaultRetryConfig() RetryConfig {
-	return RetryConfig{MaxAttempts: 3, BaseBackoff: time.Second}
+	return RetryConfig{MaxAttempts: 3, BaseBackoff: time.Second, MaxBackoff: 32 * time.Second}
+}
+
+// Backoff computes the wait before the next attempt. A provider-supplied
+// RetryAfter always wins (capped at maxRetryAfterHonor); otherwise exponential
+// backoff with ±25% jitter, capped at MaxBackoff.
+func Backoff(rc RetryConfig, attempt int, retryAfter time.Duration) time.Duration {
+	if retryAfter > 0 {
+		return min(retryAfter, maxRetryAfterHonor)
+	}
+	capDur := rc.MaxBackoff
+	if capDur <= 0 {
+		capDur = 32 * time.Second
+	}
+	d := rc.BaseBackoff << attempt
+	if d <= 0 || d > capDur {
+		d = capDur
+	}
+	// ±25% jitter around the (capped) value; never above the cap.
+	jitter := time.Duration(float64(d) * (0.75 + 0.5*rand.Float64()))
+	return min(jitter, capDur)
+}
+
+// retryAfterOf extracts the provider-requested wait from an error, if any.
+func retryAfterOf(err error) time.Duration {
+	var pe *provider.EventError
+	if errors.As(err, &pe) {
+		return pe.RetryAfter
+	}
+	return 0
 }
 
 // StreamTurnRetry establishes a turn stream, retrying transient failures with
@@ -74,7 +111,7 @@ func (c *Client) StreamTurnRetry(ctx context.Context, req models.TurnRequest, rc
 		if !IsRetryable(err) || attempt == rc.MaxAttempts-1 {
 			return nil, err
 		}
-		backoff := rc.BaseBackoff << attempt
+		backoff := Backoff(rc, attempt, retryAfterOf(lastErr))
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
