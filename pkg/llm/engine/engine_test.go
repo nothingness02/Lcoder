@@ -3,6 +3,7 @@ package engine
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -229,4 +230,34 @@ func (c captureAdapter) Stream(ctx context.Context, conn provider.Conn, req mode
 	ch <- provider.Event{Kind: provider.KindDone, Message: models.AgentMessage{Role: models.RoleAssistant}}
 	close(ch)
 	return ch, nil
+}
+
+func TestProviderRegistrationConcurrentWithStream(t *testing.T) {
+	cat := catalog.New(catalog.Options{Refresh: false})
+	eng := New(cat)
+	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+		return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
+			Message: models.AgentMessage{Role: models.RoleAssistant}}}}
+	})
+	eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
+		}()
+		go func() {
+			defer wg.Done()
+			ch, err := eng.StreamTurn(context.Background(), models.TurnRequest{
+				Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"},
+			})
+			if err == nil {
+				for range ch {
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }

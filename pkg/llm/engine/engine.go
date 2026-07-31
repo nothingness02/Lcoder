@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/lcoder/lcoder/pkg/llm/catalog"
 	"github.com/lcoder/lcoder/pkg/llm/pricing"
@@ -18,6 +19,7 @@ type AdapterFactory func(route string, marks provider.CacheMarks) provider.Adapt
 
 // Engine routes turns to provider adapters in-process.
 type Engine struct {
+	mu         sync.RWMutex // guards providers
 	providers  map[string]provider.Conn
 	catalog    *catalog.Catalog
 	newAdapter AdapterFactory
@@ -48,6 +50,8 @@ func (e *Engine) SetAdapterFactory(f AdapterFactory) { e.newAdapter = f }
 
 // RegisterProvider stores or replaces an in-memory provider connection.
 func (e *Engine) RegisterProvider(name string, conn provider.Conn) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.providers[name] = conn
 }
 
@@ -74,7 +78,9 @@ func (e *Engine) ResolveThinking(provider, model, want string) (resolved, warnin
 		return "", ""
 	}
 	// 与 StreamTurn 一致:空 Route 回退为 provider 名,否则 anthropic 例外失效。
+	e.mu.RLock()
 	route := e.providers[provider].Route
+	e.mu.RUnlock()
 	if route == "" {
 		route = provider
 	}
@@ -114,7 +120,9 @@ func (e *Engine) resolveProvider(ref models.ModelRef) string {
 // channel of normalized events with cost filled in on the done event.
 func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan provider.Event, error) {
 	prov := e.resolveProvider(req.Model)
+	e.mu.RLock()
 	conn := e.providers[prov]
+	e.mu.RUnlock()
 	if conn.Route == "" {
 		conn.Route = prov
 	}
