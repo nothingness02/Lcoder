@@ -9,6 +9,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/skills"
 )
 
 func TestCliConfirmParsesYesNo(t *testing.T) {
@@ -148,5 +149,42 @@ func TestParseConfirmScopeSession(t *testing.T) {
 	scope, err = parseConfirmScope("session")
 	if err != nil || scope != agent.ScopeSession {
 		t.Fatalf("session should map to ScopeSession, got %v, %v", scope, err)
+	}
+}
+
+// 禁用清单的两层(config.yaml 声明 + skills.yaml 持久化)必须取并集:
+// config 层在任何情况下都不应被 persisted 层覆盖(含 persisted 为空)。
+func TestApplyDisabledLayersUnionsBothSources(t *testing.T) {
+	cat := skills.NewCatalog([]skills.ScopedMeta{
+		{SkillMeta: skills.SkillMeta{Name: "alpha"}},
+		{SkillMeta: skills.SkillMeta{Name: "beta"}},
+		{SkillMeta: skills.SkillMeta{Name: "gamma"}},
+	})
+
+	applyDisabledLayers(cat, []string{"alpha"}, []string{"beta"})
+
+	if !cat.IsDisabled("alpha") {
+		t.Fatal("config-declared disable must apply")
+	}
+	if !cat.IsDisabled("beta") {
+		t.Fatal("persisted disable must apply")
+	}
+	if cat.IsDisabled("gamma") {
+		t.Fatal("unlisted skill must stay enabled")
+	}
+}
+
+// persisted 为空(文件不存在或空清单)时,config 层的禁用必须保留——
+// 这是原 bug:LoadDisabledFile 对缺失文件返回 (nil, nil),SetDisabledAll(nil)
+// 会把 config 层清空。
+func TestApplyDisabledLayersKeepsConfigWhenPersistedEmpty(t *testing.T) {
+	cat := skills.NewCatalog([]skills.ScopedMeta{
+		{SkillMeta: skills.SkillMeta{Name: "alpha"}},
+	})
+
+	applyDisabledLayers(cat, []string{"alpha"}, nil)
+
+	if !cat.IsDisabled("alpha") {
+		t.Fatal("config-declared disable must survive an empty persisted layer")
 	}
 }

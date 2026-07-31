@@ -157,10 +157,11 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 
 	skillCatalog := skills.Discover(skills.DefaultSources(cwd, cfg.Skills.ExtraDirs))
-	skillCatalog.SetDisabledAll(cfg.Skills.Disabled)
+	var persistedDisabled []string
 	if persisted, err := skills.LoadDisabledFile(paths.LCoderHome("skills.yaml")); err == nil {
-		skillCatalog.SetDisabledAll(persisted)
+		persistedDisabled = persisted
 	}
+	applyDisabledLayers(skillCatalog, cfg.Skills.Disabled, persistedDisabled)
 	skillsBlock := skillCatalog.Block()
 
 	// Non-fatal capability check: warn if the configured model is known not to

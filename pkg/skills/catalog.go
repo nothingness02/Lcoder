@@ -100,16 +100,6 @@ func (c *Catalog) SetDisabled(name string, off bool) {
 	}
 }
 
-// SetDisabledAll replaces the whole disabled set (config load).
-func (c *Catalog) SetDisabledAll(names []string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.disabled = make(map[string]bool, len(names))
-	for _, n := range names {
-		c.disabled[strings.ToLower(n)] = true
-	}
-}
-
 // IsDisabled reports whether a skill is toggled off.
 func (c *Catalog) IsDisabled(name string) bool {
 	c.mu.RLock()

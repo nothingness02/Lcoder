@@ -15,6 +15,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/llm/engine"
 	llmprovider "github.com/lcoder/lcoder/pkg/llm/provider"
 	"github.com/lcoder/lcoder/pkg/permissions"
+	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/tui"
 )
 
@@ -69,6 +70,20 @@ func catalogOverridesFromConfig(cfg config.Config) []catalog.Entry {
 
 func makeBeforeToolCall(hookCfg config.HookConfig, sessionID string) agent.BeforeToolCallHook {
 	return hooks.FromConfig(hookCfg, sessionID)
+}
+
+// applyDisabledLayers unions the two skill-disable sources onto the catalog:
+// config.yaml's skills.disabled (hand-maintained declaration) plus the
+// TUI-persisted ~/.lcoder/skills.yaml (runtime toggles). Config is applied
+// first, persisted entries are added on top — neither replaces the other.
+// A nil/empty persisted layer must leave the config layer intact.
+func applyDisabledLayers(cat *skills.Catalog, configDisabled, persistedDisabled []string) {
+	for _, name := range configDisabled {
+		cat.SetDisabled(name, true)
+	}
+	for _, name := range persistedDisabled {
+		cat.SetDisabled(name, true)
+	}
 }
 
 func makeAfterToolCall(hookCfg config.HookConfig, sessionID string) agent.AfterToolCallHook {
