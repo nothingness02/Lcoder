@@ -85,7 +85,6 @@ type Config struct {
 	Context        ContextConfig           `yaml:"context"`
 	Permissions    PermissionConfig        `yaml:"permissions"`
 	HTTPTools      []HTTPToolConfig        `yaml:"http_tools"`
-	ToolExtensions []ToolExtensionConfig   `yaml:"tool_extensions"`
 	MCPServers     []MCPServerConfig       `yaml:"mcp_servers"`
 	Skills         SkillsConfig            `yaml:"skills"`
 	Hooks          HookConfig              `yaml:"hooks"`

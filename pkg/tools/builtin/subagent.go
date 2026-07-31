@@ -24,7 +24,7 @@ const (
 	// retryBackoff is the delay before a failed swarm item is retried by
 	// resuming its own journal (partial progress is preserved).
 	retryBackoff = 3 * time.Second
-	// maxSwarmItems bounds a single swarm call (kimi-code's MAX_AGENT_SWARM_SUBAGENTS).
+	// maxSwarmItems bounds a single swarm call (MAX_AGENT_SWARM_SUBAGENTS).
 	maxSwarmItems = 128
 )
 
@@ -176,7 +176,7 @@ func (s *Subagent) Execute(ctx context.Context, callID string, args map[string]a
 	return models.NewToolExecutionResultText(formatSpawnOutcome(out)), nil
 }
 
-// --- swarm form (kimi-code's AgentSwarm: prompt_template + {{item}} + items) ---
+// --- swarm form (AgentSwarm: prompt_template + {{item}} + items) ---
 
 const itemPlaceholder = "{{item}}"
 

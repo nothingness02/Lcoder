@@ -30,19 +30,6 @@ type AuditHookConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// ToolExtensionConfig describes an externally provided tool: a JSON
-// descriptor that creates an HTTPExecutable.
-type ToolExtensionConfig struct {
-	Name          string            `yaml:"name"`
-	Type          string            `yaml:"type"`           // "json"; unknown types are rejected
-	Path          string            `yaml:"path"`           // descriptor file path
-	Endpoint      string            `yaml:"endpoint"`       // optional override for JSON endpoint
-	Description   string            `yaml:"description"`    // optional override
-	Parameters    map[string]any    `yaml:"parameters"`     // optional override
-	Headers       map[string]string `yaml:"headers"`        // optional override
-	Config        map[string]any    `yaml:"config"`         // opaque extension config
-}
-
 // ExtensionsConfig configures the process-external extension runtime.
 type ExtensionsConfig struct {
 	Disabled      []string `yaml:"disabled"`

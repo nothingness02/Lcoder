@@ -190,10 +190,6 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 		}))
 	}
 
-	if err := registry.LoadExtensions(cfg.ToolExtensions); err != nil {
-		return nil, fmt.Errorf("load tool extensions: %w", err)
-	}
-
 	mcpConfigs := make([]mcp.ServerConfig, 0, len(cfg.MCPServers))
 	for _, s := range cfg.MCPServers {
 		mcpConfigs = append(mcpConfigs, mcp.ServerConfig{
