@@ -4,7 +4,6 @@ package config
 // All hooks are shell commands that receive JSON context on stdin:
 // exit 0 = allow, exit 2 = block (stderr is the reason).
 type HookConfig struct {
-	Audit           AuditHookConfig `yaml:"audit"`
 	BeforeToolCall  ShellHookConfig `yaml:"before_tool_call"`
 	AfterToolResult ShellHookConfig `yaml:"after_tool_result"`
 	BeforeCompact   ShellHookConfig `yaml:"before_compact"`
@@ -23,11 +22,6 @@ type ShellHookConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Command string `yaml:"command"`
 	Timeout int    `yaml:"timeout"` // seconds, 0 = default (30)
-}
-
-// AuditHookConfig enables or disables audit logging.
-type AuditHookConfig struct {
-	Enabled bool `yaml:"enabled"`
 }
 
 // ExtensionsConfig configures the process-external extension runtime.
