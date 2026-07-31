@@ -392,15 +392,30 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			subagentHost.SetHooks(before, after)
 		}
 		mgr.SetSummarizer(extBridge.Summarizer(mgr.Summarizer()))
+		// Extension stop hook joins the continuation chain (Claude Code Stop
+		// hook semantics): continue=true blocks the stop, reason steered back.
+		ag.AddContinuationDeciders(extBridge.StopDecider(func(reason string) {
+			ag.Steer(models.UserMessage("[stop hook] " + reason))
+		}))
 	}
 
 	// The session store owns the message history; load it first. The checkpoint
 	// only carries runtime state, so it is applied afterwards without overwriting
 	// the conversation.
 	ag.SetMessages(sess.EffectiveMessages())
+	resumed := false
 	if cp, err := chkStore.Load(sess.ID); err == nil {
 		if err := ag.Restore(cp); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to restore checkpoint: %v; continuing with session messages only\n", err)
+		} else {
+			resumed = true
+		}
+	}
+
+	// session_start hooks inject their context once the agent is ready.
+	if extBridge != nil {
+		if extra := extBridge.SessionStart(context.Background(), sess.ID, resumed); extra != "" {
+			ag.Steer(models.UserMessage("[session_start hook] " + extra))
 		}
 	}
 

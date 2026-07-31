@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -268,6 +269,46 @@ func (h *Host) RunToolResultHooks(ctx context.Context, tool string, params map[s
 		}
 	}
 	return result
+}
+
+// RunStopHooks asks the first declaring extension whether the run may stop
+// (Claude Code Stop hook semantics): cont=true blocks the stop and msg is
+// fed back to the model. No declarer or a hook error means allow the stop.
+func (h *Host) RunStopHooks(ctx context.Context, reason string, turn int) (cont bool, msg string) {
+	for _, ext := range h.live() {
+		if !hasString(ext.caps.Hooks, proto.HookStop) {
+			continue
+		}
+		var out proto.StopResult
+		if err := h.call(ctx, ext, proto.MethodHookStop,
+			proto.StopParams{Reason: reason, Turn: turn}, &out); err != nil {
+			h.warn(fmt.Sprintf("extension %s hook/stop: %v", ext.caps.Name, err))
+			return false, ""
+		}
+		return out.Continue, out.Reason
+	}
+	return false, ""
+}
+
+// RunSessionStartHooks fires session_start on all declaring extensions and
+// concatenates their context payloads (blank lines between contributors).
+func (h *Host) RunSessionStartHooks(ctx context.Context, sessionID string, resumed bool) string {
+	var parts []string
+	for _, ext := range h.live() {
+		if !hasString(ext.caps.Hooks, proto.HookSessionStart) {
+			continue
+		}
+		var out proto.SessionStartResult
+		if err := h.call(ctx, ext, proto.MethodHookSessionStart,
+			proto.SessionStartParams{SessionID: sessionID, Resumed: resumed}, &out); err != nil {
+			h.warn(fmt.Sprintf("extension %s hook/session_start: %v", ext.caps.Name, err))
+			continue
+		}
+		if out.Context != "" {
+			parts = append(parts, out.Context)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // RunBeforeCompactHook asks the first declaring extension for a summary.

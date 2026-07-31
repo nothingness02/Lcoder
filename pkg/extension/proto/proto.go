@@ -37,6 +37,8 @@ const (
 	MethodHookToolResult    = "hook/tool_result"
 	MethodHookBeforeCompact = "hook/session_before_compact"
 	MethodHookInput         = "hook/input"
+	MethodHookStop          = "hook/stop"
+	MethodHookSessionStart  = "hook/session_start"
 	MethodCommandInvoke     = "command/invoke"
 	// EventMethodPrefix prefixes event notifications: "event/<event-type>".
 	EventMethodPrefix = "event/"
@@ -55,6 +57,8 @@ const (
 	HookToolResult    = "tool_result"
 	HookBeforeCompact = "session_before_compact"
 	HookInput         = "input"
+	HookStop          = "stop"
+	HookSessionStart  = "session_start"
 )
 
 type InitializeParams struct {
@@ -119,6 +123,28 @@ type InputResult struct {
 	Action string `json:"action"`
 	Text   string `json:"text,omitempty"`
 	Reason string `json:"reason,omitempty"`
+}
+
+// hook/stop: asked when the agent is about to stop (Claude Code Stop hook
+// semantics). Continue=true blocks the stop; Reason is fed back to the model.
+type StopParams struct {
+	Reason string `json:"reason"`
+	Turn   int    `json:"turn"`
+}
+
+type StopResult struct {
+	Continue bool   `json:"continue"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// hook/session_start: fires once after the agent and session are ready.
+type SessionStartParams struct {
+	SessionID string `json:"session_id"`
+	Resumed   bool   `json:"resumed"`
+}
+
+type SessionStartResult struct {
+	Context string `json:"context,omitempty"`
 }
 
 // command/invoke.

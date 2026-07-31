@@ -111,6 +111,25 @@ func (b *Bridge) InputHook(ctx context.Context, text string) (newText string, pr
 	return res.Text, true, ""
 }
 
+// StopDecider adapts the stop hook chain to agent.ContinuationDecider
+// (Claude Code Stop hook semantics): continue=true from the extension blocks
+// the stop, and Reason is fed back to the model via the steer callback.
+func (b *Bridge) StopDecider(steer func(string)) agent.ContinuationDecider {
+	return func(ctx context.Context, stop agent.StopContext) (bool, error) {
+		cont, msg := b.host.RunStopHooks(ctx, string(stop.Reason), stop.Turn)
+		if cont && msg != "" && steer != nil {
+			steer(msg)
+		}
+		return cont, nil
+	}
+}
+
+// SessionStart runs the session_start hooks and returns the combined
+// context payload (empty when no extension declares the hook).
+func (b *Bridge) SessionStart(ctx context.Context, sessionID string, resumed bool) string {
+	return b.host.RunSessionStartHooks(ctx, sessionID, resumed)
+}
+
 // SubscribeEvents forwards bus events to subscribed extensions. Returns the
 // unsubscribe func. Delivery is asynchronous (SubscribeAsync) so a wedged
 // extension cannot stall bus.Emit for other subscribers mid-agent-loop;
