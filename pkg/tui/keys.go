@@ -401,7 +401,11 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		if text == "" {
 			return m, nil
 		}
-		text = m.paste.expand(text)
+		var resolved bool
+		text, resolved = m.paste.expand(text)
+		if !resolved {
+			m.addSystem(styleWarn().Render("edited paste placeholder sent as-is"))
+		}
 		// Block submission when an @file mention points at a missing file.
 		if !strings.HasPrefix(text, "/") {
 			if missing := validateMentions(m.cwd, text); len(missing) > 0 {

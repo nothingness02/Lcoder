@@ -33,10 +33,13 @@ func (p *pasteStash) stash(s string) string {
 }
 
 // expand replaces every placeholder token in text with its stashed content.
-func (p *pasteStash) expand(text string) string {
+// It reports false when an edited placeholder remains unresolved — the text
+// then goes out as-is with a warning rather than silently sending the model
+// a meaningless "[Pasted #N]" marker.
+func (p *pasteStash) expand(text string) (string, bool) {
 	for id, content := range p.items {
 		token := fmt.Sprintf("[Pasted #%d (%d chars)]", id, len([]rune(content)))
 		text = strings.ReplaceAll(text, token, content)
 	}
-	return text
+	return text, !strings.Contains(text, "[Pasted #")
 }
