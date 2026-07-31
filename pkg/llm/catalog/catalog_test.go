@@ -346,3 +346,15 @@ func TestThinkingSpec(t *testing.T) {
 		t.Errorf("unknown model must return zero spec, got %+v", s)
 	}
 }
+
+func TestProviderCandidatesAliasCaseInsensitive(t *testing.T) {
+	got := providerCandidates("zai")
+	if len(got) != 2 || got[0] != "zai" || got[1] != "zhipuai" {
+		t.Fatalf("alias not resolved: %v", got)
+	}
+	// Mixed-case input must resolve too.
+	got = providerCandidates("Zai")
+	if len(got) != 2 || got[1] != "zhipuai" {
+		t.Fatalf("alias not resolved for mixed case: %v", got)
+	}
+}

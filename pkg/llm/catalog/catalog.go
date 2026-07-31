@@ -31,14 +31,14 @@ const (
 var providerAliases = map[string]string{
 	"moonshot": "moonshotai",
 	"gemini":   "google",
-	"Zai":      "zhipuai",
+	"zai":      "zhipuai",
 }
 
 // providerCandidates returns the provider names to try for a lookup: the given
 // name first, then its models.dev alias (if any). Ordering keeps an exact,
 // same-name match ahead of the aliased one.
 func providerCandidates(provider string) []string {
-	if alias, ok := providerAliases[provider]; ok {
+	if alias, ok := providerAliases[strings.ToLower(provider)]; ok {
 		return []string{provider, alias}
 	}
 	return []string{provider}
