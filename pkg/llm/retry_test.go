@@ -32,6 +32,7 @@ func TestIsRetryable(t *testing.T) {
 		{"ctx-deadline", context.DeadlineExceeded, false},
 		{"eof", io.EOF, true},
 		{"unexpected-eof", io.ErrUnexpectedEOF, true},
+		{"context-overflow", &provider.EventError{Code: "context_overflow"}, false},
 		{"generic", errors.New("boom"), false},
 	}
 	for _, tc := range cases {

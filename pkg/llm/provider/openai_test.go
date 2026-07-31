@@ -269,3 +269,18 @@ func TestOpenAISendsIncludeUsage(t *testing.T) {
 		t.Fatalf("stream_options.include_usage missing: %v", body["stream_options"])
 	}
 }
+
+func TestOpenAIStreamContextOverflowClassified(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"This model's maximum context length is 128000 tokens.","code":"context_length_exceeded"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	ad := OpenAICompat{}
+	_, err := ad.Stream(context.Background(), Conn{BaseURL: srv.URL, Route: "openai"},
+		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"}})
+	var pe *EventError
+	if !errors.As(err, &pe) || pe.Code != "context_overflow" {
+		t.Fatalf("want context_overflow EventError, got %v", err)
+	}
+}
