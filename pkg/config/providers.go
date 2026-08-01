@@ -81,3 +81,24 @@ func resolveProviders(in map[string]ProviderConn) (map[string]ProviderConn, []st
 	}
 	return out, missing
 }
+
+// missingMCPEnvRefs lists the unset variable names referenced by an MCP
+// server's url/headers/env settings.
+func missingMCPEnvRefs(s MCPServerConfig) []string {
+	var missing []string
+	report := func(v string) {
+		for _, m := range envRefPattern.FindAllStringSubmatch(v, -1) {
+			if os.Getenv(m[1]) == "" {
+				missing = append(missing, m[1])
+			}
+		}
+	}
+	report(s.URL)
+	for _, v := range s.Headers {
+		report(v)
+	}
+	for _, v := range s.Env {
+		report(v)
+	}
+	return missing
+}

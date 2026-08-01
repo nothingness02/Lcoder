@@ -160,7 +160,7 @@ permissions:
 #     transport: sse
 #     url: http://localhost:3000
 #     headers:
-#       Authorization: Bearer ${REMOTE_MCP_TOKEN}
+#       Authorization: Bearer {env:REMOTE_MCP_TOKEN}
 #     timeout: 60
 #
 #   - name: fetch

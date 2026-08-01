@@ -382,6 +382,22 @@ func Finalize(c *Config) {
 		fmt.Fprintf(os.Stderr, "warning: provider %s 引用的环境变量 %s 未设置,将使用空值\n", provider, name)
 	}
 
+	// Expand {env:VAR} references in MCP server settings (url/headers/env),
+	// same syntax as providers, with the same unset-variable warning.
+	for i := range c.MCPServers {
+		s := &c.MCPServers[i]
+		s.URL = expandEnvRefs(s.URL)
+		for k, v := range s.Headers {
+			s.Headers[k] = expandEnvRefs(v)
+		}
+		for k, v := range s.Env {
+			s.Env[k] = expandEnvRefs(v)
+		}
+		for _, ref := range missingMCPEnvRefs(*s) {
+			fmt.Fprintf(os.Stderr, "warning: mcp server %s 引用的环境变量 %s 未设置,将使用空值\n", s.Name, ref)
+		}
+	}
+
 	// Fold the shared model catalog (models.yaml) into the config when present,
 	// so context budgets and capabilities come from a single source of truth.
 	// ResolveContextBudget reads catalog windows directly via Catalog.Lookup.
