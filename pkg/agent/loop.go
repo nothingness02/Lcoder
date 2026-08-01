@@ -87,6 +87,11 @@ type Config struct {
 	Mode              string
 	ModeManager       *ModeManager
 
+	// CWD is the agent's working directory. It backs the executor's path
+	// guard workspace boundary (executor.go) and project-scope rule
+	// persistence; empty degrades to os.Getwd() for backward compatibility.
+	CWD string
+
 	// UserConfirm handles interactive permission approvals. When the permission
 	// engine returns Ask, the agent calls Confirm and blocks the tool call until
 	// the user responds. CLI and TUI provide their own implementations.

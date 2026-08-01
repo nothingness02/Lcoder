@@ -105,3 +105,36 @@ func TestRegistry_DefinitionsSortedByName(t *testing.T) {
 		t.Fatalf("definitions order = %v, want %v", got, want)
 	}
 }
+
+// cwdProbe is a builtin-style factory that records the cwd it was built with.
+func TestRegistry_WithCWD_RebuildsBuiltins(t *testing.T) {
+	var builtWith []string
+	DefaultFactories.Register("cwd-probe", func(cwd string) Executable {
+		builtWith = append(builtWith, cwd)
+		return namedExecutable{name: "cwd-probe"}
+	})
+	defer func() {
+		DefaultFactories.Unregister("cwd-probe")
+	}()
+
+	r := NewRegistry("/a")
+	r.Register("manual", namedExecutable{name: "manual"})
+	// Register an instance the factory can rebuild: WithCWD re-instantiates
+	// tools whose factory is in DefaultFactories.
+	r.Register("cwd-probe", namedExecutable{name: "cwd-probe"})
+
+	got := r.WithCWD("/b")
+	if got.cwd != "/b" {
+		t.Fatalf("WithCWD cwd = %q, want /b", got.cwd)
+	}
+	if len(builtWith) != 1 || builtWith[0] != "/b" {
+		t.Fatalf("builtin rebuilt with %v, want [/b]", builtWith)
+	}
+	// The original registry is untouched and manual tools survive by instance.
+	if r.cwd != "/a" {
+		t.Fatalf("original registry cwd changed to %q", r.cwd)
+	}
+	if _, ok := got.Get("manual"); !ok {
+		t.Fatal("manual tool must survive WithCWD")
+	}
+}

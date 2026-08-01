@@ -36,6 +36,13 @@ func (r *FactoryRegistry) Create(name, cwd string) (Executable, bool) {
 	return factory(cwd), true
 }
 
+// Unregister removes a factory (used by tests and extension teardown).
+func (r *FactoryRegistry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.factories, name)
+}
+
 // Names returns the registered tool names.
 func (r *FactoryRegistry) Names() []string {
 	r.mu.RLock()

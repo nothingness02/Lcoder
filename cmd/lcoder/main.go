@@ -319,6 +319,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			Permissions:  permEngine,
 			Model:        models.ModelRef{Provider: cfg.Provider, ID: cfg.Model},
 			CWD:          cwd,
+			HomeDir:      homeDir,
 			SessionStore: sessStore,
 			Profiles:     profiles,
 			ParentBus:    bus,
@@ -358,6 +359,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			CoreTools:          coreTools,
 			ReminderProducers:  reminderProducers,
 			CheckpointInterval: 1,
+			CWD:                cwd,
 		}).
 		WithGatewayClient(llmClient).
 		WithRegistry(registry).

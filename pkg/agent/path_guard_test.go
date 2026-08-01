@@ -354,3 +354,66 @@ func TestPathGuard_WriteInsideWorkspace(t *testing.T) {
 		t.Fatalf("write should report success, got %q", text)
 	}
 }
+
+// ── Config.CWD is the path-guard workspace boundary ───────────────────────
+
+// The executor's path guard uses Config.CWD (falling back to os.Getwd) as
+// the workspace boundary. A relative path that escapes the configured CWD is
+// blocked even when the process cwd differs.
+func TestPathGuard_ConfigCWDIsWorkspaceBoundary(t *testing.T) {
+	// Create two dirs: the guard's CWD and a sibling that holds a file.
+	home := t.TempDir()
+	guardCWD := filepath.Join(home, "workspace")
+	if err := os.MkdirAll(guardCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(home, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Relative escape from guardCWD reaches a real file outside it.
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := tools.NewRegistry(guardCWD)
+	r.Register("read", builtin.NewRead(guardCWD))
+	r.Register("ls", builtin.NewLs(guardCWD))
+	r.Register("grep", builtin.NewGrep(guardCWD))
+	r.Register("find", builtin.NewFind(guardCWD))
+
+	engine := permissions.NewEngine(permissions.Config{
+		Rules: map[string]permissions.RuleTable{
+			"read": {"*": permissions.Allow},
+			"ls":   {"*": permissions.Allow},
+			"grep": {"*": permissions.Allow},
+			"find": {"*": permissions.Allow},
+		},
+	})
+	mm := NewModeManager()
+	mm.modes["code"] = ModeConfig{Name: "code"}
+
+	cfg := Config{
+		Mode:        "code",
+		ModeManager: mm,
+		UserConfirm: &stubConfirm{allow: true},
+		CWD:         guardCWD,
+	}
+	e := &executor{
+		cfg:         &cfg,
+		mgr:         contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192}),
+		registry:    r,
+		permissions: engine,
+		emitter:     &eventEmitter{bus: events.New()},
+		dedup:       make(map[string]models.AgentMessage),
+	}
+
+	// ../../outside/secret.txt from guardCWD escapes the workspace.
+	text, isErr := pathGuardToolResult(e, "read", map[string]any{"path": "../../outside/secret.txt"})
+	if !isErr {
+		t.Fatal("relative escape from Config.CWD must be blocked")
+	}
+	if !strings.Contains(text, "outside") && !strings.Contains(text, "absolute") {
+		t.Fatalf("error should mention outside/absolute, got %q", text)
+	}
+}

@@ -24,10 +24,11 @@ import (
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/subagent"
 	"github.com/lcoder/lcoder/pkg/tools"
+	builtinTools "github.com/lcoder/lcoder/pkg/tools/builtin"
 )
 
 // rolePrefixText loads the shared subagent role prefix embedded from
-// configs/agents/_role_prefix.md (kimi-code's task-agent role prefix). Every
+// configs/agents/_role_prefix.md. Every
 // subagent's system prompt leads with it so the model knows its user messages
 // come from the parent agent and that only its last message travels back.
 func rolePrefixText() string {
@@ -49,6 +50,10 @@ type HostConfig struct {
 	Permissions *permissions.Engine // parent engine; Forked per spawn
 	Model       models.ModelRef     // default model for children
 	CWD         string
+	// HomeDir is the user home directory used as the path context for
+	// forked permission engines (see permissions.SetPathContext). Empty
+	// degrades to the engine's own default.
+	HomeDir string
 	// SessionStore persists subagent journals for resume; nil disables
 	// resume (in-memory runs only).
 	SessionStore *session.Store
@@ -132,7 +137,7 @@ func (h *Host) Spawn(ctx context.Context, req subagent.SpawnRequest) *subagent.O
 			agentID = created.ID
 		}
 	}
-	meta := journalMeta{ParentSessionID: h.parentSessionID, Profile: req.Profile.Name, Task: req.Task}
+	meta := journalMeta{ParentSessionID: h.parentSessionID, Profile: req.Profile.Name, Task: req.Task, Cwd: cwd}
 	return h.run(ctx, req.Profile, agentID, sess, meta, nil, req.Task, req.ParentToolCallID)
 }
 
@@ -161,7 +166,7 @@ func (h *Host) run(ctx context.Context, profile subagent.Agent, agentID string, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	child := h.buildChild(profile, "")
+	child := h.buildChild(profile, meta.Cwd)
 	child.SetSessionID(agentID)
 	if len(prior) > 0 {
 		child.SetMessages(prior)
@@ -202,22 +207,34 @@ func (h *Host) run(ctx context.Context, profile subagent.Agent, agentID string, 
 
 // buildChild constructs the child agent: forked permission engine (shared
 // rules, private guards), isolated event bus, clean context, and the
-// subagent tool stripped when the profile may not nest further.
+// subagent tool stripped when the profile may not nest further. The child's
+// tools, permission path context, and executor path guard all bind to cwd
+// (empty = the host's working directory).
 func (h *Host) buildChild(profile subagent.Agent, cwd string) *agent.Agent {
-	registry := h.cfg.Registry
+	if cwd == "" {
+		cwd = h.cfg.CWD
+	}
+	registry := h.cfg.Registry.WithCWD(cwd)
 	if len(profile.Subagents) == 0 {
 		registry = registry.Without("subagent")
+	} else {
+		// A delegating profile gets a subagent tool bound to the same host and
+		// this child's cwd, so nested grandchildren default to the same
+		// working directory.
+		registry.Register("subagent", builtinTools.NewSubagent(cwd, h, h.cfg.Profiles))
 	}
 	childCfg := agent.Config{
-		BaseSystemPrompt:  rolePrefixText() + "\n\n" + profile.Prompt,
+		BaseSystemPrompt: rolePrefixText() + "\n\n" + profile.Prompt,
 		Model:            h.resolveModel(profile),
 		ContextManager:   h.cfg.NewContextManager(),
-		Mode:              profile.Mode,
-		ModeManager:       h.cfg.ModeManager,
-		UserConfirm:       h.confirm,
-		BeforeToolCall:    h.beforeHook,
+		Mode:             profile.Mode,
+		ModeManager:      h.cfg.ModeManager,
+		UserConfirm:      h.confirm,
+		BeforeToolCall:   h.beforeHook,
+		CWD:              cwd,
 	}
 	perms := h.cfg.Permissions.Fork()
+	perms.SetPathContext(cwd, h.cfg.HomeDir)
 	return agent.New(childCfg, h.cfg.LLMClient, registry, perms, events.New())
 }
 

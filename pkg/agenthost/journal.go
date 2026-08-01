@@ -18,6 +18,9 @@ type journalMeta struct {
 	ParentSessionID string `json:"parent_session_id"`
 	Profile         string `json:"profile"`
 	Task            string `json:"task,omitempty"`
+	// Cwd is the child's working directory; empty (legacy journals) means
+	// the host's working directory.
+	Cwd string `json:"cwd,omitempty"`
 }
 
 // journalStore persists subagent journals as regular sessions and tracks

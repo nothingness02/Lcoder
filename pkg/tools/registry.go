@@ -94,6 +94,25 @@ func (r *Registry) Execute(ctx context.Context, callID string, name string, args
 	return res, false
 }
 
+// WithCWD returns a new registry bound to cwd. Built-in tools (which have
+// factories in DefaultFactories) are re-instantiated against the new cwd so
+// their file/bash tools resolve relative paths from there; externally
+// registered tools (MCP, use_skill, hand-registered instances) keep their
+// existing instances — callers that need them re-bound must re-register.
+func (r *Registry) WithCWD(cwd string) *Registry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := NewRegistry(cwd)
+	for name, exec := range r.tools {
+		if rebuilt, ok := DefaultFactories.Create(name, cwd); ok {
+			out.tools[name] = rebuilt
+			continue
+		}
+		out.tools[name] = exec
+	}
+	return out
+}
+
 // Without returns a shallow copy of the registry excluding the named tools.
 // Used to strip delegation tools from a subagent that may not nest further.
 func (r *Registry) Without(names ...string) *Registry {

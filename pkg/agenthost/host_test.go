@@ -2,6 +2,8 @@ package agenthost
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/subagent"
 	"github.com/lcoder/lcoder/pkg/tools"
+	"github.com/lcoder/lcoder/pkg/tools/builtin"
 )
 
 // fakeExec is a minimal tool that echoes its "text" argument back.
@@ -251,4 +254,180 @@ func messageText(m models.AgentMessage) string {
 		}
 	}
 	return b.String()
+}
+
+// cwdProbeTool records the cwd it was constructed with so tests can observe
+// what working directory a spawned child's tools bind to.
+type cwdProbeTool struct{ cwd string }
+
+func (p cwdProbeTool) Definition() models.ToolDefinition {
+	return models.ToolDefinition{Name: "cwd-probe", Description: "reports its cwd", Parameters: map[string]any{"type": "object", "properties": map[string]any{}}}
+}
+
+func (p cwdProbeTool) Execute(_ context.Context, _ string, _ map[string]any) (models.ToolExecutionResult, error) {
+	return models.NewToolExecutionResultText(p.cwd), nil
+}
+
+// A spawned child binds its file tools to SpawnRequest.CWD: a delegating
+// profile's tools are re-instantiated against the requested working
+// directory.
+func TestSpawnBindsChildToolsToCWD(t *testing.T) {
+	var builtWith string
+	tools.DefaultFactories.Register("cwd-probe", func(cwd string) tools.Executable {
+		builtWith = cwd
+		return cwdProbeTool{cwd: cwd}
+	})
+	defer tools.DefaultFactories.Unregister("cwd-probe")
+
+	// The child must call the tool in its second turn; the first turn issues
+	// the tool call, the second answers after seeing the result.
+	toolMsg := models.NewAgentMessage(models.RoleAssistant, models.ToolCallContent{
+		ID: "call_1", Name: "cwd-probe", Arguments: map[string]any{},
+	})
+	client, _ := llmtest.NewScript(
+		llmtest.Turn(llmtest.Done(toolMsg, nil)),
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("done"), nil)),
+	)
+
+	r := tools.NewRegistry("/host")
+	r.Register("cwd-probe", cwdProbeTool{cwd: "/host"})
+	budget := contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192}
+	host := NewHost(HostConfig{
+		LLMClient:   client,
+		Registry:    r,
+		ModeManager: agent.NewModeManager(),
+		Permissions: permissions.NewEngine(permissions.DefaultConfig()),
+		Model:       models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		CWD:         "/host",
+		NewContextManager: func() *contextmgr.Manager {
+			return contextmgr.NewManager(budget)
+		},
+	})
+
+	out := host.Spawn(context.Background(), subagent.SpawnRequest{
+		Profile: subagent.Agent{Name: "worker", Mode: "code", Subagents: []string{"worker"}},
+		Task:    "work in subdir",
+		CWD:     "/host/subdir",
+	})
+	if out.Err != nil {
+		t.Fatalf("spawn: %v", out.Err)
+	}
+	if builtWith != "/host/subdir" {
+		t.Fatalf("child tool built with cwd %q, want /host/subdir", builtWith)
+	}
+}
+
+// The working directory survives a resume: it is persisted in the journal and
+// restored when the run continues.
+func TestResumeRestoresCWD(t *testing.T) {
+	client, adapter := llmtest.NewScript(
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("first answer"), nil)),
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("continued answer"), nil)),
+	)
+	storeDir := t.TempDir()
+	host := testHost(client)
+	host.cfg.SessionStore = session.NewStore(storeDir)
+	host.SetParentSession("parent-1")
+	host.cfg.CWD = "/host"
+	host.cfg.Profiles = map[string]subagent.Agent{
+		"worker": {Name: "worker", Mode: "code", Subagents: []string{"worker"}},
+	}
+
+	out := host.Spawn(context.Background(), subagent.SpawnRequest{
+		Profile: subagent.Agent{Name: "worker", Mode: "code", Subagents: []string{"worker"}},
+		Task:    "original",
+		CWD:     "/host/subdir",
+	})
+	if out.Err != nil {
+		t.Fatalf("spawn: %v", out.Err)
+	}
+
+	// The journal meta must carry the cwd so a resume rebuilds the child with
+	// the same working directory.
+	sess, err := host.cfg.SessionStore.LoadByID("/host", out.AgentID)
+	if err != nil {
+		t.Fatalf("load journal: %v", err)
+	}
+	meta := readMeta(sess)
+	if meta == nil || meta.Cwd != "/host/subdir" {
+		t.Fatalf("journal cwd = %+v, want /host/subdir", meta)
+	}
+
+	if resumed := host.Resume(context.Background(), subagent.ResumeRequest{
+		AgentID: out.AgentID, Task: "follow-up",
+	}); resumed.Err != nil {
+		t.Fatalf("resume: %v", resumed.Err)
+	} else if resumed.Summary != "continued answer" {
+		t.Fatalf("summary = %q, want the continued answer", resumed.Summary)
+	}
+	_ = adapter
+}
+
+// Legacy journals without a cwd field degrade to the host's working
+// directory, so old sessions resume unchanged.
+func TestResumeLegacyJournalDefaultsToHostCWD(t *testing.T) {
+	client, _ := llmtest.NewScript(
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("x"), nil)),
+	)
+	storeDir := t.TempDir()
+	host := testHost(client)
+	host.cfg.SessionStore = session.NewStore(storeDir)
+	host.SetParentSession("parent-1")
+	host.cfg.CWD = "/host"
+
+	sess, err := host.cfg.SessionStore.Create("/host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write a journal meta with no cwd field (legacy shape).
+	if err := writeMeta(sess, journalMeta{ParentSessionID: "parent-1", Profile: "worker", Task: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	out := host.Resume(context.Background(), subagent.ResumeRequest{AgentID: sess.ID, Task: "x"})
+	if out.Err == nil || !strings.Contains(out.Err.Error(), "unknown profile") {
+		t.Fatalf("expected profile error for legacy journal, got %v", out.Err)
+	}
+}
+
+// Real builtin tools are re-instantiated against the child cwd: the read
+// tool's declared access resolves relative paths from there.
+func TestSpawnRealReadToolBindsToCWD(t *testing.T) {
+	// The child cwd holds a real file so a relative read resolves.
+	childDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(childDir, "target.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	toolMsg := models.NewAgentMessage(models.RoleAssistant, models.ToolCallContent{
+		ID: "call_1", Name: "read", Arguments: map[string]any{"path": "target.txt"},
+	})
+	client, _ := llmtest.NewScript(
+		llmtest.Turn(llmtest.Done(toolMsg, nil)),
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("content"), nil)),
+	)
+
+	hostDir := t.TempDir()
+	r := tools.NewRegistry(hostDir)
+	r.Register("read", builtin.NewRead(hostDir))
+	budget := contextmgr.TokenBudget{MaxTotal: 128000, TargetTotal: 120000, ReserveOutput: 8192}
+	host := NewHost(HostConfig{
+		LLMClient:   client,
+		Registry:    r,
+		ModeManager: agent.NewModeManager(),
+		Permissions: permissions.NewEngine(permissions.DefaultConfig()),
+		Model:       models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		CWD:         "/host",
+		NewContextManager: func() *contextmgr.Manager {
+			return contextmgr.NewManager(budget)
+		},
+	})
+
+	out := host.Spawn(context.Background(), subagent.SpawnRequest{
+		Profile: subagent.Agent{Name: "worker", Mode: "code"},
+		Task:    "read the file",
+		CWD:     childDir,
+	})
+	if out.Err != nil {
+		t.Fatalf("spawn: %v", out.Err)
+	}
 }

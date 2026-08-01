@@ -39,7 +39,8 @@ func buildEngine(cfg config.Config) (*engine.Engine, error) {
 			return nil, fmt.Errorf("provider %q: %w", name, err)
 		}
 		if res.Guessed {
-			fmt.Fprintf(os.Stderr, "info: provider %q 未声明 protocol,推断为 %s\n", name, res.Protocol)
+			// 	fmt.Fprintf(os.Stderr, "info: provider %q 未声明 protocol,推断为 %s\n", name, res.Protocol)
+			//
 		}
 		eng.RegisterProvider(name, llmprovider.Conn{
 			BaseURL:       res.BaseURL,

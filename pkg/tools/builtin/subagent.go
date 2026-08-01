@@ -83,7 +83,7 @@ func (s *Subagent) Definition() models.ToolDefinition {
 				},
 				"cwd": map[string]any{
 					"type":        "string",
-					"description": "Working directory for the subagent (defaults to the project root)",
+					"description": "Working directory for the subagent's file tools and permission boundary (defaults to the parent's working directory). Paths are resolved relative to it; absolute paths outside it are allowed but require explicit permission.",
 				},
 				"resume": map[string]any{
 					"type":        "string",
@@ -243,7 +243,6 @@ func (s *Subagent) runSwarm(ctx context.Context, parentCallID string, profile su
 	g.SetLimit(swarmConcurrency)
 	outs := make([]*subagent.Outcome, len(items))
 	for i := range items {
-		i := i
 		g.Go(func() error {
 			outs[i] = s.runSwarmItem(ctx, parentCallID, profile, prompts[i])
 			return nil

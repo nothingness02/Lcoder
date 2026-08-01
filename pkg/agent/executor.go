@@ -294,7 +294,10 @@ func (e *executor) prepareToolCall(ctx context.Context, turn int, assistantMsg m
 		if exec, ok := e.registry.Get(call.Name); ok {
 			toolOp = pathOpForDeclaredAccess(exec, args)
 		}
-		cwd, _ := os.Getwd()
+		cwd := e.cfg.CWD
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
 		if _, err := builtin.ResolvePathAccess(rawPath, cwd, toolOp); err != nil {
 			return shortCircuit(models.NewToolExecutionResultError(err.Error()), true)
 		}
@@ -876,7 +879,10 @@ func (e *executor) learnRule(info ToolCallInfo, scope ConfirmScope) {
 	var target string
 	var reload func(string) error
 	if scope == ScopeProject {
-		cwd, _ := os.Getwd()
+		cwd := e.cfg.CWD
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
 		target = filepath.Join(cwd, ".lcoder", "permissions.yaml")
 		reload = e.permissions.LoadProjectRules
 	} else {
