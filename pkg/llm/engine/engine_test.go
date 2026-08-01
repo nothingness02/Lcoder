@@ -432,3 +432,25 @@ func TestConcurrencyGate(t *testing.T) {
 		t.Fatal("second StreamTurn still blocked after the first stream ended")
 	}
 }
+
+// api_key 与 api_keys 重复时只占一个池槽位,否则失败上报只命中第一个副本,
+// 第二个副本永远可选,摘除机制被绕过。
+func TestFailoverPoolDeduplicatesKeys(t *testing.T) {
+	ad := &keyFailAdapter{badKeys: map[string]bool{"k1": true}}
+	eng := New(catalog.New(catalog.Options{Refresh: false}))
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter { return ad })
+	eng.RegisterProvider("p", provider.Conn{Route: "openai", APIKey: "k1", APIKeys: []string{"k1", "k2"}})
+
+	// k1 连续 3 次建流失败后被摘除,之后只允许见到 k2。
+	for i := 0; i < 5; i++ {
+		callTurn(eng)
+	}
+	ad.resetSeen()
+	callTurn(eng)
+	callTurn(eng)
+	for _, k := range ad.seenKeys() {
+		if k == "k1" {
+			t.Fatalf("duplicated k1 bypassed the bench: seen %v", ad.seenKeys())
+		}
+	}
+}

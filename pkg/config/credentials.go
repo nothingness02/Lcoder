@@ -84,6 +84,15 @@ func mergeCredentials(providers, creds map[string]ProviderConn) map[string]Provi
 		if existing.Headers == nil {
 			existing.Headers = cred.Headers
 		}
+		if len(existing.APIKeys) == 0 {
+			existing.APIKeys = cred.APIKeys
+		}
+		if existing.Protocol == "" {
+			existing.Protocol = cred.Protocol
+		}
+		if existing.MaxConcurrent == 0 {
+			existing.MaxConcurrent = cred.MaxConcurrent
+		}
 		providers[name] = existing
 	}
 	return providers

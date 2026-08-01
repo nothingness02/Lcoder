@@ -261,12 +261,23 @@ func (m *Model) commitProvider() {
 			p.errMsg = "保存 credentials 失败: " + err.Error()
 			return
 		}
-		m.cfg.Providers[provName] = entry
+		// credentials.yaml 只存稀疏条目(key + 少量默认);内存与引擎注册要
+		// 把 key 叠加到启动时合并好的完整条目上,否则 config.yaml 里的
+		// api_keys/protocol/max_concurrent/headers 会在一次热更新后全部丢失。
+		merged := m.cfg.Providers[provName]
+		merged.APIKey = key
+		if merged.Route == "" {
+			merged.Route = entry.Route
+		}
+		if merged.BaseURL == "" {
+			merged.BaseURL = entry.BaseURL
+		}
+		m.cfg.Providers[provName] = merged
 
 		if m.llmClient != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := m.llmClient.RegisterProvider(ctx, provName, entry); err != nil {
+			if err := m.llmClient.RegisterProvider(ctx, provName, merged); err != nil {
 				// Non-fatal: the key is saved and will apply on next launch.
 				p.errMsg = "引擎热更新失败(下次启动生效): " + err.Error()
 			}

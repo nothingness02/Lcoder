@@ -54,3 +54,29 @@ func TestResolveProviders(t *testing.T) {
 		t.Errorf("input was mutated: %q", in["moonshot"].APIKey)
 	}
 }
+
+// 回归:resolveProviders 曾用命名字段字面量重建 ProviderConn,把
+// APIKeys/Protocol/MaxConcurrent 静默置零——文档化配置路径上三个功能全灭。
+func TestResolveProvidersPreservesResilienceFields(t *testing.T) {
+	t.Setenv("KEY_A", "ka")
+	t.Setenv("KEY_B", "kb")
+	out, missing := resolveProviders(map[string]ProviderConn{
+		"multi": {
+			BaseURL:       "https://api.example.com/v1",
+			APIKeys:       []string{"{env:KEY_A}", "{env:KEY_B}"},
+			Route:         "openai",
+			Protocol:      "anthropic",
+			MaxConcurrent: 4,
+		},
+	})
+	if len(missing) != 0 {
+		t.Fatalf("unexpected missing env: %v", missing)
+	}
+	got := out["multi"]
+	if got.Protocol != "anthropic" || got.MaxConcurrent != 4 {
+		t.Fatalf("protocol/max_concurrent dropped: %+v", got)
+	}
+	if len(got.APIKeys) != 2 || got.APIKeys[0] != "ka" || got.APIKeys[1] != "kb" {
+		t.Fatalf("api_keys not expanded: %v", got.APIKeys)
+	}
+}

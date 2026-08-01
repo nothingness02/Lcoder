@@ -58,10 +58,17 @@ func resolveProviders(in map[string]ProviderConn) (map[string]ProviderConn, []st
 	for name, c := range in {
 		report(name, c.BaseURL)
 		report(name, c.APIKey)
-		resolved := ProviderConn{
-			BaseURL: expandEnvRefs(c.BaseURL),
-			APIKey:  expandEnvRefs(c.APIKey),
-			Route:   c.Route,
+		// Copy the whole struct so api_keys / protocol / max_concurrent
+		// survive, then expand env references field by field.
+		resolved := c
+		resolved.BaseURL = expandEnvRefs(c.BaseURL)
+		resolved.APIKey = expandEnvRefs(c.APIKey)
+		if len(c.APIKeys) > 0 {
+			resolved.APIKeys = make([]string, len(c.APIKeys))
+			for i, k := range c.APIKeys {
+				report(name, k)
+				resolved.APIKeys[i] = expandEnvRefs(k)
+			}
 		}
 		if len(c.Headers) > 0 {
 			resolved.Headers = make(map[string]string, len(c.Headers))

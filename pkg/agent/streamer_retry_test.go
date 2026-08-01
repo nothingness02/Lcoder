@@ -83,3 +83,25 @@ func TestStreamTurnRetryEmitsEvent(t *testing.T) {
 		t.Fatalf("unexpected retry event: %+v", retries[0])
 	}
 }
+
+// 真实 adapter 的事件序:建流成功后立刻 emit KindStart,然后才可能来错误帧。
+// KindStart 不得算作"内容已流出"——否则整轮重试在真实链路上永远不可达。
+func TestStreamTurnRetryAfterStartEvent(t *testing.T) {
+	okMsg := models.NewAgentMessage(models.RoleAssistant, models.TextContent{Text: "recovered"})
+	client, adapter := llmtest.NewScript(
+		llmtest.Turn(llmtest.Start(), llmtest.ErrorEvent("rate_limit", "overloaded")),
+		llmtest.Turn(llmtest.Start(), llmtest.Text("recovered"), llmtest.Done(okMsg, nil)),
+	)
+	ag := NewWithObservability(Config{
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+	}, client, tools.NewRegistry(t.TempDir()), permissions.NewEngine(permissions.DefaultConfig()), events.New(),
+		observability.NewCollector(observability.NewMemoryExporter()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = ag.Prompt(ctx, models.UserMessage("hi"))
+	if adapter.CallCount() != 2 {
+		t.Fatalf("start-then-error should be retried, want 2 attempts, got %d", adapter.CallCount())
+	}
+}

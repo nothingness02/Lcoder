@@ -256,19 +256,20 @@ type ThinkingSpec struct {
 	AlwaysThinking bool
 }
 
-// ThinkingSpec derives the spec for provider/model on the given wire. A model
+// ThinkingSpec derives the spec for provider/model on the given wire
+// protocol. A model
 // declaring effort levels with no way to turn thinking off (no OffEffort, no
 // toggle) is AlwaysThinking — except on the anthropic wire, where
 // thinking:{type:"disabled"} is a protocol-level off the effort list never
 // shows (mirrors kimi-code catalogProviderModels). No static fallback (same as
 // MaxInput): only Window/MaxOutput fall back to LookupFallback.
-func (c *Catalog) ThinkingSpec(route, provider, model string) ThinkingSpec {
+func (c *Catalog) ThinkingSpec(protocol, provider, model string) ThinkingSpec {
 	e, ok := c.lookup(provider, model)
 	if !ok {
 		return ThinkingSpec{}
 	}
 	spec := ThinkingSpec{Efforts: e.Efforts, OffEffort: e.OffEffort}
-	if len(e.Efforts) > 0 && e.OffEffort == "" && !e.ThinkingToggle && route != "anthropic" {
+	if len(e.Efforts) > 0 && e.OffEffort == "" && !e.ThinkingToggle && protocol != "anthropic" {
 		spec.AlwaysThinking = true
 	}
 	return spec

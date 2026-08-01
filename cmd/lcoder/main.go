@@ -446,6 +446,7 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			_ = bus.Close()
 			obsCollector.Close()
 			mcpRegistry.Close()
+			_ = eng.Close()
 		},
 	}, nil
 }

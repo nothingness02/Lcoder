@@ -252,7 +252,8 @@ streamer.stream()
 ### 第 2 层:会话层 streamer 整轮重试(pkg/agent/streamer.go)
 
 - 只管"**建流成功、但未流出任何内容就收到流内错误**"——典型:流刚建立,供应商发来一帧 `overloaded_error`
-- `gotContent` = 是否收到过任何 start/delta。已流出内容 → partial 已 emit 给 UI,重跑会重复输出,**绝不重试**
+- `gotContent` = 是否收到过任何 **delta**(text/thinking/tool-call)。已流出内容 → partial 已 emit 给 UI,重跑会重复输出,**绝不重试**
+- **KindStart 不算内容**:所有内置 adapter 在拿到 200 后、读第一帧 SSE 前就 emit KindStart,若把它算作内容,pre-content 重试在真实链路上永不可达(任何流内错误到达时 gotContent 必为 true)。因此 MessageStart 事件推迟到首个 delta(或 Done)才 emit——pre-content 失败重试不会在 UI 留下任何痕迹
 
 ### 退避策略 `Backoff(rc, attempt, retryAfter)`
 
@@ -269,6 +270,8 @@ streamer.stream()
 ---
 
 ## 7. 观测出口
+
+> **消费者现状**:`Client.Status()` 与 `LLMRetryEvent` 目前都是"只生产、无 UI 消费"——Status 无调用方,retry 事件只有 emit(cmd/lcoder 接到事件总线)但没有 TUI/CLI 订阅展示。属预留出口,供后续状态栏/调试命令接入。
 
 ### 7.1 结构化状态 `Client.Status()`
 
