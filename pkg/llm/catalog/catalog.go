@@ -80,10 +80,13 @@ type Dataset struct {
 
 // Options configures catalog construction.
 type Options struct {
-	Refresh   bool    // enable models.dev background refresh
-	CachePath string  // ~/.lcoder/cache/models.json
-	SourceURL string  // models.dev endpoint (default https://models.dev/api.json)
-	Overrides []Entry // from models.yaml (highest priority)
+	Refresh bool // enable models.dev background refresh
+	// RefreshInterval sets how often the background loop re-fetches the
+	// source (0 = 1h). Only meaningful with Refresh.
+	RefreshInterval time.Duration
+	CachePath       string  // ~/.lcoder/cache/models.json
+	SourceURL       string  // models.dev endpoint (default https://models.dev/api.json)
+	Overrides       []Entry // from models.yaml (highest priority)
 }
 
 // Catalog holds merged model entries keyed by "provider/id".
@@ -94,6 +97,15 @@ type Catalog struct {
 	order     []string
 	overrides []Entry
 	sourceURL string
+
+	// Background refresh loop state (only started with Options.Refresh).
+	stopCh      chan struct{}
+	doneCh      chan struct{}
+	loopStarted bool
+	closeOnce   sync.Once
+
+	lastRefreshAt  time.Time
+	lastRefreshErr error
 }
 
 // New builds a catalog from the embedded snapshot, applies overrides, and (if
@@ -103,7 +115,14 @@ func New(opts Options) *Catalog {
 	if src == "" {
 		src = modelsDevURL
 	}
-	c := &Catalog{entries: map[string]Entry{}, providers: map[string]ProviderMeta{}, overrides: opts.Overrides, sourceURL: src}
+	c := &Catalog{
+		entries:   map[string]Entry{},
+		providers: map[string]ProviderMeta{},
+		overrides: opts.Overrides,
+		sourceURL: src,
+		stopCh:    make(chan struct{}),
+		doneCh:    make(chan struct{}),
+	}
 	var ds Dataset
 	if err := json.Unmarshal(snapshotJSON, &ds); err == nil && len(ds.Models) > 0 {
 		c.mergeDataset(ds)
@@ -115,9 +134,53 @@ func New(opts Options) *Catalog {
 	}
 	c.merge(opts.Overrides)
 	if opts.Refresh {
-		go c.refresh(opts.CachePath)
+		c.loopStarted = true
+		go c.refreshLoop(opts.CachePath, opts.RefreshInterval)
 	}
 	return c
+}
+
+// defaultRefreshInterval is how often the background loop re-fetches the
+// source when Options.RefreshInterval is zero.
+const defaultRefreshInterval = time.Hour
+
+// refreshLoop runs the startup refresh (cache-aware) and then re-fetches the
+// source on a ticker until Close. Every network attempt updates Status.
+func (c *Catalog) refreshLoop(cachePath string, interval time.Duration) {
+	defer close(c.doneCh)
+	if interval <= 0 {
+		interval = defaultRefreshInterval
+	}
+	c.refresh(cachePath)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.stopCh:
+			return
+		case <-ticker.C:
+			c.refreshFromNetwork(cachePath)
+		}
+	}
+}
+
+// Status reports the outcome of the most recent network refresh attempt
+// (zero time when none has completed yet).
+func (c *Catalog) Status() (time.Time, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastRefreshAt, c.lastRefreshErr
+}
+
+// Close stops the background refresh loop. It is idempotent and a no-op when
+// the loop was never started.
+func (c *Catalog) Close() error {
+	if !c.loopStarted {
+		return nil
+	}
+	c.closeOnce.Do(func() { close(c.stopCh) })
+	<-c.doneCh
+	return nil
 }
 
 // mergeDataset merges provider metadata, then model entries.
@@ -351,8 +414,21 @@ func (c *Catalog) refresh(cachePath string) {
 			}
 		}
 	}
+	c.refreshFromNetwork(cachePath)
+}
+
+// refreshFromNetwork fetches the source directly (bypassing the startup
+// cache) and records the outcome in Status.
+func (c *Catalog) refreshFromNetwork(cachePath string) {
 	ds, err := FetchEntries(c.sourceURL)
-	if err != nil || len(ds.Models) == 0 {
+	if err == nil && len(ds.Models) == 0 {
+		err = fmt.Errorf("models.dev returned no models")
+	}
+	c.mu.Lock()
+	c.lastRefreshAt = time.Now()
+	c.lastRefreshErr = err
+	c.mu.Unlock()
+	if err != nil {
 		return
 	}
 	if cachePath != "" {
