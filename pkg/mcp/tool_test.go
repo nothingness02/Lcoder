@@ -2,8 +2,11 @@ package mcp
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/lcoder/lcoder/pkg/models"
 )
 
 func TestExecutableDefinitionInjectsTimeoutSeconds(t *testing.T) {
@@ -168,4 +171,38 @@ func TestExecutableExecuteAppliesDefaultTimeout(t *testing.T) {
 	if remaining < 110*time.Second || remaining > 130*time.Second {
 		t.Fatalf("expected ~120s default timeout, got %v", remaining)
 	}
+}
+
+// resource_link 内容必须渲染为可读文本(名称/URI/描述),而不是空文本。
+func TestExecuteRendersResourceLinks(t *testing.T) {
+	client, err := NewClient("fake", &fakeTransport{
+		healthy: true,
+		info:    Info{Name: "fake", Version: "1"},
+		tools:   []Tool{{Name: "res", Description: "d"}},
+	})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	defer client.Close()
+
+	// fakeTransport 的 tools/call 固定返回 "ok";本测试直接验证内容映射函数。
+	items := []ContentItem{
+		{Type: "text", Text: "Here are links:"},
+		{Type: "resource_link", URI: "file:///a/b.txt", Name: "b.txt", Description: "the b file", MimeType: "text/plain"},
+		{Type: "resource", Resource: &EmbeddedResource{URI: "file:///c.md", MimeType: "text/markdown", Text: "# doc"}},
+	}
+	var parts []string
+	for _, item := range items {
+		if tc, ok := renderContentItem(item).(models.TextContent); ok {
+			parts = append(parts, tc.Text)
+		}
+	}
+	text := strings.Join(parts, "\n")
+	if !strings.Contains(text, "b.txt") || !strings.Contains(text, "file:///a/b.txt") {
+		t.Fatalf("resource_link must render name+uri, got %q", text)
+	}
+	if !strings.Contains(text, "# doc") {
+		t.Fatalf("embedded resource text must pass through, got %q", text)
+	}
+	_ = client
 }

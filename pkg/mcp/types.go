@@ -91,8 +91,20 @@ type CallToolResult struct {
 
 // ContentItem is a content part in a tool result.
 type ContentItem struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	Data     string `json:"data,omitempty"`
+	Type        string            `json:"type"`
+	Text        string            `json:"text,omitempty"`
+	Data        string            `json:"data,omitempty"`
+	MimeType    string            `json:"mimeType,omitempty"`
+	URI         string            `json:"uri,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Resource    *EmbeddedResource `json:"resource,omitempty"`
+}
+
+// EmbeddedResource is the payload of a "resource" content item.
+type EmbeddedResource struct {
+	URI      string `json:"uri,omitempty"`
 	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Blob     string `json:"blob,omitempty"`
 }

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -94,15 +95,15 @@ func (t *StreamableHTTPTransport) Call(ctx context.Context, method string, param
 		}
 	}
 
+	// The server may answer a POST either with a single JSON body or with an
+	// SSE stream carrying the JSON-RPC response (2025-03-26 §Streamable HTTP).
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		return t.readSSEResponse(resp.Body, id, v)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("read response: %w", err)
-	}
-
-	// The server may stream the response as SSE; for now we require a single
-	// JSON response body. Full SSE streaming support can be added later.
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-		return fmt.Errorf("streamable http %s returned SSE; not yet supported", method)
 	}
 
 	var rpcResp jsonRPCResponse
@@ -118,6 +119,79 @@ func (t *StreamableHTTPTransport) Call(ctx context.Context, method string, param
 		}
 	}
 	return nil
+}
+
+// errResponseReceived signals that the matching JSON-RPC response arrived
+// inside an SSE stream (success path out of readSSEResponse).
+var errResponseReceived = fmt.Errorf("mcp: response received")
+
+// readSSEResponse consumes an SSE stream until the JSON-RPC message with the
+// request's id arrives. Server notifications interleaved in the stream
+// (progress, log messages) are skipped; a stream that ends without the
+// response is an error, never a silent empty result.
+func (t *StreamableHTTPTransport) readSSEResponse(body io.Reader, wantID int32, v any) error {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+
+	var data strings.Builder
+	flush := func() error {
+		payload := data.String()
+		data.Reset()
+		if payload == "" {
+			return nil
+		}
+		var rpcResp jsonRPCResponse
+		if err := json.Unmarshal([]byte(payload), &rpcResp); err != nil {
+			return nil // 非 JSON 帧(心跳/注释),忽略
+		}
+		if !jsonIDMatches(rpcResp.ID, wantID) {
+			return nil // 通知或其他请求的消息
+		}
+		if rpcResp.Error != nil {
+			return fmt.Errorf("jsonrpc error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
+		}
+		if v != nil && rpcResp.Result != nil {
+			if err := json.Unmarshal(rpcResp.Result, v); err != nil {
+				return fmt.Errorf("unmarshal result: %w", err)
+			}
+		}
+		return errResponseReceived
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if err := flush(); err != nil {
+				if err == errResponseReceived {
+					return nil
+				}
+				return err
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+		// event:/id:/retry: 行按 SSE 规范跳过;响应归属由 JSON-RPC id 判定
+	}
+	if err := flush(); err != nil && err != errResponseReceived {
+		return err
+	} else if err == errResponseReceived {
+		return nil
+	}
+	return fmt.Errorf("streamable http: SSE stream ended without a response for id %d", wantID)
+}
+
+// jsonIDMatches compares a JSON-RPC id (float64 after unmarshal, but servers
+// may also send ints or strings) with the client-assigned int32 id.
+func jsonIDMatches(got any, want int32) bool {
+	switch id := got.(type) {
+	case float64:
+		return int64(id) == int64(want)
+	case string:
+		return id == fmt.Sprint(want)
+	}
+	return false
 }
 
 // Notify sends a JSON-RPC notification without waiting for a response.
