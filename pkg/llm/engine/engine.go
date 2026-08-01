@@ -276,7 +276,17 @@ func (e *Engine) forward(ctx context.Context, prov, model string, src <-chan pro
 		defer func() { <-sem }()
 	}
 	table := e.catalog.PriceTable()
-	for ev := range src {
+	for {
+		var ev provider.Event
+		select {
+		case e2, ok := <-src:
+			if !ok {
+				return
+			}
+			ev = e2
+		case <-ctx.Done():
+			return
+		}
 		if ev.Kind == provider.KindDone && ev.Usage != nil {
 			u := ev.Usage
 			u.Provider = prov
