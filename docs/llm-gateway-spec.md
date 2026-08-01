@@ -49,11 +49,10 @@ provider 连接信息有三个来源，**字段级**合并（高覆盖低）:
 
 | 字段 | 语义 | 缺省行为 |
 |------|------|---------|
-| `base_url` | 端点 | 按 provider 名/route 查默认表 |
+| `base_url` | 端点 | 按 provider 名查默认表 |
 | `api_key` | 单凭证 | — |
 | `api_keys` | failover 凭证池 | 空 = 单 key,无池 |
-| `route` | provider 名(查默认 base URL、catalog 元数据) | 由 catalog 推断 |
-| `protocol` | 线协议:`openai-chat`/`openai-responses`/`anthropic` | 空 = 由 route 派生;**非法值启动报错,绝不沉默兜底** |
+| `protocol` | 线协议:`openai-chat`/`openai-responses`/`anthropic` | 空 = 按 provider 名推断;**非法值启动报错,绝不沉默兜底** |
 | `headers` | 自定义头(最后合并) | — |
 | `max_concurrent` | 并发流上限 | 0 = 不限 |
 
@@ -64,12 +63,10 @@ providers:
   claude-proxy:
     base_url: "http://localhost:4000/v1"
     api_key: "{env:PROXY_KEY}"
-    protocol: anthropic   # 显式声明线协议;不写则由 route 派生
-    route: openai         # 随意,仅用于默认 base URL 和 catalog 元数据查询;
-                          # base_url 已显式给出时,它只剩 catalog 查询一个作用
+    protocol: anthropic   # 显式声明线协议;不写则按 provider 名推断
 ```
 
-要点:`base_url` + `protocol` 是自建端点的关键两字段;`route` 填不填、填什么只影响 catalog 元数据(窗口/价格)查询——填一个线上协议相近的已知 provider 名(如 `openai`)可以白嫖它的目录数据,乱填的代价只是元数据查不到(窗口返回 0,走 contextmgr 默认值),不会发错请求。
+要点:`base_url` + `protocol` 是自建端点的关键两字段;catalog 元数据(窗口/价格)统一按 provider 名查询——把端点注册成一个已知 provider 名(如 `openai`)可以白嫖它的目录数据,名字不在目录里的代价只是元数据查不到(窗口返回 0,走 contextmgr 默认值),不会发错请求。
 
 **配错 protocol 的两种命运**:值本身非法(不在三枚举内)→ 启动直接报错(TUI 热注册则返回 error 显示);值合法但选错(如该 anthropic 写了 openai-chat)→ 用错误协议格式打过去,运行期 400。
 
@@ -78,8 +75,8 @@ providers:
 `cmd/lcoder/wiring.go: buildEngine()`:
 
 1. 建 catalog:内置 snapshot →（后台）models.dev → 用户 models.yaml override
-2. 对每个 provider 调 `catalog.ResolveProvider(name, route, protocol, baseURL)`:
-   - route 缺省 → `inferRoute`(anthropic/claude 名 → anthropic;codex → openai-responses;其余 → openai),并打 `info:` 日志
+2. 对每个 provider 调 `catalog.ResolveProvider(name, protocol, baseURL)`:
+   - protocol 缺省 → `inferProtocol`(anthropic/claude 名 → anthropic;codex → openai-responses;其余 → openai-chat),并打 `info:` 日志
    - **protocol 显式校验**(`ParseProtocol`),非法直接启动失败
    - baseURL 缺省 → catalog 的 `api` 字段 → 内置默认表;空串/`${}` 占位符 → 拒绝(防止把 key 发到错误主机,凭证泄漏防线)
 3. `engine.RegisterProvider(name, provider.Conn{...})`,同时建立:
@@ -134,10 +131,10 @@ providers:
 | `openai-chat` | `OpenAICompat{}` | Chat Completions(openai/deepseek/gemini/xai/alibaba/zhipu/xiaomi/openrouter/moonshot/kimi-code…) |
 | `openai-responses` | `OpenAIResponses{}` | Responses API(codex 类) |
 
-`Protocol` 与 `Route` 是**刻意分开的两个概念**(第三批改造):
-- `Route` = provider 名,用于查默认 base URL 和 catalog 元数据
-- `Protocol` = 线协议,**唯一决定**用哪个 adapter。engine factory 按 Protocol 穷举分派,无 default 兜底
-- 派生规则:显式 `protocol:` 配置 > route 派生(`anthropic`→anthropic,`openai-responses`→openai-responses,其他一切 provider 名 → openai-chat)
+`Protocol` 是唯一的 wire 决定者(第三批引入、随后 Route 字段整体退役):
+- provider 标识就是 engine 注册表的 key,不再有独立的 route 字段;默认 base URL 和 catalog 元数据都按这个 key 查询
+- engine factory 按 Protocol 穷举分派,无 default 兜底
+- 派生规则:显式 `protocol:` 配置 > 按 provider 名推断(`anthropic`→anthropic,`openai-responses`→openai-responses,其他一切名 → openai-chat)
 
 ### 4.2 adapter.Stream 的两段式结构
 
@@ -186,7 +183,7 @@ providers:
 ```
 1. resolveProvider(req.Model)           provider 名(缺省按 model ID 反查目录)
 2. RLock 取 Conn                        providers map 有 RWMutex 保护
-3. Protocol 确定(显式 > route 派生)
+3. Protocol 确定(显式 > 按注册名推断)
 4. selectCredential(prov)               failover 池轮换(有池时覆盖 conn.APIKey)
 5. ComputeCacheMarks(...)               anthropic 才需要显式标记
 6. ResolveBaseURL / ThinkingOffEffort
@@ -280,7 +277,7 @@ streamer.stream()
 ```go
 Status{
   Providers: map[string]ProviderStatus{
-    Route, Protocol,
+    Protocol,
     Credentials,   // failover 池大小(0 = 单 key)
     Available,     // 未被摘除的 key 数
     MaxConcurrent, // 闸口容量
@@ -376,7 +373,7 @@ TUI provider 向导保存
 
 - **数据流经的四个环节都是无状态查表**:配置 → 目录 → 路由 → 协议适配。"活"的逻辑只有三处:错误分类(决定能否重试/等多久)、两层重试决策、failover/闸口状态机
 - **可重试性的分水岭是"内容是否流出"**:建流失败找第 1 层;流内 pre-content 失败找第 2 层;流出内容后失败认栽
-- **Protocol 选 adapter,Route 查元数据**,两者不要再混用
+- **Protocol 选 adapter,provider 名(注册 key)查元数据**,Route 字段已退役,不要再引入类似的中间层
 - **取消是全程贯通的**:HTTP → scanner → emit → forward → 重试等待 → 摘要,一条 ctx 链到底
 - **usage 是闭环的**:provider → 计费 + 回喂 context 预算,不是单纯展示数据
 

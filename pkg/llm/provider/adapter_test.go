@@ -104,15 +104,15 @@ func TestProtocolParseAndDerive(t *testing.T) {
 	if _, err := ParseProtocol("gpt"); err == nil {
 		t.Fatal("unknown protocol must error")
 	}
-	if p := ProtocolForRoute("anthropic"); p != ProtocolAnthropic {
-		t.Fatalf("route anthropic → %q", p)
+	if p := InferProtocol("anthropic"); p != ProtocolAnthropic {
+		t.Fatalf("name anthropic → %q", p)
 	}
-	if p := ProtocolForRoute("openai-responses"); p != ProtocolOpenAIResponses {
-		t.Fatalf("route openai-responses → %q", p)
+	if p := InferProtocol("openai-responses"); p != ProtocolOpenAIResponses {
+		t.Fatalf("name openai-responses → %q", p)
 	}
 	for _, r := range []string{"deepseek", "openai", "gemini", "xai", ""} {
-		if p := ProtocolForRoute(r); p != ProtocolOpenAIChat {
-			t.Fatalf("route %q → %q, want openai-chat", r, p)
+		if p := InferProtocol(r); p != ProtocolOpenAIChat {
+			t.Fatalf("name %q → %q, want openai-chat", r, p)
 		}
 	}
 }

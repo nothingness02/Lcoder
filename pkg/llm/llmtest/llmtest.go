@@ -81,7 +81,7 @@ func NewScript(turns ...[]provider.Event) (*llm.Client, *ScriptAdapter) {
 	adapter := &ScriptAdapter{turns: turns}
 	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter { return adapter })
 	for _, p := range []string{"openai", "anthropic", "deepseek", "moonshot", "openrouter", "gemini"} {
-		eng.RegisterProvider(p, provider.Conn{Route: p})
+		eng.RegisterProvider(p, provider.Conn{})
 	}
 	return llm.NewClient(eng), adapter
 }

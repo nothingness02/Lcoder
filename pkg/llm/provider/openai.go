@@ -63,7 +63,7 @@ func (OpenAICompat) Stream(ctx context.Context, conn Conn, req models.TurnReques
 	if err != nil {
 		return nil, err
 	}
-	url := ResolveBaseURL(conn) + "/chat/completions"
+	url := conn.BaseURL + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err

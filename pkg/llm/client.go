@@ -46,7 +46,6 @@ func (c *Client) RegisterProvider(ctx context.Context, name string, conn config.
 		BaseURL:       conn.BaseURL,
 		APIKey:        conn.APIKey,
 		APIKeys:       conn.APIKeys,
-		Route:         conn.Route,
 		Protocol:      proto,
 		Headers:       conn.Headers,
 		MaxConcurrent: conn.MaxConcurrent,

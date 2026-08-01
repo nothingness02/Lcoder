@@ -14,14 +14,14 @@ func TestBuiltinProviderLookup(t *testing.T) {
 
 func TestBuiltinProviderMoonshot(t *testing.T) {
 	p, ok := BuiltinProvider("moonshot")
-	if !ok || p.DefaultBase != "https://api.moonshot.cn/v1" || p.Route != "openai" {
+	if !ok || p.DefaultBase != "https://api.moonshot.cn/v1" {
 		t.Fatalf("unexpected moonshot entry: %+v ok=%v", p, ok)
 	}
 }
 
 func TestBuiltinProviderKimiCode(t *testing.T) {
 	p, ok := BuiltinProvider("kimi-code")
-	if !ok || p.DefaultBase != "https://api.kimi.com/coding/v1" || p.Route != "openai" || p.KeyEnv != "KIMI_CODE_API_KEY" {
+	if !ok || p.DefaultBase != "https://api.kimi.com/coding/v1" || p.KeyEnv != "KIMI_CODE_API_KEY" {
 		t.Fatalf("unexpected kimi-code entry: %+v ok=%v", p, ok)
 	}
 }

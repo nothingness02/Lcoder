@@ -185,18 +185,13 @@ func (e *Engine) ResolveThinking(prov, model, want string) (resolved, warning st
 	if t == "" {
 		return "", ""
 	}
-	// 与 StreamTurn 一致:空 Route 回退为 provider 名,否则 anthropic 例外失效。
+	// AlwaysThinking 的判别看线协议(该协议有没有 off 编码),不是 provider 名。
 	e.mu.RLock()
 	conn := e.providers[prov]
 	e.mu.RUnlock()
-	route := conn.Route
-	if route == "" {
-		route = prov
-	}
-	// AlwaysThinking 的判别看线协议(该协议有没有 off 编码),不是 provider 名。
 	proto := conn.Protocol
 	if proto == "" {
-		proto = provider.ProtocolForRoute(route)
+		proto = provider.InferProtocol(prov)
 	}
 	spec := e.catalog.ThinkingSpec(string(proto), prov, model)
 	switch t {
@@ -218,9 +213,9 @@ func (e *Engine) ResolveThinking(prov, model, want string) (resolved, warning st
 	}
 }
 
-// ProviderStatus snapshots one provider's resilience knobs.
+// ProviderStatus snapshots one provider's resilience knobs (keyed by provider
+// name in Status.Providers).
 type ProviderStatus struct {
-	Route         string
 	Protocol      string
 	Credentials   int // failover pool size (0 = single key, no pool)
 	Available     int // pool keys not currently benched
@@ -245,10 +240,9 @@ func (e *Engine) Status() Status {
 	for name, conn := range e.providers {
 		proto := conn.Protocol
 		if proto == "" {
-			proto = provider.ProtocolForRoute(conn.Route)
+			proto = provider.InferProtocol(name)
 		}
 		ps := ProviderStatus{
-			Route:         conn.Route,
 			Protocol:      string(proto),
 			MaxConcurrent: conn.MaxConcurrent,
 		}
@@ -299,19 +293,18 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 	e.mu.RLock()
 	conn := e.providers[prov]
 	e.mu.RUnlock()
-	if conn.Route == "" {
-		conn.Route = prov
-	}
 	proto := conn.Protocol
 	if proto == "" {
-		proto = provider.ProtocolForRoute(conn.Route)
+		proto = provider.InferProtocol(prov)
 	}
 	if key := e.selectCredential(prov); key != "" {
 		conn.APIKey = key
 	}
 	anthropic := proto == provider.ProtocolAnthropic
 	marks := provider.ComputeCacheMarks(req.Cache, req.CacheBreakpoints, len(req.Messages), anthropic)
-	conn.BaseURL = provider.ResolveBaseURL(conn)
+	if conn.BaseURL == "" {
+		conn.BaseURL = provider.DefaultBaseURL(prov)
+	}
 
 	if req.Thinking == "off" {
 		req.ThinkingOffEffort = e.catalog.ThinkingSpec(string(proto), prov, req.Model.ID).OffEffort

@@ -41,10 +41,11 @@ func ParseProtocol(s string) (Protocol, error) {
 	return "", fmt.Errorf("unknown protocol %q (want openai-chat | openai-responses | anthropic)", s)
 }
 
-// ProtocolForRoute derives the wire protocol from a route. Provider-name
-// routes (deepseek, gemini, xai, ...) all speak OpenAI chat completions.
-func ProtocolForRoute(route string) Protocol {
-	switch route {
+// InferProtocol derives the wire protocol from a provider name. Every known
+// provider except anthropic speaks OpenAI chat completions; "openai-responses"
+// is accepted for the codex-class endpoint.
+func InferProtocol(providerName string) Protocol {
+	switch providerName {
 	case "anthropic":
 		return ProtocolAnthropic
 	case "openai-responses":
@@ -56,20 +57,19 @@ func ProtocolForRoute(route string) Protocol {
 
 // Conn holds the resolved connection settings for a single provider call.
 type Conn struct {
-	BaseURL string // falls back to DefaultBaseURL(Route) when empty
+	BaseURL string // resolved by the engine from the provider name when empty
 	APIKey  string //
 	// APIKeys is a failover pool; when non-empty the engine rotates keys and
 	// benches failing ones (takes precedence over APIKey).
 	APIKeys []string
-	Route   string   // provider name: openai | anthropic | deepseek | gemini | ...
-	// Protocol is the wire protocol; empty means "derive from Route".
+	// Protocol is the wire protocol; empty means "infer from the provider name".
 	Protocol Protocol
 	Headers  map[string]string // extra headers (merged last)
 	// MaxConcurrent caps concurrent streams to this provider (0 = unlimited).
 	MaxConcurrent int
 }
 
-// defaultBaseURLs maps a protocol route to its canonical base URL.
+// defaultBaseURLs maps a provider name to its canonical base URL.
 var defaultBaseURLs = map[string]string{
 	"openai":     "https://api.openai.com/v1",
 	"anthropic":  "https://api.anthropic.com/v1",
@@ -84,17 +84,10 @@ var defaultBaseURLs = map[string]string{
 	"openrouter": "https://openrouter.ai/api/v1",
 }
 
-// DefaultBaseURL returns the canonical base URL for a route, or "" if unknown.
-func DefaultBaseURL(route string) string {
-	return defaultBaseURLs[route]
-}
-
-// ResolveBaseURL returns conn.BaseURL when set, else the route default.
-func ResolveBaseURL(conn Conn) string {
-	if conn.BaseURL != "" {
-		return conn.BaseURL
-	}
-	return DefaultBaseURL(conn.Route)
+// DefaultBaseURL returns the canonical base URL for a provider name, or "" if
+// unknown.
+func DefaultBaseURL(providerName string) string {
+	return defaultBaseURLs[providerName]
 }
 
 // maxErrorBodyBytes bounds how much of a failed response body is read into the

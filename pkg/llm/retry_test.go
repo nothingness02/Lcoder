@@ -128,7 +128,7 @@ func TestStreamTurnRetryRetriesOn429(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	eng := engine.New(catalog.New(catalog.Options{Refresh: false}))
-	eng.RegisterProvider("openai", provider.Conn{BaseURL: srv.URL, Route: "openai"})
+	eng.RegisterProvider("openai", provider.Conn{BaseURL: srv.URL})
 	c := NewClient(eng)
 	stream, err := c.StreamTurnRetry(context.Background(), models.TurnRequest{
 		Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"},
@@ -178,7 +178,7 @@ func TestStreamTurnRetryWaitsForRetryAfter(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	eng := engine.New(catalog.New(catalog.Options{Refresh: false}))
-	eng.RegisterProvider("openai", provider.Conn{BaseURL: srv.URL, Route: "openai"})
+	eng.RegisterProvider("openai", provider.Conn{BaseURL: srv.URL})
 	c := NewClient(eng)
 	start := time.Now()
 	stream, err := c.StreamTurnRetry(context.Background(), models.TurnRequest{
@@ -209,7 +209,7 @@ func TestOnRetryCallback(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	eng := engine.New(catalog.New(catalog.Options{Refresh: false}))
-	eng.RegisterProvider("openai", provider.Conn{BaseURL: srv.URL, Route: "openai"})
+	eng.RegisterProvider("openai", provider.Conn{BaseURL: srv.URL})
 	c := NewClient(eng)
 	type retryCall struct {
 		layer   string

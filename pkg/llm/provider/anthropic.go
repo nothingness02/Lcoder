@@ -84,7 +84,7 @@ func (a Anthropic) Stream(ctx context.Context, conn Conn, req models.TurnRequest
 	if err != nil {
 		return nil, err
 	}
-	url := ResolveBaseURL(conn) + "/messages"
+	url := conn.BaseURL + "/messages"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err

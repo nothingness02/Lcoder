@@ -11,59 +11,56 @@ import (
 // ResolvedProvider is the outcome of resolving one configured provider
 // connection: which wire it speaks and which endpoint its key is sent to.
 type ResolvedProvider struct {
-	Route    string // provider name (anthropic | openai | deepseek | ...)
 	Protocol provider.Protocol
 	BaseURL  string
-	Guessed  bool // Route was inferred, not declared
+	Guessed  bool // Protocol was inferred, not declared
 }
 
 // ResolveProvider decides the wire and endpoint for one provider entry
 // (mirrors kimi-code resolveCatalogImport, cut down to three wires). An
 // explicit connProtocol is validated strictly (unknown values are config
-// errors, never silently defaulted); when empty, the protocol is derived from
-// the route. A missing route is inferred from models.dev metadata
-// (anthropic/claude → anthropic, codex → openai-responses, else openai). A
-// missing base URL falls back to the catalog api, then built-in defaults; a
-// blank or placeholder base URL is rejected — silently sending the key to the
-// wrong host is a credential leak.
-func (c *Catalog) ResolveProvider(name, connRoute, connProtocol, connBaseURL string) (ResolvedProvider, error) {
-	route := connRoute
+// errors, never silently defaulted); when empty, the protocol is inferred
+// from the provider name and models.dev metadata (anthropic/claude →
+// anthropic, codex → openai-responses, else openai-chat). A missing base URL
+// falls back to the catalog api, then built-in defaults; a blank or
+// placeholder base URL is rejected — silently sending the key to the wrong
+// host is a credential leak.
+func (c *Catalog) ResolveProvider(name, connProtocol, connBaseURL string) (ResolvedProvider, error) {
+	proto := provider.Protocol("")
 	guessed := false
-	if route == "" {
-		route = c.inferRoute(name)
-		guessed = true
-	}
-	proto := provider.ProtocolForRoute(route)
 	if connProtocol != "" {
 		p, err := provider.ParseProtocol(connProtocol)
 		if err != nil {
 			return ResolvedProvider{}, err
 		}
 		proto = p
+	} else {
+		proto = c.inferProtocol(name)
+		guessed = true
 	}
-	base, err := c.resolveBase(name, route, connBaseURL)
+	base, err := c.resolveBase(name, connBaseURL)
 	if err != nil {
 		return ResolvedProvider{}, err
 	}
-	return ResolvedProvider{Route: route, Protocol: proto, BaseURL: base, Guessed: guessed}, nil
+	return ResolvedProvider{Protocol: proto, BaseURL: base, Guessed: guessed}, nil
 }
 
-func (c *Catalog) inferRoute(name string) string {
+func (c *Catalog) inferProtocol(name string) provider.Protocol {
 	lower := strings.ToLower(name)
 	npm := ""
 	if meta, ok := c.ProviderMeta(name); ok {
 		npm = strings.ToLower(meta.Npm)
 	}
 	if strings.Contains(npm, "anthropic") || strings.Contains(lower, "anthropic") || strings.Contains(lower, "claude") {
-		return "anthropic"
+		return provider.ProtocolAnthropic
 	}
 	if strings.Contains(npm, "codex") || strings.Contains(lower, "codex") {
-		return "openai-responses"
+		return provider.ProtocolOpenAIResponses
 	}
-	return "openai"
+	return provider.InferProtocol(name)
 }
 
-func (c *Catalog) resolveBase(name, route, explicit string) (string, error) {
+func (c *Catalog) resolveBase(name, explicit string) (string, error) {
 	if explicit != "" {
 		b := strings.TrimSpace(explicit)
 		if b == "" {
@@ -77,17 +74,7 @@ func (c *Catalog) resolveBase(name, route, explicit string) (string, error) {
 	if meta, ok := c.ProviderMeta(name); ok && meta.API != "" && !strings.Contains(meta.API, "${") {
 		return meta.API, nil
 	}
-	// 先按 provider 名查表、再按 route 查是有意的:name 命中(如 deepseek)时
-	// 避免错误指到 api.openai.com;矛盾配置(name=deepseek 且 route=anthropic)
-	// 属配置错误,可接受。
 	if d := provider.DefaultBaseURL(name); d != "" {
-		return d, nil
-	}
-	// 协议族兜底:openai-responses 与 openai 同 base
-	if route == "openai-responses" {
-		return provider.DefaultBaseURL("openai"), nil
-	}
-	if d := provider.DefaultBaseURL(route); d != "" {
 		return d, nil
 	}
 	return "", fmt.Errorf("no base URL known; set base_url explicitly")

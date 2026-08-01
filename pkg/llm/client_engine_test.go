@@ -23,7 +23,7 @@ func TestClientStreamMapsEvents(t *testing.T) {
 				Role: models.RoleAssistant, Content: []models.ContentPart{models.TextContent{Text: "hello"}}}},
 		}}
 	})
-	eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
+	eng.RegisterProvider("openai", provider.Conn{})
 	c := llm.NewClient(eng)
 
 	stream, err := c.StreamTurn(context.Background(), models.TurnRequest{

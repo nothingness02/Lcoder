@@ -40,7 +40,7 @@ func TestOpenAIStreamTextAndUsage(t *testing.T) {
 
 	ad := OpenAICompat{}
 	ch, err := ad.Stream(context.Background(),
-		Conn{BaseURL: srv.URL, APIKey: "k", Route: "openai"},
+		Conn{BaseURL: srv.URL, APIKey: "k"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"},
 			Messages: []models.AgentMessage{models.UserMessage("hi")}})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestOpenAIStreamDeepSeekCacheUsage(t *testing.T) {
 
 	ad := OpenAICompat{}
 	ch, err := ad.Stream(context.Background(),
-		Conn{BaseURL: srv.URL, APIKey: "k", Route: "deepseek"},
+		Conn{BaseURL: srv.URL, APIKey: "k"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "deepseek", ID: "deepseek-v4-flash"}})
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestOpenAIStreamOpenAICachedTokensDetails(t *testing.T) {
 
 	ad := OpenAICompat{}
 	ch, err := ad.Stream(context.Background(),
-		Conn{BaseURL: srv.URL, APIKey: "k", Route: "openai"},
+		Conn{BaseURL: srv.URL, APIKey: "k"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"}})
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestOpenAIStreamChoiceLevelUsage(t *testing.T) {
 
 	ad := OpenAICompat{}
 	ch, err := ad.Stream(context.Background(),
-		Conn{BaseURL: srv.URL, APIKey: "k", Route: "openai"},
+		Conn{BaseURL: srv.URL, APIKey: "k"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "kimi-for-coding"}})
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestOpenAIStreamToolCallFragments(t *testing.T) {
 
 	ad := OpenAICompat{}
 	ch, _ := ad.Stream(context.Background(),
-		Conn{BaseURL: srv.URL, APIKey: "k", Route: "openai"},
+		Conn{BaseURL: srv.URL, APIKey: "k"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"}})
 	evs := collect(t, ch)
 
@@ -199,7 +199,7 @@ func TestOpenAIStreamThinkingDelta(t *testing.T) {
 		"data: [DONE]\n\n"
 	srv := sseServer(t, body)
 	ad := OpenAICompat{}
-	ch, _ := ad.Stream(context.Background(), Conn{BaseURL: srv.URL, Route: "deepseek"},
+	ch, _ := ad.Stream(context.Background(), Conn{BaseURL: srv.URL},
 		models.TurnRequest{Model: models.ModelRef{Provider: "deepseek", ID: "deepseek-reasoner"}})
 	evs := collect(t, ch)
 	var thinking string
@@ -251,7 +251,7 @@ func TestOpenAIStreamHTTPErrorClassified(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	ad := OpenAICompat{}
-	_, err := ad.Stream(context.Background(), Conn{BaseURL: srv.URL, Route: "openai"},
+	_, err := ad.Stream(context.Background(), Conn{BaseURL: srv.URL},
 		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"}})
 	var pe *EventError
 	if !errors.As(err, &pe) || pe.Code != "rate_limit" {
@@ -277,7 +277,7 @@ func TestOpenAIStreamContextOverflowClassified(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	ad := OpenAICompat{}
-	_, err := ad.Stream(context.Background(), Conn{BaseURL: srv.URL, Route: "openai"},
+	_, err := ad.Stream(context.Background(), Conn{BaseURL: srv.URL},
 		models.TurnRequest{Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"}})
 	var pe *EventError
 	if !errors.As(err, &pe) || pe.Code != "context_overflow" {

@@ -249,9 +249,6 @@ func (m *Model) commitProvider() {
 		entry := creds[provName]
 		entry.APIKey = key
 		if info, ok := config.BuiltinProvider(provName); ok {
-			if entry.Route == "" {
-				entry.Route = info.Route
-			}
 			if entry.BaseURL == "" && info.DefaultBase != "" {
 				entry.BaseURL = info.DefaultBase
 			}
@@ -266,9 +263,6 @@ func (m *Model) commitProvider() {
 		// api_keys/protocol/max_concurrent/headers 会在一次热更新后全部丢失。
 		merged := m.cfg.Providers[provName]
 		merged.APIKey = key
-		if merged.Route == "" {
-			merged.Route = entry.Route
-		}
 		if merged.BaseURL == "" {
 			merged.BaseURL = entry.BaseURL
 		}

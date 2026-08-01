@@ -9,7 +9,7 @@ import (
 
 func TestStatus(t *testing.T) {
 	client := newTestClient()
-	if err := client.RegisterProvider(context.Background(), "openai", config.ProviderConn{Route: "openai"}); err != nil {
+	if err := client.RegisterProvider(context.Background(), "openai", config.ProviderConn{}); err != nil {
 		t.Fatal(err)
 	}
 	st := client.Status(context.Background())

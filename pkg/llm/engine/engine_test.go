@@ -35,7 +35,7 @@ func TestEngineFillsCostOnDone(t *testing.T) {
 				Usage:   &models.LLMUsage{PromptTokens: 1_000_000, CompletionTokens: 500_000}},
 		}}
 	})
-	eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
+	eng.RegisterProvider("openai", provider.Conn{})
 
 	ch, err := eng.StreamTurn(context.Background(), models.TurnRequest{
 		Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"},
@@ -76,7 +76,7 @@ func TestStreamTurnForwardStopsOnCancel(t *testing.T) {
 	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
 		return blockingAdapter{}
 	})
-	eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
+	eng.RegisterProvider("openai", provider.Conn{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	out, err := eng.StreamTurn(ctx, models.TurnRequest{
@@ -109,7 +109,7 @@ func TestEngineRoutesAnthropicCacheMarks(t *testing.T) {
 		return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
 			Message: models.AgentMessage{Role: models.RoleAssistant}}}}
 	})
-	eng.RegisterProvider("anthropic", provider.Conn{Route: "anthropic"})
+	eng.RegisterProvider("anthropic", provider.Conn{})
 	ch, _ := eng.StreamTurn(context.Background(), models.TurnRequest{
 		Model:    models.ModelRef{Provider: "anthropic", ID: "claude-sonnet-4-20250514"},
 		Messages: []models.AgentMessage{models.UserMessage("hi")},
@@ -130,8 +130,8 @@ func testThinkingCatalog() *catalog.Catalog {
 
 func TestResolveThinking(t *testing.T) {
 	e := New(testThinkingCatalog())
-	e.RegisterProvider("openai", provider.Conn{Route: "openai"})
-	e.RegisterProvider("xai", provider.Conn{Route: "openai"})
+	e.RegisterProvider("openai", provider.Conn{})
+	e.RegisterProvider("xai", provider.Conn{})
 
 	// 空配置 → 空
 	if got, warn := e.ResolveThinking("openai", "gpt-5", ""); got != "" || warn != "" {
@@ -161,9 +161,9 @@ func TestResolveThinking(t *testing.T) {
 	}
 }
 
-// 空 Route 时回退为 provider 名,anthropic 例外仍生效:"off" 不被误判为
+// 未显式设置 Protocol 时按注册名推断:anthropic 例外仍生效,"off" 不被误判为
 // AlwaysThinking 而忽略。
-func TestResolveThinkingEmptyRouteFallsBackToProvider(t *testing.T) {
+func TestResolveThinkingInfersProtocolFromName(t *testing.T) {
 	cat := catalog.New(catalog.Options{Refresh: false, Overrides: []catalog.Entry{
 		{ID: "claude-test", Provider: "anthropic", ContextWindow: 200000, Efforts: []string{"low", "high"}},
 	}})
@@ -177,7 +177,7 @@ func TestResolveThinkingEmptyRouteFallsBackToProvider(t *testing.T) {
 
 func TestStreamTurnFillsOffEffort(t *testing.T) {
 	e := New(testThinkingCatalog())
-	e.RegisterProvider("xai", provider.Conn{Route: "openai"})
+	e.RegisterProvider("xai", provider.Conn{})
 
 	// 需要捕获 adapter 收到的 req;用包装 adapter。
 	var gotReq models.TurnRequest
@@ -210,15 +210,15 @@ func TestModelMaxInput(t *testing.T) {
 	}
 }
 
-func TestAdapterFactoryRoutes(t *testing.T) {
-	if _, ok := defaultAdapterFactory("anthropic", provider.CacheMarks{}).(provider.Anthropic); !ok {
-		t.Error("anthropic route")
+func TestAdapterFactoryProtocols(t *testing.T) {
+	if _, ok := defaultAdapterFactory(provider.ProtocolAnthropic, provider.CacheMarks{}).(provider.Anthropic); !ok {
+		t.Error("anthropic protocol")
 	}
-	if _, ok := defaultAdapterFactory("openai-responses", provider.CacheMarks{}).(provider.OpenAIResponses); !ok {
-		t.Error("openai-responses route")
+	if _, ok := defaultAdapterFactory(provider.ProtocolOpenAIResponses, provider.CacheMarks{}).(provider.OpenAIResponses); !ok {
+		t.Error("openai-responses protocol")
 	}
-	if _, ok := defaultAdapterFactory("deepseek", provider.CacheMarks{}).(provider.OpenAICompat); !ok {
-		t.Error("default route")
+	if _, ok := defaultAdapterFactory(provider.ProtocolOpenAIChat, provider.CacheMarks{}).(provider.OpenAICompat); !ok {
+		t.Error("openai-chat protocol")
 	}
 }
 
@@ -239,14 +239,14 @@ func TestProviderRegistrationConcurrentWithStream(t *testing.T) {
 		return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
 			Message: models.AgentMessage{Role: models.RoleAssistant}}}}
 	})
-	eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
+	eng.RegisterProvider("openai", provider.Conn{})
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
+			eng.RegisterProvider("openai", provider.Conn{})
 		}()
 		go func() {
 			defer wg.Done()
@@ -264,13 +264,14 @@ func TestProviderRegistrationConcurrentWithStream(t *testing.T) {
 
 func TestAdapterFactorySelectsByProtocol(t *testing.T) {
 	cases := []struct {
-		name string
-		conn provider.Conn
-		want provider.Protocol
+		name     string
+		regName  string
+		conn     provider.Conn
+		want     provider.Protocol
 	}{
-		{"route derives openai-chat", provider.Conn{Route: "deepseek"}, provider.ProtocolOpenAIChat},
-		{"route derives anthropic", provider.Conn{Route: "anthropic"}, provider.ProtocolAnthropic},
-		{"explicit protocol wins over route", provider.Conn{Route: "openai", Protocol: provider.ProtocolOpenAIResponses}, provider.ProtocolOpenAIResponses},
+		{"unknown name infers openai-chat", "deepseek", provider.Conn{}, provider.ProtocolOpenAIChat},
+		{"anthropic name infers anthropic", "anthropic", provider.Conn{}, provider.ProtocolAnthropic},
+		{"explicit protocol wins over inference", "openai", provider.Conn{Protocol: provider.ProtocolOpenAIResponses}, provider.ProtocolOpenAIResponses},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -282,9 +283,9 @@ func TestAdapterFactorySelectsByProtocol(t *testing.T) {
 				return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
 					Message: models.AgentMessage{Role: models.RoleAssistant}}}}
 			})
-			eng.RegisterProvider("p", tc.conn)
+			eng.RegisterProvider(tc.regName, tc.conn)
 			ch, err := eng.StreamTurn(context.Background(), models.TurnRequest{
-				Model: models.ModelRef{Provider: "p", ID: "gpt-4o"},
+				Model: models.ModelRef{Provider: tc.regName, ID: "gpt-4o"},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -334,7 +335,7 @@ func (a *keyFailAdapter) seenKeys() []string {
 func newFailoverEngine(ad provider.Adapter) *Engine {
 	eng := New(catalog.New(catalog.Options{Refresh: false}))
 	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter { return ad })
-	eng.RegisterProvider("p", provider.Conn{Route: "openai", APIKeys: []string{"k1", "k2"}})
+	eng.RegisterProvider("p", provider.Conn{APIKeys: []string{"k1", "k2"}})
 	return eng
 }
 
@@ -389,7 +390,7 @@ func TestConcurrencyGate(t *testing.T) {
 	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
 		return blockingAdapter{}
 	})
-	eng.RegisterProvider("p", provider.Conn{Route: "openai", MaxConcurrent: 1})
+	eng.RegisterProvider("p", provider.Conn{MaxConcurrent: 1})
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	defer cancel1()
@@ -439,7 +440,7 @@ func TestFailoverPoolDeduplicatesKeys(t *testing.T) {
 	ad := &keyFailAdapter{badKeys: map[string]bool{"k1": true}}
 	eng := New(catalog.New(catalog.Options{Refresh: false}))
 	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter { return ad })
-	eng.RegisterProvider("p", provider.Conn{Route: "openai", APIKey: "k1", APIKeys: []string{"k1", "k2"}})
+	eng.RegisterProvider("p", provider.Conn{APIKey: "k1", APIKeys: []string{"k1", "k2"}})
 
 	// k1 连续 3 次建流失败后被摘除,之后只允许见到 k2。
 	for i := 0; i < 5; i++ {

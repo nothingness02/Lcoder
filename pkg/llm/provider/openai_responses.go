@@ -48,7 +48,7 @@ func (OpenAIResponses) Stream(ctx context.Context, conn Conn, req models.TurnReq
 	if err != nil {
 		return nil, err
 	}
-	url := ResolveBaseURL(conn) + "/responses"
+	url := conn.BaseURL + "/responses"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err

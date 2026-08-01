@@ -94,11 +94,12 @@ func buildEngineForTest(cfg config.Config) *engine.Engine {
 	cat := catalog.New(catalog.Options{Refresh: true, CachePath: cachePath, Overrides: overrides})
 	eng := engine.New(cat)
 	for name, conn := range cfg.Providers {
+		proto, _ := llmprovider.ParseProtocol(conn.Protocol)
 		eng.RegisterProvider(name, llmprovider.Conn{
-			BaseURL: conn.BaseURL,
-			APIKey:  conn.APIKey,
-			Route:   conn.Route,
-			Headers: conn.Headers,
+			BaseURL:  conn.BaseURL,
+			APIKey:   conn.APIKey,
+			Protocol: proto,
+			Headers:  conn.Headers,
 		})
 	}
 	return eng

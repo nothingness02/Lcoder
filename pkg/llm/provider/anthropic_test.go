@@ -100,7 +100,7 @@ func TestAnthropicStreamTextThinkingUsage(t *testing.T) {
 
 	ad := Anthropic{}
 	ch, err := ad.Stream(context.Background(),
-		Conn{BaseURL: srv.URL, APIKey: "k", Route: "anthropic"},
+		Conn{BaseURL: srv.URL, APIKey: "k"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "anthropic", ID: "claude-sonnet-4"},
 			Messages: []models.AgentMessage{models.UserMessage("hi")}})
 	if err != nil {
@@ -206,7 +206,7 @@ func TestAnthropicStreamToolUse(t *testing.T) {
 
 	ad := Anthropic{}
 	ch, _ := ad.Stream(context.Background(),
-		Conn{BaseURL: srv.URL, APIKey: "k", Route: "anthropic"},
+		Conn{BaseURL: srv.URL, APIKey: "k"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "anthropic", ID: "claude-sonnet-4"}})
 	evs := collect(t, ch)
 
@@ -231,7 +231,7 @@ func TestAnthropicStreamErrorEvent(t *testing.T) {
 
 	ad := Anthropic{}
 	ch, err := ad.Stream(context.Background(),
-		Conn{BaseURL: srv.URL, APIKey: "k", Route: "anthropic"},
+		Conn{BaseURL: srv.URL, APIKey: "k"},
 		models.TurnRequest{Model: models.ModelRef{Provider: "anthropic", ID: "claude-sonnet-4"},
 			Messages: []models.AgentMessage{models.UserMessage("hi")}})
 	if err != nil {

@@ -78,9 +78,6 @@ func mergeCredentials(providers, creds map[string]ProviderConn) map[string]Provi
 		if existing.BaseURL == "" {
 			existing.BaseURL = cred.BaseURL
 		}
-		if existing.Route == "" {
-			existing.Route = cred.Route
-		}
 		if existing.Headers == nil {
 			existing.Headers = cred.Headers
 		}

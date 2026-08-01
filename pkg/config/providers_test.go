@@ -29,7 +29,6 @@ func TestResolveProviders(t *testing.T) {
 			APIKey:  "{env:MOONSHOT_API_KEY}",
 		},
 		"myrelay": {
-			Route:   "openai",
 			BaseURL: "https://api.relay.com/v1",
 			APIKey:  "{env:MOONSHOT_API_KEY}",
 			Headers: map[string]string{"X-Title": "{env:MOONSHOT_API_KEY}"},
@@ -42,9 +41,6 @@ func TestResolveProviders(t *testing.T) {
 	}
 	if out["moonshot"].BaseURL != "https://api.moonshot.cn/v1" {
 		t.Errorf("moonshot base_url not preserved: %q", out["moonshot"].BaseURL)
-	}
-	if out["myrelay"].Route != "openai" {
-		t.Errorf("myrelay route = %q, want openai", out["myrelay"].Route)
 	}
 	if out["myrelay"].Headers["X-Title"] != "sk-moon" {
 		t.Errorf("myrelay header not interpolated: %q", out["myrelay"].Headers["X-Title"])
@@ -64,7 +60,6 @@ func TestResolveProvidersPreservesResilienceFields(t *testing.T) {
 		"multi": {
 			BaseURL:       "https://api.example.com/v1",
 			APIKeys:       []string{"{env:KEY_A}", "{env:KEY_B}"},
-			Route:         "openai",
 			Protocol:      "anthropic",
 			MaxConcurrent: 4,
 		},

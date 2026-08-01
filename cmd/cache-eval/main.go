@@ -69,11 +69,9 @@ func main() {
 		baseURL = providerBaseURL(cfg, *providerName)
 	}
 
-	route := providerRoute(cfg, *providerName)
-
 	cat := catalog.New(catalog.Options{})
 	eng := engine.New(cat)
-	eng.RegisterProvider(*providerName, provider.Conn{APIKey: apiKey, Route: route, BaseURL: baseURL})
+	eng.RegisterProvider(*providerName, provider.Conn{APIKey: apiKey, Protocol: providerProtocol(cfg, *providerName), BaseURL: baseURL})
 	client := llm.NewClient(eng)
 
 	mgr := buildContextManager()
@@ -177,16 +175,16 @@ func providerBaseURL(cfg config.Config, name string) string {
 	return ""
 }
 
-func providerRoute(cfg config.Config, name string) string {
-	if conn, ok := cfg.Providers[name]; ok {
-		if conn.Route != "" {
-			return conn.Route
+// providerProtocol returns the explicitly configured protocol for name, or ""
+// (the engine then infers it from the provider name).
+func providerProtocol(cfg config.Config, name string) provider.Protocol {
+	if conn, ok := cfg.Providers[name]; ok && conn.Protocol != "" {
+		p, err := provider.ParseProtocol(conn.Protocol)
+		if err == nil {
+			return p
 		}
 	}
-	if name == "anthropic" {
-		return "anthropic"
-	}
-	return name
+	return ""
 }
 
 func envOr(key, fallback string) string {

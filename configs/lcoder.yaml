@@ -29,8 +29,7 @@ tui:
 #   dashscope:                             # Qwen
 #     api_key: "{env:DASHSCOPE_API_KEY}"
 #   myrelay:                               # any OpenAI-compatible relay
-#     route: openai                        # ride the openai-compatible protocol
-#     base_url: "https://api.relay.com/v1"
+#     base_url: "https://api.relay.com/v1" # (protocol infers to openai-chat)
 #     api_key: "{env:RELAY_KEY}"
 #     headers:
 #       X-Title: lcoder
@@ -38,7 +37,7 @@ tui:
 #     base_url: "http://localhost:4000/v1" # Anthropic wire protocol
 #     api_key: "{env:PROXY_KEY}"
 #     protocol: anthropic                  # openai-chat | openai-responses | anthropic
-#                                          # (empty = derive from route; unknown = startup error)
+#                                          # (empty = infer from name; unknown = startup error)
 #   multi-key:                             # failover pool: rotate keys, bench
 #     api_keys: ["{env:KEY_A}", "{env:KEY_B}"]  # failing ones for 60s
 #     max_concurrent: 4                    # cap parallel streams (0 = unlimited)
