@@ -38,13 +38,26 @@ func expandEnvRefs(s string) string {
 }
 
 // resolveProviders returns a copy of in with {env:VAR} references expanded in
-// BaseURL, APIKey, and Header values. The input map is not mutated.
-func resolveProviders(in map[string]ProviderConn) map[string]ProviderConn {
+// BaseURL, APIKey, and Header values. The input map is not mutated. The second
+// return lists every reference whose variable is unset, as "provider:VAR" —
+// a typo'd variable name must surface as a startup warning, not a silent
+// empty credential.
+func resolveProviders(in map[string]ProviderConn) (map[string]ProviderConn, []string) {
 	if len(in) == 0 {
-		return in
+		return in, nil
+	}
+	var missing []string
+	report := func(provider, s string) {
+		for _, m := range envRefPattern.FindAllStringSubmatch(s, -1) {
+			if os.Getenv(m[1]) == "" {
+				missing = append(missing, provider+":"+m[1])
+			}
+		}
 	}
 	out := make(map[string]ProviderConn, len(in))
 	for name, c := range in {
+		report(name, c.BaseURL)
+		report(name, c.APIKey)
 		resolved := ProviderConn{
 			BaseURL: expandEnvRefs(c.BaseURL),
 			APIKey:  expandEnvRefs(c.APIKey),
@@ -53,10 +66,11 @@ func resolveProviders(in map[string]ProviderConn) map[string]ProviderConn {
 		if len(c.Headers) > 0 {
 			resolved.Headers = make(map[string]string, len(c.Headers))
 			for k, v := range c.Headers {
+				report(name, v)
 				resolved.Headers[k] = expandEnvRefs(v)
 			}
 		}
 		out[name] = resolved
 	}
-	return out
+	return out, missing
 }

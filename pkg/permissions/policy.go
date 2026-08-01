@@ -29,19 +29,27 @@ type Policy interface {
 //  4. sessionApprovalPolicy — exact-match approvals granted earlier in this
 //     session; placed after deny (deny stays absolute) and before static
 //     ask/allow rules (a session approval beats a static ask rule)
-//  5. userRulesPolicy — matching ask/allow rules resolved by pattern
+//  5. hookPolicies (installed via SetHookPolicies — extension-provided, e.g.
+//     the extension permission hook). Below deny and session approvals so
+//     extensions can neither override a deny nor veto an in-session
+//     approval; above static user rules so organization policy can win.
+//  6. userRulesPolicy — matching ask/allow rules resolved by pattern
 //     specificity (longest pattern wins)
-//  6. dangerousDefaultPolicy — write/edit/bash with no matching rule are
+//  7. dangerousDefaultPolicy — write/edit/bash with no matching rule are
 //     denied, so an omitted config cannot silently allow destructive ops
-//  7. fallbackAllowPolicy — everything else is allowed
+//  8. fallbackAllowPolicy — everything else is allowed
 func (e *Engine) chain() []Policy {
 	guards := e.guardPolicies()
-	policies := make([]Policy, 0, len(guards)+6)
+	hooks := e.hookPolicySnapshot()
+	policies := make([]Policy, 0, len(guards)+len(hooks)+6)
 	policies = append(policies, guards...)
 	policies = append(policies,
 		unsafePolicy{engine: e},
 		denyRulesPolicy{engine: e},
 		sessionApprovalPolicy{engine: e},
+	)
+	policies = append(policies, hooks...)
+	policies = append(policies,
 		userRulesPolicy{engine: e},
 		dangerousDefaultPolicy{},
 		fallbackAllowPolicy{},

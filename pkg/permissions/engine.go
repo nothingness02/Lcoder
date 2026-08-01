@@ -102,6 +102,10 @@ type Engine struct {
 	guardsMu   sync.RWMutex
 	guards     []Policy
 
+	// hookPolicies are extension-provided and run mid-chain (see
+	// SetHookPolicies for the position contract).
+	hookPolicies []Policy
+
 	// cwd/homeDir give the engine the session's path context so path rules
 	// can be matched against equivalent spellings of a path (see
 	// pathVariants). Empty means pure lexical matching (tests, headless use).
@@ -129,11 +133,12 @@ func NewEngine(cfg Config) *Engine {
 // visible process-wide.
 func (e *Engine) Fork() *Engine {
 	return &Engine{
-		rules:      e.rules,
-		session:    e.session,
-		unsafeMode: e.unsafeMode,
-		cwd:        e.cwd,
-		homeDir:    e.homeDir,
+		rules:        e.rules,
+		session:      e.session,
+		unsafeMode:   e.unsafeMode,
+		hookPolicies: e.hookPolicySnapshot(),
+		cwd:          e.cwd,
+		homeDir:      e.homeDir,
 	}
 }
 
@@ -157,11 +162,29 @@ func (e *Engine) SetGuardPolicies(policies ...Policy) {
 	e.guards = policies
 }
 
+// SetHookPolicies replaces the extension-provided policies. They run AFTER
+// deny rules and session approvals but before static user rules: deny stays
+// absolute over extensions, and a user's explicit in-session approval cannot
+// be vetoed by an extension, while extensions still outrank convenience
+// rules (e.g. organization policy beating local allows).
+func (e *Engine) SetHookPolicies(policies ...Policy) {
+	e.guardsMu.Lock()
+	defer e.guardsMu.Unlock()
+	e.hookPolicies = policies
+}
+
 // guardPolicies returns a snapshot of the installed guard policies.
 func (e *Engine) guardPolicies() []Policy {
 	e.guardsMu.RLock()
 	defer e.guardsMu.RUnlock()
 	return append([]Policy(nil), e.guards...)
+}
+
+// hookPolicySnapshot returns a snapshot of the installed hook policies.
+func (e *Engine) hookPolicySnapshot() []Policy {
+	e.guardsMu.RLock()
+	defer e.guardsMu.RUnlock()
+	return append([]Policy(nil), e.hookPolicies...)
 }
 
 // SetPathContext gives the engine the session's working directory and home

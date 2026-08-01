@@ -99,17 +99,18 @@ func newExecutor(cfg *Config, mgr *contextmgr.Manager, registry *tools.Registry,
 	return ex
 }
 
-// installGuardPolicies (re)installs the mode/skill guard policies on the
-// permission engine. It runs before every evaluation because executors built
-// directly (e.g. in tests) bypass newExecutor; the policies are stateless
-// adapters over executor state, so re-installing is cheap and always in sync.
+// installGuardPolicies (re)installs the mode/skill guard policies and the
+// extension hook policies on the permission engine. It runs before every
+// evaluation because executors built directly (e.g. in tests) bypass
+// newExecutor; the policies are stateless adapters over executor state, so
+// re-installing is cheap and always in sync. Built-in guards run first;
+// extension policies run mid-chain after deny and session approvals.
 func (e *executor) installGuardPolicies() {
 	if e.permissions == nil {
 		return
 	}
-	e.permissions.SetGuardPolicies(append([]permissions.Policy{
-		modeGuardPolicy{ex: e}, skillGuardPolicy{ex: e}, modeTransitionPolicy{ex: e},
-	}, e.cfg.ExtraGuardPolicies...)...)
+	e.permissions.SetGuardPolicies(modeGuardPolicy{ex: e}, skillGuardPolicy{ex: e}, modeTransitionPolicy{ex: e})
+	e.permissions.SetHookPolicies(e.cfg.ExtraGuardPolicies...)
 }
 
 // preparedToolCall is the output of the serial prepare phase. Exactly one of

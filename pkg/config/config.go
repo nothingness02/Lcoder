@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/confmap"
@@ -372,8 +373,14 @@ func Finalize(c *Config) {
 		}
 	}
 
-	// Expand {env:VAR} references in provider connection settings.
-	c.Providers = resolveProviders(c.Providers)
+	// Expand {env:VAR} references in provider connection settings, warning
+	// about unset variables instead of silently issuing empty credentials.
+	providers, missingEnv := resolveProviders(c.Providers)
+	c.Providers = providers
+	for _, ref := range missingEnv {
+		provider, name, _ := strings.Cut(ref, ":")
+		fmt.Fprintf(os.Stderr, "warning: provider %s 引用的环境变量 %s 未设置,将使用空值\n", provider, name)
+	}
 
 	// Fold the shared model catalog (models.yaml) into the config when present,
 	// so context budgets and capabilities come from a single source of truth.

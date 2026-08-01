@@ -35,7 +35,7 @@ func TestResolveProviders(t *testing.T) {
 			Headers: map[string]string{"X-Title": "{env:MOONSHOT_API_KEY}"},
 		},
 	}
-	out := resolveProviders(in)
+	out, _ := resolveProviders(in)
 
 	if out["moonshot"].APIKey != "sk-moon" {
 		t.Errorf("moonshot api_key = %q, want sk-moon", out["moonshot"].APIKey)

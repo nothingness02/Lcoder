@@ -1,5 +1,8 @@
 # Example Lcoder configuration
 # Copy to ~/.lcoder/config.yaml or pass via --config
+#
+# 环境变量覆盖:仅 LCODER_ 前缀的平级键可用(如 LCODER_MODELS_SOURCE);
+# 嵌套字段(skills.disabled 等)因 shell 不允许含点的变量名,只支持配置文件。
 
 provider: "openai"
 model: "gpt-4o-mini"
