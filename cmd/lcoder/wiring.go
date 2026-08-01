@@ -34,7 +34,7 @@ func buildEngine(cfg config.Config) (*engine.Engine, error) {
 	})
 	eng := engine.New(cat)
 	for name, conn := range cfg.Providers {
-		res, err := cat.ResolveProvider(name, conn.Route, conn.BaseURL)
+		res, err := cat.ResolveProvider(name, conn.Route, conn.Protocol, conn.BaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", name, err)
 		}
@@ -42,10 +42,13 @@ func buildEngine(cfg config.Config) (*engine.Engine, error) {
 			fmt.Fprintf(os.Stderr, "info: provider %q 未声明 route,推断为 %s\n", name, res.Route)
 		}
 		eng.RegisterProvider(name, llmprovider.Conn{
-			BaseURL: res.BaseURL,
-			APIKey:  conn.APIKey,
-			Route:   res.Route,
-			Headers: conn.Headers,
+			BaseURL:       res.BaseURL,
+			APIKey:        conn.APIKey,
+			APIKeys:       conn.APIKeys,
+			Route:         res.Route,
+			Protocol:      res.Protocol,
+			Headers:       conn.Headers,
+			MaxConcurrent: conn.MaxConcurrent,
 		})
 	}
 	return eng, nil

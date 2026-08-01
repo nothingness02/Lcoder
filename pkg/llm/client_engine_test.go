@@ -15,7 +15,7 @@ import (
 func TestClientStreamMapsEvents(t *testing.T) {
 	cat := catalog.New(catalog.Options{Refresh: false})
 	eng := engine.New(cat)
-	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
 		return scriptAdapter{[]provider.Event{
 			{Kind: provider.KindStart},
 			{Kind: provider.KindTextDelta, Delta: "hello"},

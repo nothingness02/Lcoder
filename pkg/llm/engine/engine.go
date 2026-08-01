@@ -14,8 +14,8 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-// AdapterFactory builds an adapter for a route, given precomputed cache marks.
-type AdapterFactory func(route string, marks provider.CacheMarks) provider.Adapter
+// AdapterFactory builds an adapter for a protocol, given precomputed cache marks.
+type AdapterFactory func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter
 
 // Engine routes turns to provider adapters in-process.
 type Engine struct {
@@ -34,11 +34,11 @@ func New(cat *catalog.Catalog) *Engine {
 	}
 }
 
-func defaultAdapterFactory(route string, marks provider.CacheMarks) provider.Adapter {
-	switch route {
-	case "anthropic":
+func defaultAdapterFactory(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
+	switch p {
+	case provider.ProtocolAnthropic:
 		return provider.Anthropic{Marks: marks}
-	case "openai-responses":
+	case provider.ProtocolOpenAIResponses:
 		return provider.OpenAIResponses{}
 	default:
 		return provider.OpenAICompat{}
@@ -126,7 +126,11 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 	if conn.Route == "" {
 		conn.Route = prov
 	}
-	anthropic := conn.Route == "anthropic"
+	proto := conn.Protocol
+	if proto == "" {
+		proto = provider.ProtocolForRoute(conn.Route)
+	}
+	anthropic := proto == provider.ProtocolAnthropic
 	marks := provider.ComputeCacheMarks(req.Cache, req.CacheBreakpoints, len(req.Messages), anthropic)
 	conn.BaseURL = provider.ResolveBaseURL(conn)
 
@@ -134,7 +138,7 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 		req.ThinkingOffEffort = e.catalog.ThinkingSpec(conn.Route, prov, req.Model.ID).OffEffort
 	}
 
-	adapter := e.newAdapter(conn.Route, marks)
+	adapter := e.newAdapter(proto, marks)
 	src, err := adapter.Stream(ctx, conn, req)
 	if err != nil {
 		return nil, err

@@ -12,8 +12,17 @@ import (
 type ProviderConn struct {
 	BaseURL string            `yaml:"base_url" json:"base_url,omitempty"`
 	APIKey  string            `yaml:"api_key"  json:"api_key,omitempty"`
-	Route   string            `yaml:"route"    json:"route,omitempty"`
-	Headers map[string]string `yaml:"headers"  json:"headers,omitempty"`
+	// APIKeys is a failover pool: the engine rotates these keys and benches
+	// failing ones. When empty, APIKey is the single credential.
+	APIKeys []string `yaml:"api_keys" json:"api_keys,omitempty"`
+	Route   string   `yaml:"route"    json:"route,omitempty"`
+	// Protocol explicitly declares the wire protocol (openai-chat |
+	// openai-responses | anthropic); empty derives it from route. Unknown
+	// values are rejected at startup, never silently defaulted.
+	Protocol string            `yaml:"protocol" json:"protocol,omitempty"`
+	Headers  map[string]string `yaml:"headers"  json:"headers,omitempty"`
+	// MaxConcurrent caps concurrent streams to this provider (0 = unlimited).
+	MaxConcurrent int `yaml:"max_concurrent" json:"max_concurrent,omitempty"`
 }
 
 // envRefPattern matches {env:NAME} references for interpolation.

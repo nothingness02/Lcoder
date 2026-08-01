@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -20,12 +21,52 @@ type Adapter interface {
 	Stream(ctx context.Context, conn Conn, req models.TurnRequest) (<-chan Event, error)
 }
 
+// Protocol identifies the wire protocol an adapter speaks. It is a first-class
+// concept separate from Route (which names the provider for base-URL defaults
+// and catalog lookups), so a custom endpoint can declare its wire explicitly.
+type Protocol string
+
+const (
+	ProtocolOpenAIChat      Protocol = "openai-chat"
+	ProtocolOpenAIResponses Protocol = "openai-responses"
+	ProtocolAnthropic       Protocol = "anthropic"
+)
+
+// ParseProtocol validates an explicitly configured protocol value.
+func ParseProtocol(s string) (Protocol, error) {
+	switch Protocol(s) {
+	case ProtocolOpenAIChat, ProtocolOpenAIResponses, ProtocolAnthropic:
+		return Protocol(s), nil
+	}
+	return "", fmt.Errorf("unknown protocol %q (want openai-chat | openai-responses | anthropic)", s)
+}
+
+// ProtocolForRoute derives the wire protocol from a route. Provider-name
+// routes (deepseek, gemini, xai, ...) all speak OpenAI chat completions.
+func ProtocolForRoute(route string) Protocol {
+	switch route {
+	case "anthropic":
+		return ProtocolAnthropic
+	case "openai-responses":
+		return ProtocolOpenAIResponses
+	default:
+		return ProtocolOpenAIChat
+	}
+}
+
 // Conn holds the resolved connection settings for a single provider call.
 type Conn struct {
-	BaseURL string            // falls back to DefaultBaseURL(Route) when empty
-	APIKey  string            //
-	Route   string            // protocol family: openai | anthropic | gemini | ...
-	Headers map[string]string // extra headers (merged last)
+	BaseURL string // falls back to DefaultBaseURL(Route) when empty
+	APIKey  string //
+	// APIKeys is a failover pool; when non-empty the engine rotates keys and
+	// benches failing ones (takes precedence over APIKey).
+	APIKeys []string
+	Route   string   // provider name: openai | anthropic | deepseek | gemini | ...
+	// Protocol is the wire protocol; empty means "derive from Route".
+	Protocol Protocol
+	Headers  map[string]string // extra headers (merged last)
+	// MaxConcurrent caps concurrent streams to this provider (0 = unlimited).
+	MaxConcurrent int
 }
 
 // defaultBaseURLs maps a protocol route to its canonical base URL.

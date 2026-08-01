@@ -94,3 +94,25 @@ func TestClassifyHTTPRetryAfter(t *testing.T) {
 		})
 	}
 }
+
+func TestProtocolParseAndDerive(t *testing.T) {
+	for _, s := range []string{"openai-chat", "openai-responses", "anthropic"} {
+		if _, err := ParseProtocol(s); err != nil {
+			t.Fatalf("ParseProtocol(%q): %v", s, err)
+		}
+	}
+	if _, err := ParseProtocol("gpt"); err == nil {
+		t.Fatal("unknown protocol must error")
+	}
+	if p := ProtocolForRoute("anthropic"); p != ProtocolAnthropic {
+		t.Fatalf("route anthropic → %q", p)
+	}
+	if p := ProtocolForRoute("openai-responses"); p != ProtocolOpenAIResponses {
+		t.Fatalf("route openai-responses → %q", p)
+	}
+	for _, r := range []string{"deepseek", "openai", "gemini", "xai", ""} {
+		if p := ProtocolForRoute(r); p != ProtocolOpenAIChat {
+			t.Fatalf("route %q → %q, want openai-chat", r, p)
+		}
+	}
+}

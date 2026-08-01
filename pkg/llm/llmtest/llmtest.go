@@ -79,7 +79,7 @@ func NewScript(turns ...[]provider.Event) (*llm.Client, *ScriptAdapter) {
 	cat := catalog.New(catalog.Options{Refresh: false})
 	eng := engine.New(cat)
 	adapter := &ScriptAdapter{turns: turns}
-	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter { return adapter })
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter { return adapter })
 	for _, p := range []string{"openai", "anthropic", "deepseek", "moonshot", "openrouter", "gemini"} {
 		eng.RegisterProvider(p, provider.Conn{Route: p})
 	}

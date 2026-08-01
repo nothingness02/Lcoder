@@ -27,7 +27,7 @@ func (f fakeAdapter) Stream(ctx context.Context, conn provider.Conn, req models.
 func TestEngineFillsCostOnDone(t *testing.T) {
 	cat := catalog.New(catalog.Options{Refresh: false}) // gpt-4o priced 2.5/10 in snapshot
 	eng := New(cat)
-	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
 		return fakeAdapter{events: []provider.Event{
 			{Kind: provider.KindTextDelta, Delta: "hi"},
 			{Kind: provider.KindDone,
@@ -73,7 +73,7 @@ func (blockingAdapter) Stream(ctx context.Context, conn provider.Conn, req model
 func TestStreamTurnForwardStopsOnCancel(t *testing.T) {
 	cat := catalog.New(catalog.Options{Refresh: false})
 	eng := New(cat)
-	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
 		return blockingAdapter{}
 	})
 	eng.RegisterProvider("openai", provider.Conn{Route: "openai"})
@@ -104,7 +104,7 @@ func TestEngineRoutesAnthropicCacheMarks(t *testing.T) {
 	cat := catalog.New(catalog.Options{Refresh: false})
 	eng := New(cat)
 	var gotMarks provider.CacheMarks
-	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
 		gotMarks = marks
 		return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
 			Message: models.AgentMessage{Role: models.RoleAssistant}}}}
@@ -181,7 +181,7 @@ func TestStreamTurnFillsOffEffort(t *testing.T) {
 
 	// 需要捕获 adapter 收到的 req;用包装 adapter。
 	var gotReq models.TurnRequest
-	e.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+	e.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
 		return captureAdapter{&gotReq}
 	})
 	ch, err := e.StreamTurn(context.Background(), models.TurnRequest{
@@ -235,7 +235,7 @@ func (c captureAdapter) Stream(ctx context.Context, conn provider.Conn, req mode
 func TestProviderRegistrationConcurrentWithStream(t *testing.T) {
 	cat := catalog.New(catalog.Options{Refresh: false})
 	eng := New(cat)
-	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter {
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
 		return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
 			Message: models.AgentMessage{Role: models.RoleAssistant}}}}
 	})
@@ -260,4 +260,40 @@ func TestProviderRegistrationConcurrentWithStream(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestAdapterFactorySelectsByProtocol(t *testing.T) {
+	cases := []struct {
+		name string
+		conn provider.Conn
+		want provider.Protocol
+	}{
+		{"route derives openai-chat", provider.Conn{Route: "deepseek"}, provider.ProtocolOpenAIChat},
+		{"route derives anthropic", provider.Conn{Route: "anthropic"}, provider.ProtocolAnthropic},
+		{"explicit protocol wins over route", provider.Conn{Route: "openai", Protocol: provider.ProtocolOpenAIResponses}, provider.ProtocolOpenAIResponses},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cat := catalog.New(catalog.Options{Refresh: false})
+			eng := New(cat)
+			var got provider.Protocol
+			eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
+				got = p
+				return fakeAdapter{events: []provider.Event{{Kind: provider.KindDone,
+					Message: models.AgentMessage{Role: models.RoleAssistant}}}}
+			})
+			eng.RegisterProvider("p", tc.conn)
+			ch, err := eng.StreamTurn(context.Background(), models.TurnRequest{
+				Model: models.ModelRef{Provider: "p", ID: "gpt-4o"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range ch {
+			}
+			if got != tc.want {
+				t.Fatalf("factory got protocol %q, want %q", got, tc.want)
+			}
+		})
+	}
 }

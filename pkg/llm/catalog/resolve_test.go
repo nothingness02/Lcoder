@@ -20,7 +20,7 @@ func newResolveCatalog() *Catalog {
 
 func TestResolveExplicitRoutePassThrough(t *testing.T) {
 	c := newResolveCatalog()
-	res, err := c.ResolveProvider("deepseek", "openai", "https://api.deepseek.com/v1")
+	res, err := c.ResolveProvider("deepseek", "openai", "", "https://api.deepseek.com/v1")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestResolveExplicitRoutePassThrough(t *testing.T) {
 
 func TestResolveInfersAnthropic(t *testing.T) {
 	c := newResolveCatalog()
-	res, err := c.ResolveProvider("anthropic", "", "")
+	res, err := c.ResolveProvider("anthropic", "", "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestResolveInfersAnthropic(t *testing.T) {
 
 func TestResolveInfersCodexResponses(t *testing.T) {
 	c := newResolveCatalog()
-	res, err := c.ResolveProvider("openai-codex", "", "")
+	res, err := c.ResolveProvider("openai-codex", "", "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestResolveInfersCodexResponses(t *testing.T) {
 func TestResolveUnknownProvider(t *testing.T) {
 	c := newResolveCatalog()
 	// 有 base_url → openai + guessed
-	res, err := c.ResolveProvider("my-relay", "", "http://localhost:4000/v1")
+	res, err := c.ResolveProvider("my-relay", "", "", "http://localhost:4000/v1")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestResolveUnknownProvider(t *testing.T) {
 		t.Errorf("got %+v", res)
 	}
 	// 无 base_url → 落到 openai 默认端点 + guessed
-	res2, err := c.ResolveProvider("my-relay", "", "")
+	res2, err := c.ResolveProvider("my-relay", "", "", "")
 	if err != nil {
 		t.Fatalf("unknown provider should degrade to openai default: %v", err)
 	}
@@ -80,14 +80,14 @@ func TestResolveUnknownProvider(t *testing.T) {
 
 func TestResolveRejectsBadBaseURL(t *testing.T) {
 	c := newResolveCatalog()
-	if _, err := c.ResolveProvider("x", "openai", "   "); err == nil {
+	if _, err := c.ResolveProvider("x", "openai", "", "   "); err == nil {
 		t.Error("blank base_url must error")
 	}
-	if _, err := c.ResolveProvider("x", "openai", "https://${HOST}/v1"); err == nil {
+	if _, err := c.ResolveProvider("x", "openai", "", "https://${HOST}/v1"); err == nil {
 		t.Error("placeholder base_url must error")
 	}
 	// anthropic + 显式带 /v1 的 URL 按原样透传
-	res, err := c.ResolveProvider("x", "anthropic", "https://proxy.example.com/v1")
+	res, err := c.ResolveProvider("x", "anthropic", "", "https://proxy.example.com/v1")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestResolveRejectsBadBaseURL(t *testing.T) {
 
 func TestResolveUnknownRouteNoBaseURLError(t *testing.T) {
 	c := newResolveCatalog()
-	_, err := c.ResolveProvider("my-relay", "weird-route", "")
+	_, err := c.ResolveProvider("my-relay", "weird-route", "", "")
 	if err == nil {
 		t.Fatal("unknown route with no base URL must error")
 	}
@@ -112,7 +112,7 @@ func TestResolveExplicitRouteNameDefaultBase(t *testing.T) {
 	// 显式 route + 无 base + 内置已知名:命中 name 默认表。
 	// 用 kimi-code 而非 deepseek:重生后的 snapshot 带 deepseek provider meta,
 	// catalog api 分支会先于 name 默认表命中;kimi-code 不在 models.dev 收录内。
-	res, err := c.ResolveProvider("kimi-code", "openai", "")
+	res, err := c.ResolveProvider("kimi-code", "openai", "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestResolveSkipsPlaceholderCatalogAPI(t *testing.T) {
 		{ID: "p1", API: "https://${HOST}/v1"},
 	}})
 	// catalog api 含占位符应被跳过,回落到 route(openai)默认 base
-	res, err := c.ResolveProvider("p1", "", "")
+	res, err := c.ResolveProvider("p1", "", "", "")
 	if err != nil {
 		t.Fatalf("placeholder catalog api must fall back, not error: %v", err)
 	}
@@ -139,5 +139,29 @@ func TestResolveSkipsPlaceholderCatalogAPI(t *testing.T) {
 	}
 	if res.BaseURL != provider.DefaultBaseURL("openai") {
 		t.Errorf("base = %q, want openai default %q", res.BaseURL, provider.DefaultBaseURL("openai"))
+	}
+}
+
+func TestResolveProviderExplicitProtocol(t *testing.T) {
+	c := New(Options{Refresh: false})
+	// 显式 protocol 覆盖 route 派生:自建代理说 anthropic 协议。
+	res, err := c.ResolveProvider("my-proxy", "openai", "anthropic", "http://localhost:4000/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Protocol != provider.ProtocolAnthropic {
+		t.Fatalf("protocol = %q, want anthropic", res.Protocol)
+	}
+	// 非法 protocol 是配置错误,不得沉默兜底。
+	if _, err := c.ResolveProvider("my-proxy", "openai", "gpt", "http://localhost:4000/v1"); err == nil {
+		t.Fatal("unknown protocol must be rejected")
+	}
+	// 缺省由 route 派生。
+	res, err = c.ResolveProvider("deepseek", "deepseek", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Protocol != provider.ProtocolOpenAIChat {
+		t.Fatalf("protocol = %q, want openai-chat", res.Protocol)
 	}
 }

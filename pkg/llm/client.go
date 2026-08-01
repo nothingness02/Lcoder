@@ -27,12 +27,24 @@ func (c *Client) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 }
 
 // RegisterProvider stores a provider connection on the engine (in-process).
+// An explicitly set Protocol is validated; empty derives from the route.
 func (c *Client) RegisterProvider(ctx context.Context, name string, conn config.ProviderConn) error {
+	var proto provider.Protocol
+	if conn.Protocol != "" {
+		p, err := provider.ParseProtocol(conn.Protocol)
+		if err != nil {
+			return err
+		}
+		proto = p
+	}
 	c.engine.RegisterProvider(name, provider.Conn{
-		BaseURL: conn.BaseURL,
-		APIKey:  conn.APIKey,
-		Route:   conn.Route,
-		Headers: conn.Headers,
+		BaseURL:       conn.BaseURL,
+		APIKey:        conn.APIKey,
+		APIKeys:       conn.APIKeys,
+		Route:         conn.Route,
+		Protocol:      proto,
+		Headers:       conn.Headers,
+		MaxConcurrent: conn.MaxConcurrent,
 	})
 	return nil
 }

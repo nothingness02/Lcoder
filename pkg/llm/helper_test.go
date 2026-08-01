@@ -47,6 +47,6 @@ func newTestClient() *Client {
 func clientWithAdapter(adapter provider.Adapter) *Client {
 	cat := catalog.New(catalog.Options{Refresh: false})
 	eng := engine.New(cat)
-	eng.SetAdapterFactory(func(route string, marks provider.CacheMarks) provider.Adapter { return adapter })
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter { return adapter })
 	return NewClient(eng)
 }

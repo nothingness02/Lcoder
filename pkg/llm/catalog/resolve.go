@@ -11,30 +11,41 @@ import (
 // ResolvedProvider is the outcome of resolving one configured provider
 // connection: which wire it speaks and which endpoint its key is sent to.
 type ResolvedProvider struct {
-	Route   string // "anthropic" | "openai-responses" | "openai"
-	BaseURL string
-	Guessed bool // Route was inferred, not declared
+	Route    string // provider name (anthropic | openai | deepseek | ...)
+	Protocol provider.Protocol
+	BaseURL  string
+	Guessed  bool // Route was inferred, not declared
 }
 
 // ResolveProvider decides the wire and endpoint for one provider entry
 // (mirrors kimi-code resolveCatalogImport, cut down to three wires). An
-// explicit route passes through; a missing route is inferred from models.dev
-// metadata (anthropic/claude → anthropic, codex → openai-responses, else
-// openai). A missing base URL falls back to the catalog api, then built-in
-// defaults; a blank or placeholder base URL is rejected — silently sending
-// the key to the wrong host is a credential leak.
-func (c *Catalog) ResolveProvider(name, connRoute, connBaseURL string) (ResolvedProvider, error) {
+// explicit connProtocol is validated strictly (unknown values are config
+// errors, never silently defaulted); when empty, the protocol is derived from
+// the route. A missing route is inferred from models.dev metadata
+// (anthropic/claude → anthropic, codex → openai-responses, else openai). A
+// missing base URL falls back to the catalog api, then built-in defaults; a
+// blank or placeholder base URL is rejected — silently sending the key to the
+// wrong host is a credential leak.
+func (c *Catalog) ResolveProvider(name, connRoute, connProtocol, connBaseURL string) (ResolvedProvider, error) {
 	route := connRoute
 	guessed := false
 	if route == "" {
 		route = c.inferRoute(name)
 		guessed = true
 	}
+	proto := provider.ProtocolForRoute(route)
+	if connProtocol != "" {
+		p, err := provider.ParseProtocol(connProtocol)
+		if err != nil {
+			return ResolvedProvider{}, err
+		}
+		proto = p
+	}
 	base, err := c.resolveBase(name, route, connBaseURL)
 	if err != nil {
 		return ResolvedProvider{}, err
 	}
-	return ResolvedProvider{Route: route, BaseURL: base, Guessed: guessed}, nil
+	return ResolvedProvider{Route: route, Protocol: proto, BaseURL: base, Guessed: guessed}, nil
 }
 
 func (c *Catalog) inferRoute(name string) string {
