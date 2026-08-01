@@ -673,6 +673,12 @@ func (m *Model) forwardMsg(msg tea.Msg) (*Model, tea.Cmd) {
 
 // handlePickerKey handles keys while the session picker overlay is active.
 func (m *Model) handlePickerKey(k tea.KeyMsg) (*Model, tea.Cmd) {
+	// 内联重命名时按键全部进输入框(Esc 取消重命名而非关闭选择器)。
+	if m.picker.Renaming() {
+		var cmd tea.Cmd
+		m.picker, cmd = m.picker.Update(k)
+		return m, cmd
+	}
 	switch k.Type {
 	case tea.KeyEsc:
 		m.picker.Hide()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lcoder/lcoder/pkg/session"
@@ -36,6 +37,10 @@ type SessionPickerModel struct {
 	store   SessionStore
 	mode    string // select
 	sess    *session.Session
+
+	// renaming 内联重命名状态:r 进入,Enter 写回,Esc 取消。
+	renaming bool
+	input    textinput.Model
 }
 
 // NewSessionPicker creates a session picker.
@@ -89,15 +94,59 @@ func (m SessionPickerModel) Visible() bool {
 
 // Update handles messages.
 func (m SessionPickerModel) Update(msg tea.Msg) (SessionPickerModel, tea.Cmd) {
+	if m.renaming {
+		return m.updateRename(msg)
+	}
+	if k, ok := msg.(tea.KeyMsg); ok && k.Type == tea.KeyRunes && len(k.Runes) == 1 && k.Runes[0] == 'r' {
+		if item, ok := m.list.SelectedItem().(SessionItem); ok {
+			m.renaming = true
+			m.input = textinput.New()
+			m.input.SetValue(item.session.DisplayTitle())
+			m.input.CursorEnd()
+			m.input.Focus()
+			m.input.Width = max(20, m.list.Width()-8)
+		}
+		return m, nil
+	}
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
 }
 
+// updateRename routes keys to the inline rename input.
+func (m SessionPickerModel) updateRename(msg tea.Msg) (SessionPickerModel, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.Type {
+		case tea.KeyEsc:
+			m.renaming = false
+			return m, nil
+		case tea.KeyEnter:
+			if item, ok := m.list.SelectedItem().(SessionItem); ok {
+				_ = item.session.SetTitle(m.input.Value())
+				m.list.SetItem(m.list.Index(), SessionItem{session: item.session})
+			}
+			m.renaming = false
+			return m, nil
+		}
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// Renaming reports whether the inline rename input is active.
+func (m SessionPickerModel) Renaming() bool { return m.renaming }
+
+// RenameValue returns the current inline rename input value.
+func (m SessionPickerModel) RenameValue() string { return m.input.Value() }
+
 // View renders the picker.
 func (m SessionPickerModel) View() string {
 	if !m.visible {
 		return ""
+	}
+	if m.renaming {
+		return m.list.View() + "\n" + styleDim().Render("rename (enter: save · esc: cancel): ") + m.input.View()
 	}
 	return m.list.View()
 }
