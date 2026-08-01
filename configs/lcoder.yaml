@@ -31,6 +31,14 @@ tui:
 #     api_key: "{env:RELAY_KEY}"
 #     headers:
 #       X-Title: lcoder
+#   claude-proxy:                          # custom endpoint speaking the
+#     base_url: "http://localhost:4000/v1" # Anthropic wire protocol
+#     api_key: "{env:PROXY_KEY}"
+#     protocol: anthropic                  # openai-chat | openai-responses | anthropic
+#                                          # (empty = derive from route; unknown = startup error)
+#   multi-key:                             # failover pool: rotate keys, bench
+#     api_keys: ["{env:KEY_A}", "{env:KEY_B}"]  # failing ones for 60s
+#     max_concurrent: 4                    # cap parallel streams (0 = unlimited)
 
 # API keys 不写在本文件。优先级:config.providers.<name>.api_key (手写,含 {env:VAR})
 #   > ~/.lcoder/credentials.yaml (TUI 写入,0600) > 标准环境变量 (如 OPENAI_API_KEY)。
