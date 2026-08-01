@@ -91,11 +91,20 @@ func (e *Engine) RegisterProvider(name string, conn provider.Conn) {
 		return
 	}
 	pool := &credPool{}
-	if conn.APIKey != "" {
-		pool.creds = append(pool.creds, &credential{key: conn.APIKey})
+	seen := map[string]bool{}
+	add := func(k string) {
+		if k != "" && !seen[k] {
+			seen[k] = true
+			pool.creds = append(pool.creds, &credential{key: k})
+		}
 	}
+	add(conn.APIKey)
 	for _, k := range conn.APIKeys {
-		pool.creds = append(pool.creds, &credential{key: k})
+		add(k)
+	}
+	if len(pool.creds) == 0 {
+		delete(e.pools, name)
+		return
 	}
 	e.pools[name] = pool
 }
@@ -171,19 +180,25 @@ func (e *Engine) ModelMaxInput(prov, model string) int { return e.catalog.MaxInp
 // ResolveThinking validates a configured thinking value against the catalog
 // and returns the value to put on turn requests, plus a user-facing warning
 // when the config had to be adjusted. "" means "send no thinking field".
-func (e *Engine) ResolveThinking(provider, model, want string) (resolved, warning string) {
+func (e *Engine) ResolveThinking(prov, model, want string) (resolved, warning string) {
 	t := strings.ToLower(strings.TrimSpace(want))
 	if t == "" {
 		return "", ""
 	}
 	// 与 StreamTurn 一致:空 Route 回退为 provider 名,否则 anthropic 例外失效。
 	e.mu.RLock()
-	route := e.providers[provider].Route
+	conn := e.providers[prov]
 	e.mu.RUnlock()
+	route := conn.Route
 	if route == "" {
-		route = provider
+		route = prov
 	}
-	spec := e.catalog.ThinkingSpec(route, provider, model)
+	// AlwaysThinking 的判别看线协议(该协议有没有 off 编码),不是 provider 名。
+	proto := conn.Protocol
+	if proto == "" {
+		proto = provider.ProtocolForRoute(route)
+	}
+	spec := e.catalog.ThinkingSpec(string(proto), prov, model)
 	switch t {
 	case "off":
 		if spec.AlwaysThinking {
@@ -259,6 +274,12 @@ func (e *Engine) Status() Status {
 	return out
 }
 
+// Close releases background resources owned by the engine (the catalog's
+// refresh loop).
+func (e *Engine) Close() error {
+	return e.catalog.Close()
+}
+
 func (e *Engine) resolveProvider(ref models.ModelRef) string {
 	if ref.Provider != "" {
 		return ref.Provider
@@ -293,7 +314,7 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 	conn.BaseURL = provider.ResolveBaseURL(conn)
 
 	if req.Thinking == "off" {
-		req.ThinkingOffEffort = e.catalog.ThinkingSpec(conn.Route, prov, req.Model.ID).OffEffort
+		req.ThinkingOffEffort = e.catalog.ThinkingSpec(string(proto), prov, req.Model.ID).OffEffort
 	}
 
 	adapter := e.newAdapter(proto, marks)

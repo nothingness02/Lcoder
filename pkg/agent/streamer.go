@@ -101,8 +101,12 @@ func (s *streamer) stream(ctx context.Context, turn int, modelRef models.ModelRe
 }
 
 // consume drains one established event stream and assembles the assistant
-// message. gotContent reports whether any content event (start/delta) was
-// seen — false means a failure is safe to retry as a whole turn.
+// message. gotContent reports whether any delta (text/thinking/tool-call) was
+// seen — false means a failure is safe to retry as a whole turn. KindStart
+// deliberately does NOT count: every built-in adapter emits it right after
+// the 200 response, before any SSE frame, so counting it would make the
+// whole-turn retry unreachable on real providers (e.g. an overloaded_error
+// frame arriving before the first delta).
 func (s *streamer) consume(streamCtx context.Context, stream <-chan provider.Event, turn int) (gotContent bool, msg models.AgentMessage, err error) {
 	turnStartTime := time.Now()
 
@@ -122,14 +126,10 @@ loop:
 
 			switch ev.Kind {
 			case provider.KindStart:
+				// Initialize the buffer only; MessageStart is emitted on the
+				// first delta (or Done), so a pre-content failure leaves no
+				// visible trace and the retry starts clean.
 				partial = models.NewAgentMessage(models.RoleAssistant)
-				if !started {
-					started = true
-					s.emitter.emit(streamCtx, events.MessageStartEvent{
-						Base:    events.Base{Type: events.MessageStart, Turn: turn},
-						Message: partial,
-					})
-				}
 			case provider.KindTextDelta, provider.KindThinkingDelta:
 				if !started {
 					started = true

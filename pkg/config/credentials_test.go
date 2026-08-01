@@ -153,3 +153,21 @@ func TestSaveProviderSelectionPreservesExistingKeys(t *testing.T) {
 		t.Fatalf("expected tui.theme preserved as 'light', got %q", cfg.TUI.Theme)
 	}
 }
+
+func TestMergeCredentialsPreservesResilienceFields(t *testing.T) {
+	providers := map[string]ProviderConn{
+		"p": {APIKey: "config-key", Protocol: "anthropic"},
+	}
+	creds := map[string]ProviderConn{
+		"p": {APIKey: "tui-key", APIKeys: []string{"k1", "k2"}, Protocol: "openai-chat", MaxConcurrent: 4},
+	}
+	got := mergeCredentials(providers, creds)["p"]
+	// config 手写字段优先
+	if got.APIKey != "config-key" || got.Protocol != "anthropic" {
+		t.Fatalf("config fields must win: %+v", got)
+	}
+	// 空缺字段从 credentials 补齐
+	if len(got.APIKeys) != 2 || got.MaxConcurrent != 4 {
+		t.Fatalf("credentials fields not merged: %+v", got)
+	}
+}
