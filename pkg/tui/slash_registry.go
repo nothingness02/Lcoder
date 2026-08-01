@@ -38,6 +38,10 @@ func init() {
 				m.openSessionPicker()
 				return nil
 			}},
+		{Name: "rename", Description: "Rename current session (default: latest user message)", Category: "Session",
+			Handler: func(m *Model, args string) tea.Cmd {
+				return handleRenameCommand(m, args)
+			}},
 		{Name: "new", Aliases: []string{"clear"}, Description: "New session / clear chat", Category: "Session",
 			Handler: func(m *Model, _ string) tea.Cmd {
 				if m.store == nil {

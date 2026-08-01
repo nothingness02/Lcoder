@@ -14,11 +14,11 @@ type SessionItem struct {
 	session *session.Session
 }
 
-func (s SessionItem) FilterValue() string { return s.session.ID }
+func (s SessionItem) FilterValue() string { return s.session.DisplayTitle() + " " + s.session.ID }
 
-func (s SessionItem) Title() string { return s.session.ID }
+func (s SessionItem) Title() string { return s.session.DisplayTitle() }
 func (s SessionItem) Description() string {
-	return fmt.Sprintf("%d messages · %s", len(s.session.Messages), s.session.CWD)
+	return fmt.Sprintf("%d messages · %s · %s", len(s.session.Messages), s.session.ID, s.session.CWD)
 }
 
 // SessionStore abstracts session operations needed by the TUI.
