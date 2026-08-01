@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/llm/catalog"
 	"github.com/lcoder/lcoder/pkg/llm/pricing"
@@ -17,20 +18,44 @@ import (
 // AdapterFactory builds an adapter for a protocol, given precomputed cache marks.
 type AdapterFactory func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter
 
+// credential is one API key in a failover pool. After failThreshold
+// consecutive establishment failures it is benched until the cooldown elapses
+// (no active probing — recovery is time-based, like higress's cooldown mode).
+type credential struct {
+	key              string
+	failures         int
+	unavailableUntil time.Time
+}
+
+// credPool rotates a provider's API keys round-robin, skipping benched ones.
+type credPool struct {
+	creds []*credential
+	next  int
+}
+
 // Engine routes turns to provider adapters in-process.
 type Engine struct {
-	mu         sync.RWMutex // guards providers
+	mu         sync.RWMutex // guards providers and pools
 	providers  map[string]provider.Conn
+	pools      map[string]*credPool
 	catalog    *catalog.Catalog
 	newAdapter AdapterFactory
+
+	failThreshold int
+	cooldown      time.Duration
+	now           func() time.Time // test hook
 }
 
 // New builds an engine over a catalog with the default adapter factory.
 func New(cat *catalog.Catalog) *Engine {
 	return &Engine{
-		providers:  map[string]provider.Conn{},
-		catalog:    cat,
-		newAdapter: defaultAdapterFactory,
+		providers:     map[string]provider.Conn{},
+		pools:         map[string]*credPool{},
+		catalog:       cat,
+		newAdapter:    defaultAdapterFactory,
+		failThreshold: 3,
+		cooldown:      time.Minute,
+		now:           time.Now,
 	}
 }
 
@@ -48,11 +73,78 @@ func defaultAdapterFactory(p provider.Protocol, marks provider.CacheMarks) provi
 // SetAdapterFactory overrides adapter construction (used by tests / llmtest).
 func (e *Engine) SetAdapterFactory(f AdapterFactory) { e.newAdapter = f }
 
-// RegisterProvider stores or replaces an in-memory provider connection.
+// RegisterProvider stores or replaces an in-memory provider connection,
+// rebuilding its failover pool when APIKeys is set.
 func (e *Engine) RegisterProvider(name string, conn provider.Conn) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.providers[name] = conn
+	if len(conn.APIKeys) == 0 {
+		delete(e.pools, name)
+		return
+	}
+	pool := &credPool{}
+	if conn.APIKey != "" {
+		pool.creds = append(pool.creds, &credential{key: conn.APIKey})
+	}
+	for _, k := range conn.APIKeys {
+		pool.creds = append(pool.creds, &credential{key: k})
+	}
+	e.pools[name] = pool
+}
+
+// selectCredential returns the next usable key for prov, or "" when the
+// provider has no failover pool (the caller keeps conn.APIKey). Benched keys
+// are skipped; when every key is benched it falls back to plain round-robin
+// rather than stalling traffic.
+func (e *Engine) selectCredential(prov string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	pool := e.pools[prov]
+	if pool == nil || len(pool.creds) == 0 {
+		return ""
+	}
+	now := e.now()
+	n := len(pool.creds)
+	for i := 0; i < n; i++ {
+		idx := (pool.next + i) % n
+		c := pool.creds[idx]
+		if c.failures >= e.failThreshold && now.Before(c.unavailableUntil) {
+			continue
+		}
+		pool.next = (idx + 1) % n
+		return c.key
+	}
+	key := pool.creds[pool.next%n].key
+	pool.next = (pool.next + 1) % n
+	return key
+}
+
+// reportCredential records the establishment outcome for one key: failure
+// increments the consecutive-failure count (benching at the threshold);
+// success resets it.
+func (e *Engine) reportCredential(prov, key string, ok bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	pool := e.pools[prov]
+	if pool == nil {
+		return
+	}
+	for _, c := range pool.creds {
+		if c.key != key {
+			continue
+		}
+		if ok {
+			c.failures = 0
+			c.unavailableUntil = time.Time{}
+		} else {
+			c.failures++
+			if c.failures >= e.failThreshold {
+				c.unavailableUntil = e.now().Add(e.cooldown)
+			}
+		}
+		return
+	}
 }
 
 // ListModels returns the catalog's model list.
@@ -130,6 +222,9 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 	if proto == "" {
 		proto = provider.ProtocolForRoute(conn.Route)
 	}
+	if key := e.selectCredential(prov); key != "" {
+		conn.APIKey = key
+	}
 	anthropic := proto == provider.ProtocolAnthropic
 	marks := provider.ComputeCacheMarks(req.Cache, req.CacheBreakpoints, len(req.Messages), anthropic)
 	conn.BaseURL = provider.ResolveBaseURL(conn)
@@ -141,8 +236,10 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 	adapter := e.newAdapter(proto, marks)
 	src, err := adapter.Stream(ctx, conn, req)
 	if err != nil {
+		e.reportCredential(prov, conn.APIKey, false)
 		return nil, err
 	}
+	e.reportCredential(prov, conn.APIKey, true)
 	out := make(chan provider.Event)
 	go e.forward(ctx, prov, req.Model.ID, src, out)
 	return out, nil

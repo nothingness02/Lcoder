@@ -297,3 +297,89 @@ func TestAdapterFactorySelectsByProtocol(t *testing.T) {
 		})
 	}
 }
+
+// keyFailAdapter fails at establishment for keys in badKeys, tracking the key
+// seen on each call.
+type keyFailAdapter struct {
+	mu      sync.Mutex
+	seen    []string
+	badKeys map[string]bool
+}
+
+func (a *keyFailAdapter) Stream(ctx context.Context, conn provider.Conn, req models.TurnRequest) (<-chan provider.Event, error) {
+	a.mu.Lock()
+	a.seen = append(a.seen, conn.APIKey)
+	a.mu.Unlock()
+	if a.badKeys[conn.APIKey] {
+		return nil, &provider.EventError{Code: "rate_limit", Message: "slow down"}
+	}
+	ch := make(chan provider.Event, 1)
+	ch <- provider.Event{Kind: provider.KindDone, Message: models.AgentMessage{Role: models.RoleAssistant}}
+	close(ch)
+	return ch, nil
+}
+
+func (a *keyFailAdapter) resetSeen() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.seen = nil
+}
+
+func (a *keyFailAdapter) seenKeys() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.seen...)
+}
+
+func newFailoverEngine(ad provider.Adapter) *Engine {
+	eng := New(catalog.New(catalog.Options{Refresh: false}))
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter { return ad })
+	eng.RegisterProvider("p", provider.Conn{Route: "openai", APIKeys: []string{"k1", "k2"}})
+	return eng
+}
+
+func callTurn(eng *Engine) {
+	ch, err := eng.StreamTurn(context.Background(), models.TurnRequest{
+		Model: models.ModelRef{Provider: "p", ID: "gpt-4o"},
+	})
+	if err == nil {
+		for range ch {
+		}
+	}
+}
+
+func TestFailoverBenchesFailingKey(t *testing.T) {
+	ad := &keyFailAdapter{badKeys: map[string]bool{"k1": true}}
+	eng := newFailoverEngine(ad)
+
+	// round-robin 顺序 k1,k2,k1,k2,k1:k1 第 3 次失败后被摘除。
+	for i := 0; i < 5; i++ {
+		callTurn(eng)
+	}
+	ad.resetSeen()
+	callTurn(eng)
+	callTurn(eng)
+	for _, k := range ad.seenKeys() {
+		if k == "k1" {
+			t.Fatalf("k1 should be benched after 3 consecutive failures, seen %v", ad.seenKeys())
+		}
+	}
+}
+
+func TestFailoverRestoresAfterCooldown(t *testing.T) {
+	ad := &keyFailAdapter{badKeys: map[string]bool{"k1": true}}
+	eng := newFailoverEngine(ad)
+	eng.cooldown = 30 * time.Millisecond
+
+	for i := 0; i < 5; i++ {
+		callTurn(eng)
+	}
+	time.Sleep(50 * time.Millisecond)
+	// 冷却期过后 k1 重新进入轮换:游标先落到 k2,再下一轮回转到 k1。
+	callTurn(eng)
+	callTurn(eng)
+	seen := ad.seenKeys()
+	if seen[len(seen)-1] != "k1" {
+		t.Fatalf("k1 should re-enter rotation after cooldown, seen %v", seen)
+	}
+}
