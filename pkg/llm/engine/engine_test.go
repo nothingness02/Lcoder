@@ -383,3 +383,47 @@ func TestFailoverRestoresAfterCooldown(t *testing.T) {
 		t.Fatalf("k1 should re-enter rotation after cooldown, seen %v", seen)
 	}
 }
+
+func TestConcurrencyGate(t *testing.T) {
+	eng := New(catalog.New(catalog.Options{Refresh: false}))
+	eng.SetAdapterFactory(func(p provider.Protocol, marks provider.CacheMarks) provider.Adapter {
+		return blockingAdapter{}
+	})
+	eng.RegisterProvider("p", provider.Conn{Route: "openai", MaxConcurrent: 1})
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	out1, err := eng.StreamTurn(ctx1, models.TurnRequest{Model: models.ModelRef{Provider: "p", ID: "gpt-4o"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = out1 // 不读:第一个 turn 占着唯一的槽位
+
+	type res struct {
+		ch  <-chan provider.Event
+		err error
+	}
+	resCh := make(chan res, 1)
+	go func() {
+		ch, err := eng.StreamTurn(context.Background(), models.TurnRequest{Model: models.ModelRef{Provider: "p", ID: "gpt-4o"}})
+		resCh <- res{ch, err}
+	}()
+	select {
+	case <-resCh:
+		t.Fatal("second StreamTurn should block while the first stream holds the only slot")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// 取消第一个 turn → forward 退出并释放槽位 → 第二个放行。
+	cancel1()
+	select {
+	case r := <-resCh:
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		for range r.ch {
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second StreamTurn still blocked after the first stream ended")
+	}
+}

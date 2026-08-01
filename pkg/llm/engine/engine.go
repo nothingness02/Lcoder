@@ -35,9 +35,10 @@ type credPool struct {
 
 // Engine routes turns to provider adapters in-process.
 type Engine struct {
-	mu         sync.RWMutex // guards providers and pools
+	mu         sync.RWMutex // guards providers, pools and sems
 	providers  map[string]provider.Conn
 	pools      map[string]*credPool
+	sems       map[string]chan struct{} // per-provider concurrency gate
 	catalog    *catalog.Catalog
 	newAdapter AdapterFactory
 
@@ -51,6 +52,7 @@ func New(cat *catalog.Catalog) *Engine {
 	return &Engine{
 		providers:     map[string]provider.Conn{},
 		pools:         map[string]*credPool{},
+		sems:          map[string]chan struct{}{},
 		catalog:       cat,
 		newAdapter:    defaultAdapterFactory,
 		failThreshold: 3,
@@ -79,6 +81,11 @@ func (e *Engine) RegisterProvider(name string, conn provider.Conn) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.providers[name] = conn
+	if conn.MaxConcurrent > 0 {
+		e.sems[name] = make(chan struct{}, conn.MaxConcurrent)
+	} else {
+		delete(e.sems, name)
+	}
 	if len(conn.APIKeys) == 0 {
 		delete(e.pools, name)
 		return
@@ -234,21 +241,40 @@ func (e *Engine) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 	}
 
 	adapter := e.newAdapter(proto, marks)
+
+	e.mu.RLock()
+	sem := e.sems[prov]
+	e.mu.RUnlock()
+	if sem != nil {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
 	src, err := adapter.Stream(ctx, conn, req)
 	if err != nil {
+		if sem != nil {
+			<-sem
+		}
 		e.reportCredential(prov, conn.APIKey, false)
 		return nil, err
 	}
 	e.reportCredential(prov, conn.APIKey, true)
 	out := make(chan provider.Event)
-	go e.forward(ctx, prov, req.Model.ID, src, out)
+	go e.forward(ctx, prov, req.Model.ID, src, out, sem)
 	return out, nil
 }
 
 // forward copies events through, computing cost on the done event. It stops
 // when ctx is cancelled so an abandoned consumer cannot leak the goroutine.
-func (e *Engine) forward(ctx context.Context, prov, model string, src <-chan provider.Event, out chan<- provider.Event) {
+// A non-nil sem slot (the provider concurrency gate) is released on exit.
+func (e *Engine) forward(ctx context.Context, prov, model string, src <-chan provider.Event, out chan<- provider.Event, sem chan struct{}) {
 	defer close(out)
+	if sem != nil {
+		defer func() { <-sem }()
+	}
 	table := e.catalog.PriceTable()
 	for ev := range src {
 		if ev.Kind == provider.KindDone && ev.Usage != nil {
