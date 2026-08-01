@@ -43,8 +43,9 @@ func handleGoalCommand(m *Model, args string) tea.Cmd {
 	case "start":
 		m.agent.StartGoal(objective, turns, tokens)
 		m.showTextPanel("goal", styleSuccess().Render("goal started: "+objective))
-		// goal 的第一个 run 就是用户随后输入的内容;continuation 由
-		// onAgentDone 接线(见 keys.go)。
+		// 立即以 objective 开跑第一个 run(kimi-code 的 /goal 语义);之后的
+		// continuation 由 onAgentDone 接线(见 keys.go)。
+		return m.startPrompt(objective)
 	case "status":
 		m.showTextPanel("goal", formatGoalStatus(m.agent.Goal()))
 	case "pause":
