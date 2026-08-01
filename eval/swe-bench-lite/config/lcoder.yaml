@@ -12,14 +12,13 @@ mode: code
 
 providers:
   deepseek:
-    route: openai
     base_url: "https://api.deepseek.com"
     api_key: "{env:EVAL_API_KEY}"
 
   # 备选: Kimi coding 网关(Anthropic Messages 协议),改回时把 provider 改为
   # moonshot、model 改为 kimi-k2.7-code,并 export ANTHROPIC_AUTH_TOKEN。
   # moonshot:
-  #   route: anthropic
+  #   protocol: anthropic
   #   base_url: "https://api.kimi.com/coding/v1"
   #   api_key: "{env:ANTHROPIC_AUTH_TOKEN}"
 

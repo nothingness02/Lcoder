@@ -1109,7 +1109,6 @@ providers:
     base_url: "https://api.moonshot.cn/v1"
     api_key: "{env:MOONSHOT_API_KEY}"
   myrelay:
-    route: openai
     base_url: "https://api.relay.com/v1"
     api_key: "{env:RELAY_KEY}"
     headers:
@@ -1120,8 +1119,10 @@ providers:
 |---|---|---|
 | `base_url` | string | 自定义 API 基础地址。 |
 | `api_key` | string | API key，支持 `{env:VAR}` 语法。 |
-| `route` | string | 协议路由，如 `openai`，用于 OpenAI 兼容端点。 |
+| `api_keys` | list | failover 凭证池：轮换使用，连续失败自动摘除（60s 冷却），空则用 `api_key` 单凭证。 |
+| `protocol` | string | 显式声明线协议：`openai-chat` / `openai-responses` / `anthropic`。缺省按 provider 名推断；非法值启动报错。 |
 | `headers` | map | 自定义 HTTP 头。 |
+| `max_concurrent` | int | 该 provider 的并发流上限，0 为不限。 |
 
 ### 15.4 上下文管理
 

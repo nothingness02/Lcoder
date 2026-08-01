@@ -32,7 +32,10 @@ func (c *Client) StreamTurn(ctx context.Context, req models.TurnRequest) (<-chan
 }
 
 // RegisterProvider stores a provider connection on the engine (in-process).
-// An explicitly set Protocol is validated; empty derives from the route.
+// An explicitly set Protocol is validated; when empty the engine infers it
+// from the provider name (a plain table lookup — wiring's catalog-based
+// inference with npm/codex heuristics is richer, so prefer registering
+// through buildEngine when the name is not a known provider).
 func (c *Client) RegisterProvider(ctx context.Context, name string, conn config.ProviderConn) error {
 	var proto provider.Protocol
 	if conn.Protocol != "" {

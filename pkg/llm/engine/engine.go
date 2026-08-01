@@ -217,7 +217,7 @@ func (e *Engine) ResolveThinking(prov, model, want string) (resolved, warning st
 // name in Status.Providers).
 type ProviderStatus struct {
 	Protocol      string
-	Credentials   int // failover pool size (0 = single key, no pool)
+	Credentials   int // failover pool size (0 = single key, no pool; 1 = deduped single-key pool, behaves the same)
 	Available     int // pool keys not currently benched
 	MaxConcurrent int
 	InFlight      int // streams currently holding a gate slot

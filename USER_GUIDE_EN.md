@@ -1104,7 +1104,6 @@ providers:
     base_url: "https://api.moonshot.cn/v1"
     api_key: "{env:MOONSHOT_API_KEY}"
   myrelay:
-    route: openai
     base_url: "https://api.relay.com/v1"
     api_key: "{env:RELAY_KEY}"
     headers:
@@ -1115,8 +1114,10 @@ providers:
 |---|---|---|
 | `base_url` | string | Custom API base URL. |
 | `api_key` | string | API key; supports `{env:VAR}` syntax. |
-| `route` | string | Protocol route, e.g. `openai` for OpenAI-compatible endpoints. |
+| `api_keys` | list | Failover credential pool: keys rotate, failing ones are benched (60s cooldown); empty falls back to the single `api_key`. |
+| `protocol` | string | Explicit wire protocol: `openai-chat` / `openai-responses` / `anthropic`. Empty infers from the provider name; unknown values fail at startup. |
 | `headers` | map | Custom HTTP headers. |
+| `max_concurrent` | int | Cap on concurrent streams to this provider; 0 means unlimited. |
 
 ### 15.4 Context Management
 

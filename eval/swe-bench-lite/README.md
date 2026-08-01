@@ -55,7 +55,7 @@ results/summary.md            简要汇总
 
 默认链路：Kimi coding 网关 + `ANTHROPIC_AUTH_TOKEN`。换其他模型只需两步：
 
-1. 编辑 `config/lcoder.yaml`——改顶部的 `provider`/`model`，并在 `providers:` 下加/改对应条目（`route` 选协议、`base_url` 指端点、`api_key` 用 `{env:EVAL_API_KEY}` 引用）。文件里已带 Anthropic / OpenAI / OpenRouter / 自建 OpenAI 兼容端点四段注释示例。
+1. 编辑 `config/lcoder.yaml`——改顶部的 `provider`/`model`，并在 `providers:` 下加/改对应条目（`protocol` 选协议(可选,缺省按名推断)、`base_url` 指端点、`api_key` 用 `{env:EVAL_API_KEY}` 引用）。文件里已带 Anthropic / OpenAI / OpenRouter / 自建 OpenAI 兼容端点四段注释示例。
 2. 导出密钥并运行：
 
 ```bash

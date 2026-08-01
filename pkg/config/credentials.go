@@ -10,7 +10,7 @@ import (
 )
 
 // LoadCredentials reads a credentials.yaml mapping provider name to connection
-// settings (api_key plus optional base_url/route/headers). A missing file
+// settings (api_key plus optional base_url/protocol/headers). A missing file
 // returns an empty map (not an error).
 func LoadCredentials(path string) (map[string]ProviderConn, error) {
 	data, err := os.ReadFile(path)

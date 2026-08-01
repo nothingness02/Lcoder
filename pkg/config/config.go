@@ -384,17 +384,19 @@ func Finalize(c *Config) {
 
 	// Expand {env:VAR} references in MCP server settings (url/headers/env),
 	// same syntax as providers, with the same unset-variable warning.
+	// Detect missing refs BEFORE expanding — after expansion the {env:...}
+	// pattern is gone and the check would never fire.
 	for i := range c.MCPServers {
 		s := &c.MCPServers[i]
+		for _, ref := range missingMCPEnvRefs(*s) {
+			fmt.Fprintf(os.Stderr, "warning: mcp server %s 引用的环境变量 %s 未设置,将使用空值\n", s.Name, ref)
+		}
 		s.URL = expandEnvRefs(s.URL)
 		for k, v := range s.Headers {
 			s.Headers[k] = expandEnvRefs(v)
 		}
 		for k, v := range s.Env {
 			s.Env[k] = expandEnvRefs(v)
-		}
-		for _, ref := range missingMCPEnvRefs(*s) {
-			fmt.Fprintf(os.Stderr, "warning: mcp server %s 引用的环境变量 %s 未设置,将使用空值\n", s.Name, ref)
 		}
 	}
 

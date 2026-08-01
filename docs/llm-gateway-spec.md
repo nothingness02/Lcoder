@@ -186,7 +186,7 @@ providers:
 3. Protocol 确定(显式 > 按注册名推断)
 4. selectCredential(prov)               failover 池轮换(有池时覆盖 conn.APIKey)
 5. ComputeCacheMarks(...)               anthropic 才需要显式标记
-6. ResolveBaseURL / ThinkingOffEffort
+6. BaseURL 补缺(按注册名查默认表)/ ThinkingOffEffort
 7. newAdapter(proto, marks)             按 Protocol 分派
 8. 并发闸口获取(有 sem 时,可被 ctx 取消)
 9. adapter.Stream(ctx, conn, req)
@@ -268,6 +268,8 @@ streamer.stream()
 
 ## 7. 观测出口
 
+> **TTFT 语义变化(2026-08)**:TTFT 从"拿到 200(KindStart)"改为"首个内容 delta",是更准确的首 token 延迟;做历史纵向对比时注意断档。
+>
 > **消费者现状**:`Client.Status()` 与 `LLMRetryEvent` 目前都是"只生产、无 UI 消费"——Status 无调用方,retry 事件只有 emit(cmd/lcoder 接到事件总线)但没有 TUI/CLI 订阅展示。属预留出口,供后续状态栏/调试命令接入。
 
 ### 7.1 结构化状态 `Client.Status()`
