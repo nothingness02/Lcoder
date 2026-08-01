@@ -404,8 +404,10 @@ func TestConcurrencyGate(t *testing.T) {
 		err error
 	}
 	resCh := make(chan res, 1)
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
 	go func() {
-		ch, err := eng.StreamTurn(context.Background(), models.TurnRequest{Model: models.ModelRef{Provider: "p", ID: "gpt-4o"}})
+		ch, err := eng.StreamTurn(ctx2, models.TurnRequest{Model: models.ModelRef{Provider: "p", ID: "gpt-4o"}})
 		resCh <- res{ch, err}
 	}()
 	select {
@@ -421,6 +423,9 @@ func TestConcurrencyGate(t *testing.T) {
 		if r.err != nil {
 			t.Fatal(r.err)
 		}
+		// blockingAdapter 的 src 永不关闭,取消第二个 turn 让 forward 退出、
+		// 关闭 r.ch 后排空结束。
+		cancel2()
 		for range r.ch {
 		}
 	case <-time.After(2 * time.Second):
