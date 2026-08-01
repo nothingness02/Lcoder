@@ -264,3 +264,33 @@ func (f confirmFunc) Confirm(ctx context.Context, info ToolCallInfo) (bool, erro
 func (f confirmFunc) ConfirmWithScope(ctx context.Context, info ToolCallInfo) (ConfirmResult, error) {
 	return f(ctx, info)
 }
+
+// 低风险 bash 命令不再被静默降级:Ask 决策一律到达用户(对齐 kimi-code
+// 无分类器模型——减少打扰靠审批学习,不靠风险猜测)。
+func TestBashAskIsNotDowngraded(t *testing.T) {
+	gate := newGateTool()
+	close(gate.release)
+	reg := tools.NewRegistry(".")
+	reg.Register("bash", declaringGateTool{gateTool: gate, name: "bash", op: tools.OpAll})
+	e := newSchedulerTestExecutor(reg)
+
+	confirmCalls := 0
+	e.cfg.UserConfirm = confirmFunc(func(_ context.Context, _ ToolCallInfo) (ConfirmResult, error) {
+		confirmCalls++
+		return ConfirmResult{Allow: false, Scope: ScopeDeny}, nil
+	})
+	e.permissions = permissions.NewEngineFromRules([]permissions.Rule{
+		{Tool: "bash", Pattern: "*", Decision: permissions.Ask},
+	})
+
+	results, _ := e.execute(context.Background(), 0, models.AgentMessage{},
+		[]models.ToolCallContent{{ID: "c1", Name: "bash", Arguments: map[string]any{"command": "ls"}}})
+
+	if confirmCalls != 1 {
+		t.Fatalf("ask must reach the user (no silent downgrade), confirm calls = %d", confirmCalls)
+	}
+	trc := results[0].Content[0].(models.ToolResultContent)
+	if !trc.IsError {
+		t.Fatal("denied bash must not execute")
+	}
+}

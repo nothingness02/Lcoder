@@ -16,7 +16,6 @@ import (
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
 	"github.com/lcoder/lcoder/pkg/tools/builtin"
-	"github.com/lcoder/lcoder/pkg/permissions/bashrisk"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
@@ -774,19 +773,6 @@ func (e *executor) confirmToolCall(ctx context.Context, turn int, info ToolCallI
 	}
 	e.installGuardPolicies()
 	decision, policy, policyReason := e.permissions.DecideWithSource(info.ToolCall.Name, info.Args)
-
-	// Low-risk bash commands do not need interactive approval even when no rule
-	// explicitly allows them. The downgrade only applies to fallback asks from
-	// user rules — never to ultra-destructive commands escalated by unsafe
-	// mode, nor to explicit asks from mode rules, which are deliberate.
-	if decision == permissions.Ask && policy == "user-rule" && info.ToolCall.Name == "bash" {
-		cmd, _ := info.Args["command"].(string)
-		cwd, _ := os.Getwd()
-		report := bashrisk.Classify(cmd, cwd)
-		if report.Level == bashrisk.RiskNone || report.Level == bashrisk.RiskLow {
-			decision = permissions.Allow
-		}
-	}
 
 	var blocked bool
 	var blockReason string
