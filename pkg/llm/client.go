@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/llm/engine"
@@ -14,6 +15,10 @@ import (
 // loop and TUI depend on, delegating to an in-process engine.
 type Client struct {
 	engine *engine.Engine
+	// OnRetry, when set, is invoked before every retry wait with the layer
+	// ("establish"), the 1-based retry number, the wait duration, and the
+	// triggering error. Used to surface retries on the event bus.
+	OnRetry func(layer string, attempt int, wait time.Duration, err error)
 }
 
 // NewClient creates a client over an in-process engine.
@@ -75,7 +80,8 @@ func (c *Client) ResolveThinking(ctx context.Context, provider, model, want stri
 	return c.engine.ResolveThinking(provider, model, want)
 }
 
-// Health reports in-process readiness.
-func (c *Client) Health(ctx context.Context) (map[string]string, error) {
-	return map[string]string{"status": "ok"}, nil
+// Status returns a structured snapshot of engine and catalog state
+// (providers, failover pools, concurrency gates, catalog refresh).
+func (c *Client) Status(ctx context.Context) engine.Status {
+	return c.engine.Status()
 }

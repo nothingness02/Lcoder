@@ -3,16 +3,22 @@ package llm
 import (
 	"context"
 	"testing"
+
+	"github.com/lcoder/lcoder/pkg/config"
 )
 
-func TestHealth(t *testing.T) {
+func TestStatus(t *testing.T) {
 	client := newTestClient()
-	resp, err := client.Health(context.Background())
-	if err != nil {
-		t.Fatalf("health: %v", err)
+	if err := client.RegisterProvider(context.Background(), "openai", config.ProviderConn{Route: "openai"}); err != nil {
+		t.Fatal(err)
 	}
-	if resp["status"] != "ok" {
-		t.Fatalf("unexpected status: %v", resp)
+	st := client.Status(context.Background())
+	ps, ok := st.Providers["openai"]
+	if !ok {
+		t.Fatalf("openai missing from status: %+v", st.Providers)
+	}
+	if ps.Protocol != "openai-chat" {
+		t.Fatalf("protocol = %q, want openai-chat", ps.Protocol)
 	}
 }
 

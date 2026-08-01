@@ -193,3 +193,46 @@ func TestStreamTurnRetryWaitsForRetryAfter(t *testing.T) {
 		t.Fatalf("Retry-After-Ms 200 not honored, elapsed %v", elapsed)
 	}
 }
+
+func TestOnRetryCallback(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After-Ms", "50")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"slow down"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	t.Cleanup(srv.Close)
+
+	eng := engine.New(catalog.New(catalog.Options{Refresh: false}))
+	eng.RegisterProvider("openai", provider.Conn{BaseURL: srv.URL, Route: "openai"})
+	c := NewClient(eng)
+	type retryCall struct {
+		layer   string
+		attempt int
+		wait    time.Duration
+	}
+	var retries []retryCall
+	c.OnRetry = func(layer string, attempt int, wait time.Duration, err error) {
+		retries = append(retries, retryCall{layer, attempt, wait})
+	}
+	stream, err := c.StreamTurnRetry(context.Background(), models.TurnRequest{
+		Model: models.ModelRef{Provider: "openai", ID: "gpt-4o"},
+	}, RetryConfig{MaxAttempts: 3, BaseBackoff: time.Millisecond})
+	if err != nil {
+		t.Fatalf("retry should recover: %v", err)
+	}
+	for range stream {
+	}
+	if len(retries) != 1 {
+		t.Fatalf("want 1 OnRetry callback, got %d", len(retries))
+	}
+	r := retries[0]
+	if r.layer != "establish" || r.attempt != 1 || r.wait != 50*time.Millisecond {
+		t.Fatalf("unexpected retry callback: %+v", r)
+	}
+}

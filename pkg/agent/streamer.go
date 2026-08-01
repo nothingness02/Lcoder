@@ -82,7 +82,15 @@ func (s *streamer) stream(ctx context.Context, turn int, modelRef models.ModelRe
 		}
 		// 未流出任何内容的流内失败:整轮重试是安全的(没有任何
 		// partial 输出被 emit 或持久化)。
-		timer := time.NewTimer(llm.Backoff(rc, attempt, 0))
+		backoff := llm.Backoff(rc, attempt, 0)
+		s.emitter.emit(streamCtx, events.LLMRetryEvent{
+			Base:    events.Base{Type: events.LLMRetry, Turn: turn},
+			Layer:   "turn",
+			Attempt: attempt + 1,
+			WaitMs:  backoff.Milliseconds(),
+			Err:     err.Error(),
+		})
+		timer := time.NewTimer(backoff)
 		select {
 		case <-streamCtx.Done():
 			timer.Stop()

@@ -25,6 +25,7 @@ const (
 	CompactionStarted   EventType = "compaction_started"
 	SubagentActivity    EventType = "subagent_activity"
 	BackgroundNotice    EventType = "background_notice"
+	LLMRetry            EventType = "llm_retry"
 )
 
 // Event is the interface implemented by all agent events.
@@ -166,4 +167,15 @@ type AuditEvent struct {
 // MarshalJSON serializes an event using its concrete fields.
 func MarshalJSON(e Event) ([]byte, error) {
 	return json.Marshal(e)
+}
+
+// LLMRetryEvent signals that an LLM turn is being retried: "establish" for
+// transport-level retries (stream establishment) and "turn" for whole-turn
+// retries after a pre-content in-stream failure.
+type LLMRetryEvent struct {
+	Base
+	Layer   string `json:"layer"`
+	Attempt int    `json:"attempt"`
+	WaitMs  int64  `json:"wait_ms"`
+	Err     string `json:"err"`
 }

@@ -52,3 +52,34 @@ func TestStreamNoRetryAfterContentStarted(t *testing.T) {
 		t.Fatalf("mid-stream error must not retry, got %d calls", adapter.CallCount())
 	}
 }
+
+func TestStreamTurnRetryEmitsEvent(t *testing.T) {
+	okMsg := models.NewAgentMessage(models.RoleAssistant, models.TextContent{Text: "recovered"})
+	client, _ := llmtest.NewScript(
+		llmtest.Turn(llmtest.ErrorEvent("rate_limit", "slow down")),
+		llmtest.Turn(llmtest.Start(), llmtest.Text("recovered"), llmtest.Done(okMsg, nil)),
+	)
+	bus := events.New()
+	var retries []events.LLMRetryEvent
+	bus.Subscribe(func(ctx context.Context, ev events.Event) error {
+		if r, ok := ev.(events.LLMRetryEvent); ok {
+			retries = append(retries, r)
+		}
+		return nil
+	})
+	ag := NewWithObservability(Config{
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+	}, client, tools.NewRegistry(t.TempDir()), permissions.NewEngine(permissions.DefaultConfig()), bus,
+		observability.NewCollector(observability.NewMemoryExporter()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = ag.Prompt(ctx, models.UserMessage("hi"))
+	if len(retries) != 1 {
+		t.Fatalf("want 1 llm_retry event, got %d", len(retries))
+	}
+	if retries[0].Layer != "turn" || retries[0].Attempt != 1 {
+		t.Fatalf("unexpected retry event: %+v", retries[0])
+	}
+}

@@ -203,6 +203,62 @@ func (e *Engine) ResolveThinking(provider, model, want string) (resolved, warnin
 	}
 }
 
+// ProviderStatus snapshots one provider's resilience knobs.
+type ProviderStatus struct {
+	Route         string
+	Protocol      string
+	Credentials   int // failover pool size (0 = single key, no pool)
+	Available     int // pool keys not currently benched
+	MaxConcurrent int
+	InFlight      int // streams currently holding a gate slot
+}
+
+// Status snapshots engine and catalog state for observability.
+type Status struct {
+	Providers            map[string]ProviderStatus
+	CatalogLastRefreshAt time.Time
+	CatalogLastError     string
+}
+
+// Status collects a consistent snapshot of registered providers, failover
+// pools, concurrency gates, and the catalog refresh state.
+func (e *Engine) Status() Status {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := Status{Providers: map[string]ProviderStatus{}}
+	now := e.now()
+	for name, conn := range e.providers {
+		proto := conn.Protocol
+		if proto == "" {
+			proto = provider.ProtocolForRoute(conn.Route)
+		}
+		ps := ProviderStatus{
+			Route:         conn.Route,
+			Protocol:      string(proto),
+			MaxConcurrent: conn.MaxConcurrent,
+		}
+		if pool := e.pools[name]; pool != nil {
+			ps.Credentials = len(pool.creds)
+			for _, c := range pool.creds {
+				if c.failures < e.failThreshold || !now.Before(c.unavailableUntil) {
+					ps.Available++
+				}
+			}
+		}
+		if sem := e.sems[name]; sem != nil {
+			ps.InFlight = len(sem)
+		}
+		out.Providers[name] = ps
+	}
+	if at, err := e.catalog.Status(); !at.IsZero() {
+		out.CatalogLastRefreshAt = at
+		if err != nil {
+			out.CatalogLastError = err.Error()
+		}
+	}
+	return out
+}
+
 func (e *Engine) resolveProvider(ref models.ModelRef) string {
 	if ref.Provider != "" {
 		return ref.Provider

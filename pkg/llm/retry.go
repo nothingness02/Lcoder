@@ -112,6 +112,9 @@ func (c *Client) StreamTurnRetry(ctx context.Context, req models.TurnRequest, rc
 			return nil, err
 		}
 		backoff := Backoff(rc, attempt, retryAfterOf(lastErr))
+		if c.OnRetry != nil {
+			c.OnRetry("establish", attempt+1, backoff, lastErr)
+		}
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():

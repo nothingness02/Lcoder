@@ -229,6 +229,15 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	}
 
 	bus := events.New()
+	llmClient.OnRetry = func(layer string, attempt int, wait time.Duration, rerr error) {
+		_ = bus.Emit(context.Background(), events.LLMRetryEvent{
+			Base:    events.Base{Type: events.LLMRetry},
+			Layer:   layer,
+			Attempt: attempt,
+			WaitMs:  wait.Milliseconds(),
+			Err:     rerr.Error(),
+		})
+	}
 	obsCfg, err := config.LoadObservabilityConfig("")
 	if err != nil {
 		mcpRegistry.Close()
