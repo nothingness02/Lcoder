@@ -259,6 +259,12 @@ def main():
     ap.add_argument("--workers", type=int, default=1,
                     help="并行运行任务数(默认 1)")
     ap.add_argument("--no-run", action="store_true", help="只准备,不跑任务")
+    ap.add_argument("--variant", default="",
+                    help="配置变体名(如 guard-rules-v1),记录到归档 meta")
+    ap.add_argument("--run-id", default="",
+                    help="跑批后归档为 runs/<run-id>(留空则不归档)")
+    ap.add_argument("--note", default="",
+                    help="归档备注(如接受/验证某改动)")
     args = ap.parse_args()
 
     if args.build:
@@ -300,6 +306,17 @@ def main():
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
                 list(ex.map(run_one, tasks))
         summarize()
+
+        if args.run_id:
+            sys.path.insert(0, os.path.join(EVAL_DIR, "scripts"))
+            import archive
+            archive.archive(
+                args.run_id,
+                RESULTS_DIR,
+                variant=args.variant,
+                model=os.environ.get("MODEL_ID", ""),
+                note=args.note,
+            )
 
 
 if __name__ == "__main__":

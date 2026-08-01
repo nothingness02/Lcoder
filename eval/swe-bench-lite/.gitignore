@@ -1,5 +1,7 @@
 # 评估运行产物(每个任务一个子目录)
 results/
+# 评测 run 归档(archive.py 生成,含配置快照与结果副本)
+runs/
 # 交叉编译的 linux 二进制(由 run.py 生成)
 bin/
 # 筛选出的任务数据(可由 select_task.py 重新生成)

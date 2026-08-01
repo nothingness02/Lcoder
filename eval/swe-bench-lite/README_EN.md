@@ -61,9 +61,35 @@ python eval/swe-bench-lite/runner/run.py
 
 # Run first N tasks with M workers
 python eval/swe-bench-lite/runner/run.py --sample 50 --workers 2
+
+# Archive a batch run as runs/<run-id> (config snapshot + light results + INDEX.md)
+python eval/swe-bench-lite/runner/run.py --sample 18 --run-id baseline-20260801 \
+  --variant baseline --note "baseline run"
+
+# Archive existing results without rerunning
+python eval/swe-bench-lite/scripts/archive.py --id baseline-20260729 \
+  --variant baseline --model kimi-k2.7-code --note "existing baseline"
+
+# Rebuild runs/INDEX.md comparison index only
+python eval/swe-bench-lite/scripts/archive.py --index
 ```
 
 > **Note**: Different tasks may depend on different Python versions (the `python_version` field). `run.py` builds `lcoder-swe-bench-lite:py<version>` images on demand. If an old image already exists locally, delete it and re-run `--build`, otherwise the scripts inside the container may be stale.
+
+## Run Archiving (runs/)
+
+Each batch run can be archived by `archive.py` into a comparable history snapshot, so **harness changes can be accepted/rejected by data** (change configs/ — system prompts, modes, model config — then compare on the same task subset):
+
+```
+eval/swe-bench-lite/runs/<run-id>/
+├── meta.json          # time/variant/model/task count/aggregate metrics
+├── config.snapshot/   # effective config snapshot (configs/*, eval config, prompts) — exact reproduction/comparison
+└── results/           # light results (report.md/html + per-task result.json/patch.diff/test_patch.diff)
+```
+
+- Archive keeps only light artifacts and **drops** large raw logs such as events.jsonl / context-snapshots / observability (per-task events can reach hundreds of MB); go back to the original `results/` for full events.
+- `runs/INDEX.md` aggregates a comparison table across all runs: resolved / initially-resolved / edited-tasks (share of tasks that actually modified files via edit/write — diagnoses whether the agent lands changes) / produced-patch / avg turns / cost / duration.
+- Acceptance criterion: on the same task subset, resolved must not drop and cost/duration must not rise significantly; or a targeted metric (e.g. edited-task share) must clearly improve.
 
 ## Artifacts (`results/<instance_id>/`)
 

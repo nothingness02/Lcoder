@@ -93,12 +93,37 @@ python eval/swe-bench-lite/runner/run.py
 
 # 批量跑前 N 个任务，M 并行
 python eval/swe-bench-lite/runner/run.py --sample 50 --workers 2
+
+# 跑批后归档为 runs/<run-id>（配置快照 + 轻量结果 + 更新 INDEX.md）
+python eval/swe-bench-lite/runner/run.py --sample 18 --run-id baseline-20260801 \
+  --variant baseline --note "基准基线"
+
+# 单独归档已有 results（不重跑任务）
+python eval/swe-bench-lite/scripts/archive.py --id baseline-20260729 \
+  --variant baseline --model kimi-k2.7-code --note "现有基线"
+
+# 只重建 runs/INDEX.md 对比索引
+python eval/swe-bench-lite/scripts/archive.py --index
 ```
 
 > **注意**：不同任务可能依赖不同 Python 版本（`python_version` 字段）。`run.py` 会按需构建 `lcoder-swe-bench-lite:py<version>` 镜像；如果本地存在旧镜像，请删除后重新 `--build`，否则容器内的脚本可能是旧版本。
 
-## 产物（results/<instance_id>/）
+## 评测归档（runs/）
 
+每次跑批可用 `archive.py` 沉淀为一个可对比的历史快照，用于**用数据决定是否接受某个 harness 改动**（改 configs/ 下的系统提示、模式、模型配置后对比同一任务子集）：
+
+```
+eval/swe-bench-lite/runs/<run-id>/
+├── meta.json          # 时间/变体/模型/任务数/汇总指标
+├── config.snapshot/   # 生效配置快照(configs/*, eval config, prompts)——精确复现/对比
+└── results/           # 轻量结果(report.md/html + 每任务 result.json/patch.diff/test_patch.diff)
+```
+
+- 归档只保留轻量产物，**丢弃** events.jsonl / context-snapshots / observability 等大体积原始日志（单任务 events 可达数百 MB），需要完整事件时回原始 `results/` 目录。
+- `runs/INDEX.md` 汇总所有 run 的对比表：resolved / 初始resolved / 编辑任务（用 edit/write 工具改文件的任务占比，诊断 agent 是否落地修改）/ 产patch / avg turns / cost / duration。
+- 接受改动判据：同一任务子集上 resolved 不降，且 cost/duration 不显著上升；或目标指标（如编辑任务占比）有明确提升。
+
+## 产物（results/<instance_id>/）
 | 文件 | 含义 |
 |------|------|
 | `result.json` | 状态分类 + 阶段 + baseline + 指标（含 `initial_status`/`final_status`、工具链路、observability 性能、token/cost） |
