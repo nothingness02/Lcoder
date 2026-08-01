@@ -2,7 +2,19 @@
 
 [English Version](README_EN.md)
 
-**Lcoder** 是一个纯 Go 实现的 AI 编程助手 —— 单二进制、零依赖、终端原生。
+<p align="center">
+  <img src="icon/icon.png" width="220" alt="Lcoder" />
+</p>
+
+<p align="center">
+  <b>终端里的二次元 AI 编程助手</b> —— 纯 Go 实现，单二进制、零依赖、终端原生。
+</p>
+
+<p align="center">
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.25-%235E81AC?logo=go" />
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-%2388C0D0" />
+  <img alt="Platform" src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-%235E81AC" />
+</p>
 
 > 🎯 **推荐体验：交互式 TUI。** 输入 `./lcoder` 就能获得完整的编程对话体验 —— 实时流式输出、工具调用可视化、会话分支、权限审批，一切都在终端内完成。
 
@@ -49,7 +61,7 @@ Docker 自动完成 Go 编译、容器化，挂载 `./workspace` 为工作目录
 
 ## TUI 交互指南
 
-Lcoder 的终端界面围绕“对话即编程”设计。输入自然语言描述需求，agent 会自动读取代码、编辑文件、执行命令，你随时审批关键操作。
+Lcoder 的终端界面围绕"对话即编程"设计。输入自然语言描述需求，agent 会自动读取代码、编辑文件、执行命令，你随时审批关键操作。
 
 ### 主界面
 

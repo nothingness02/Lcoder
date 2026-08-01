@@ -5,6 +5,7 @@ docs/*
 !docs/*-optimization.md
 !docs/*-spec.md
 !docs/*-comparison.md
+!docs/icon-generation-prompt.md
 !docs/superpowers/
 !docs/superpowers/**
 reference/*
