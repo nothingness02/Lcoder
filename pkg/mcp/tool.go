@@ -72,18 +72,51 @@ func (e *Executable) Execute(ctx context.Context, callID string, args map[string
 
 	content := make([]models.ContentPart, 0, len(result.Content))
 	for _, item := range result.Content {
-		switch item.Type {
-		case "image":
-			content = append(content, models.ImageContent{Data: item.Data, MimeType: item.MimeType})
-		default:
-			content = append(content, models.TextContent{Text: item.Text})
-		}
+		content = append(content, renderContentItem(item))
 	}
 
 	if result.IsError {
 		return models.NewToolExecutionResultError(result.ContentText()), nil
 	}
 	return models.ToolExecutionResult{Content: content}, nil
+}
+
+// renderContentItem maps one MCP content item onto a model content part.
+// Text passes through; images become image parts; resource_link and embedded
+// resources render as readable text so the model sees the name/URI and any
+// text payload instead of empty bubbles.
+func renderContentItem(item ContentItem) models.ContentPart {
+	switch item.Type {
+	case "image":
+		return models.ImageContent{Data: item.Data, MimeType: item.MimeType}
+	case "resource_link":
+		label := item.Name
+		if label == "" {
+			label = item.URI
+		}
+		text := "[resource: " + label + " (" + item.URI + ")]"
+		if item.Description != "" {
+			text += " " + item.Description
+		}
+		return models.TextContent{Text: text}
+	case "resource":
+		if item.Resource != nil {
+			if item.Resource.Text != "" {
+				return models.TextContent{Text: item.Resource.Text}
+			}
+			label := "[resource: " + item.Resource.URI + "]"
+			if item.Resource.MimeType != "" {
+				label += " (" + item.Resource.MimeType + ")"
+			}
+			if item.Resource.Blob != "" {
+				label += " [binary content omitted]"
+			}
+			return models.TextContent{Text: label}
+		}
+		return models.TextContent{Text: item.Text}
+	default:
+		return models.TextContent{Text: item.Text}
+	}
 }
 
 // schemaHasProperty reports whether the JSON schema already defines the named
