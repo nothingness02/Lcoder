@@ -2,15 +2,20 @@ package permissions
 
 import "strings"
 
-// PatternForCommand turns a concrete command into a glob pattern suitable for
-// storing in a learned rule. It uses the first one or two tokens.
-func PatternForCommand(command string) string {
-	tokens := strings.Fields(command)
-	if len(tokens) == 0 {
+// LiteralCommandPattern turns a concrete command into a rule pattern that
+// matches the command itself and nothing else (kimi-code's literalRulePattern:
+// the machine records what ran; breadth is only ever declared by humans
+// writing globs by hand). Glob metacharacters are escaped as character
+// classes because MatchCommand passes patterns through filepath.ToSlash,
+// which would destroy backslash escapes.
+func LiteralCommandPattern(command string) string {
+	if strings.TrimSpace(command) == "" {
 		return "*"
 	}
-	if len(tokens) >= 2 && !strings.HasPrefix(tokens[1], "-") {
-		return tokens[0] + " " + tokens[1] + " *"
-	}
-	return tokens[0] + " *"
+	r := strings.NewReplacer(
+		"[", "[[]",
+		"*", "[*]",
+		"?", "[?]",
+	)
+	return r.Replace(command)
 }

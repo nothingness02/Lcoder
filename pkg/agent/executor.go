@@ -861,7 +861,10 @@ func (e *executor) learnRule(info ToolCallInfo, scope ConfirmScope) {
 	pattern := "*"
 	if tool == "bash" {
 		cmd, _ := info.Args["command"].(string)
-		pattern = permissions.PatternForCommand(cmd)
+		// Learned bash rules are verbatim (literal-match only): approving
+		// "rm -rf /tmp/x" must never generalize into "rm *" and silently
+		// allow the next "rm -rf /etc" (kimi-code's literalRulePattern).
+		pattern = permissions.LiteralCommandPattern(cmd)
 	} else if path, ok := info.Args["path"].(string); ok {
 		pattern = path
 	}

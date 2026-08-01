@@ -86,7 +86,7 @@ func TestConfirmPanelSelectionAndDecision(t *testing.T) {
 	if p.selected != 0 {
 		t.Fatalf("default selection should be Deny(0), got %d", p.selected)
 	}
-	wantLabels := []string{"Deny", "Once", "Session", "Project (bash: ls *)", "Global (bash: ls *)"}
+	wantLabels := []string{"Deny", "Once", "Session", "Project (bash: ls)", "Global (bash: ls)"}
 	if len(p.options) != len(wantLabels) {
 		t.Fatalf("expected %v options, got %v", wantLabels, p.options)
 	}
@@ -146,7 +146,7 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 	if !strings.Contains(view, "Permission request: bash") {
 		t.Fatalf("view missing permission prompt:\n%s", view)
 	}
-	for _, opt := range []string{"Deny", "Once", "Session", "Project (bash: ls *)", "Global (bash: ls *)"} {
+	for _, opt := range []string{"Deny", "Once", "Session", "Project (bash: ls)", "Global (bash: ls)"} {
 		if !strings.Contains(view, opt) {
 			t.Fatalf("view missing option %q:\n%s", opt, view)
 		}

@@ -78,13 +78,13 @@ type confirmPanel struct {
 	resp     chan confirmResult
 }
 
-// learnedPatternPreview shows the generalized rule a project/global approval
+// learnedPatternPreview shows the rule a project/global approval
 // would write, making it visible that these options author a permanent rule
-// rather than approve a single call.
+// rather than approve a single call. Bash rules are learned verbatim.
 func learnedPatternPreview(info agent.ToolCallInfo) string {
 	tool := info.ToolCall.Name
 	if tool == "bash" {
-		return tool + ": " + permissions.PatternForCommand(info.BashCommand())
+		return tool + ": " + permissions.LiteralCommandPattern(info.BashCommand())
 	}
 	path, _ := info.Args["path"].(string)
 	if path == "" {
