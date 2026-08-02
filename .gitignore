@@ -1,5 +1,7 @@
 .worktrees/
 *.exe
+*~
+*.exe~
 docs/*
 !docs/*-report.md
 !docs/*-optimization.md
