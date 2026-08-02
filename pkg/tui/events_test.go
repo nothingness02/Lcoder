@@ -187,10 +187,13 @@ func TestThinkingDeltaDoesNotLeakIntoContent(t *testing.T) {
 			t.Fatalf("expected assistant component, got %T", m.components[0])
 		}
 		rendered := ac.Render(40, false)
-		// Collapsed thinking renders as a one-line summary ("Thinking: <first
-		// line>"). The reasoning trace must stay out of the content area, which
-		// the b.raw assertion above already pins to "answer".
-		if !strings.Contains(rendered, "Thinking: reasoning step") {
+		// Collapsed thinking surfaces the first non-empty line as a one-line
+		// summary ("Thinking: <first line>" while streaming, "Thought: <first
+		// line> · Ns" once the duration is recorded — the exact label is
+		// covered by thinking_duration_test.go). The reasoning trace must stay
+		// out of the content area, which the b.raw assertion above already
+		// pins to "answer".
+		if !strings.Contains(rendered, "reasoning step") {
 			t.Fatalf("collapsed thinking should show first-line summary, got %q", rendered)
 		}
 	}
