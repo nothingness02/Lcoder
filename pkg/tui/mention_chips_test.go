@@ -57,6 +57,11 @@ func TestMentionChipsClearOnSubmit(t *testing.T) {
 	dir := t.TempDir()
 	m.cwd = dir
 	mustWrite(t, filepath.Join(dir, "main.go"), "x")
+	// Deterministic file menu: no matches, so Enter submits instead of being
+	// consumed by the @-file menu. The real suggester's backend differs by
+	// platform (fd on CI, FileIndex locally) and by timing (sync fd vs async
+	// index scan), which would flip fileMenuVisible and break this test.
+	m.fileSuggester = &stubSuggester{ready: true}
 
 	m.input.textarea.SetValue("review @main.go")
 	m.refreshMenu()

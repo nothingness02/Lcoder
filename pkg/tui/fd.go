@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -60,9 +59,12 @@ func (s *fdSuggester) Matches(partial string, limit int) []string {
 		s.fallback.EnsureStarted()
 		return s.fallback.Matches(partial, limit)
 	}
-	// fd prints platform separators; normalize so results match FileIndex shape.
+	// fd prints platform separators (backslash on Windows); normalize to
+	// forward slashes unconditionally so results match FileIndex shape.
+	// filepath.ToSlash is a no-op on Unix, so it cannot be used here — a
+	// Windows-style path fed by fd would keep its backslashes.
 	for i, ln := range lines {
-		lines[i] = filepath.ToSlash(ln)
+		lines[i] = strings.ReplaceAll(ln, "\\", "/")
 	}
 	return fuzzyMatchPaths(lines, partial, limit)
 }
