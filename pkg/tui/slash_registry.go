@@ -107,6 +107,11 @@ func init() {
 				m.openProviderPanel()
 				return nil
 			}},
+		{Name: "thinking", Description: "Set LLM thinking effort (off/on/low/medium/high)", Category: "Agent",
+			Handler: func(m *Model, args string) tea.Cmd {
+				m.handleThinkingCommand(strings.TrimSpace(args))
+				return nil
+			}},
 		{Name: "skill", Description: "Trigger a skill", Category: "Agent",
 			Handler: func(m *Model, _ string) tea.Cmd {
 				m.openSkillPanel()

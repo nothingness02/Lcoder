@@ -179,12 +179,11 @@ func (e *Engine) ModelMaxInput(prov, model string) int { return e.catalog.MaxInp
 
 // ResolveThinking validates a configured thinking value against the catalog
 // and returns the value to put on turn requests, plus a user-facing warning
-// when the config had to be adjusted. "" means "send no thinking field".
+// when the config had to be adjusted. An empty want resolves to a model-aware
+// default (middle effort for effort-level models, "on" for toggle models,
+// "" for unknown models — the provider default then applies).
 func (e *Engine) ResolveThinking(prov, model, want string) (resolved, warning string) {
 	t := strings.ToLower(strings.TrimSpace(want))
-	if t == "" {
-		return "", ""
-	}
 	// AlwaysThinking 的判别看线协议(该协议有没有 off 编码),不是 provider 名。
 	e.mu.RLock()
 	conn := e.providers[prov]
@@ -194,6 +193,19 @@ func (e *Engine) ResolveThinking(prov, model, want string) (resolved, warning st
 		proto = provider.InferProtocol(prov)
 	}
 	spec := e.catalog.ThinkingSpec(string(proto), prov, model)
+	if t == "" {
+		// 未配置:主动选一个模型接受的默认档位(kimi-code defaultThinkingEffortFor):
+		//  - effort 型模型 → efforts 中间档(避免默认 off 浪费推理能力)
+		//  - toggle 型(无 efforts,如经典 Claude)→ "on"
+		//  - 未知模型(无目录元数据)→ "" (不发送,交 provider 默认)
+		if len(spec.Efforts) > 0 {
+			return spec.Efforts[len(spec.Efforts)/2], ""
+		}
+		if spec.ThinkingToggle {
+			return "on", ""
+		}
+		return "", ""
+	}
 	switch t {
 	case "off":
 		if spec.AlwaysThinking {
@@ -211,6 +223,21 @@ func (e *Engine) ResolveThinking(prov, model, want string) (resolved, warning st
 		}
 		return t, ""
 	}
+}
+
+// ThinkingEfforts returns the effort levels the model declares for the wire
+// protocol, plus whether thinking can be disabled. The TUI effort picker uses
+// this to offer only values the model accepts.
+func (e *Engine) ThinkingEfforts(prov, model string) (efforts []string, offAvailable bool) {
+	e.mu.RLock()
+	conn := e.providers[prov]
+	e.mu.RUnlock()
+	proto := conn.Protocol
+	if proto == "" {
+		proto = provider.InferProtocol(prov)
+	}
+	spec := e.catalog.ThinkingSpec(string(proto), prov, model)
+	return spec.Efforts, !spec.AlwaysThinking
 }
 
 // ProviderStatus snapshots one provider's resilience knobs (keyed by provider

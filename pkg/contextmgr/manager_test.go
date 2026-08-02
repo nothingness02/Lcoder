@@ -62,3 +62,23 @@ func TestStats(t *testing.T) {
 		t.Fatalf("expected budget_max 1000, got %d", stats["budget_max"])
 	}
 }
+
+func TestSetThinkingRoundTrip(t *testing.T) {
+	mgr := NewManager(TokenBudget{MaxTotal: 1000}, WithThinking("low"))
+	if got := mgr.Thinking(); got != "low" {
+		t.Fatalf("initial thinking = %q, want low", got)
+	}
+	mgr.SetThinking("high")
+	if got := mgr.Thinking(); got != "high" {
+		t.Fatalf("after SetThinking = %q, want high", got)
+	}
+	// The new value flows onto the next turn request.
+	mgr.SetBlock(NewBlock(BlockRecent, "recent", StabilityDynamic, 100, models.UserMessage("hi")))
+	req, err := mgr.BuildTurnRequest(models.ModelRef{Provider: "openai", ID: "gpt-4o"}, nil)
+	if err != nil {
+		t.Fatalf("build turn request: %v", err)
+	}
+	if req.Thinking != "high" {
+		t.Fatalf("turn request thinking = %q, want high", req.Thinking)
+	}
+}

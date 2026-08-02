@@ -104,6 +104,9 @@ type Model struct {
 	// Command output panel (ephemeral, above the composer within stateInput).
 	cmdPanel cmdPanel
 
+	// effortSel is the horizontal thinking-effort picker opened by /thinking.
+	effortSel *effortSelector
+
 	// Overlays (reused from existing files).
 	picker   SessionPickerModel
 	extPanel ExtensionsPanelModel

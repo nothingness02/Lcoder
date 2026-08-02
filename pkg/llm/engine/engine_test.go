@@ -125,6 +125,7 @@ func testThinkingCatalog() *catalog.Catalog {
 	return catalog.New(catalog.Options{Refresh: false, Overrides: []catalog.Entry{
 		{ID: "gpt-5", Provider: "openai", ContextWindow: 400000, Efforts: []string{"low", "medium", "high"}},
 		{ID: "grok-4", Provider: "xai", ContextWindow: 256000, Efforts: []string{"low", "high"}, OffEffort: "none"},
+		{ID: "claude-toggle", Provider: "anthropic", ContextWindow: 200000, ThinkingToggle: true},
 	}})
 }
 
@@ -133,9 +134,13 @@ func TestResolveThinking(t *testing.T) {
 	e.RegisterProvider("openai", provider.Conn{})
 	e.RegisterProvider("xai", provider.Conn{})
 
-	// 空配置 → 空
-	if got, warn := e.ResolveThinking("openai", "gpt-5", ""); got != "" || warn != "" {
-		t.Errorf("empty config: got %q warn %q", got, warn)
+	// 空配置 → 默认档位:effort 型模型取中间档(对齐 kimi-code defaultThinkingEffortFor)
+	if got, warn := e.ResolveThinking("openai", "gpt-5", ""); got != "medium" || warn != "" {
+		t.Errorf("empty config on effort model: got %q warn %q, want medium+no warning", got, warn)
+	}
+	// 空配置 + toggle 型(无 efforts)→ "on"
+	if got, warn := e.ResolveThinking("anthropic", "claude-toggle", ""); got != "on" || warn != "" {
+		t.Errorf("empty config on toggle model: got %q warn %q, want on+no warning", got, warn)
 	}
 	// off + AlwaysThinking → 忽略 + warning
 	got, warn := e.ResolveThinking("openai", "gpt-5", "off")

@@ -25,6 +25,12 @@ type Runner interface {
 	Steer(msg models.AgentMessage)
 	Abort()
 	SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget)
+	// SwitchThinking replaces the resolved thinking value for subsequent
+	// turns ("" = send nothing, "off", "on", or a model effort level).
+	// The value must already be validated by engine.ResolveThinking.
+	SwitchThinking(thinking string)
+	// Thinking returns the current resolved thinking value ("" = send nothing).
+	Thinking() string
 	TaskManager() *task.Manager
 	// ClearSkillFilter lifts any active skill tool restriction.
 	ClearSkillFilter()

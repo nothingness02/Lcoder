@@ -35,3 +35,28 @@ func TestSwitchModelNilManager(t *testing.T) {
 		t.Fatalf("model not switched, got %+v", a.cfg.Model)
 	}
 }
+
+func TestSwitchThinkingUpdatesManager(t *testing.T) {
+	mgr := contextmgr.NewManager(contextmgr.TokenBudget{MaxTotal: 1000}, contextmgr.WithThinking("low"))
+	a := &Agent{cfg: Config{}, mgr: mgr}
+
+	if got := a.Thinking(); got != "low" {
+		t.Fatalf("initial thinking = %q, want low", got)
+	}
+	a.SwitchThinking("high")
+	if got := a.Thinking(); got != "high" {
+		t.Fatalf("after SwitchThinking = %q, want high", got)
+	}
+	if got := mgr.Thinking(); got != "high" {
+		t.Fatalf("manager thinking = %q, want high", got)
+	}
+}
+
+func TestSwitchThinkingNilManager(t *testing.T) {
+	a := &Agent{cfg: Config{}}
+	// Must not panic when the manager is nil.
+	a.SwitchThinking("medium")
+	if got := a.Thinking(); got != "" {
+		t.Fatalf("thinking with nil manager = %q, want empty", got)
+	}
+}

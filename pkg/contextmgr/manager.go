@@ -182,6 +182,22 @@ func WithThinking(v string) Option {
 	return func(m *Manager) { m.thinking = v }
 }
 
+// SetThinking replaces the resolved thinking value carried on turn requests.
+// Intended for runtime adjustment from the TUI; the value must already be
+// validated by engine.ResolveThinking before it reaches here.
+func (m *Manager) SetThinking(v string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.thinking = v
+}
+
+// Thinking returns the current resolved thinking value ("" = send nothing).
+func (m *Manager) Thinking() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.thinking
+}
+
 // WithCompactionSink sets the durable recorder for committed folds.
 func WithCompactionSink(s CompactionSink) Option {
 	return func(m *Manager) { m.sink = s }

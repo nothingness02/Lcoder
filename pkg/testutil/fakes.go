@@ -27,6 +27,10 @@ type FakeAgent struct {
 	SwitchedModel  models.ModelRef
 	SwitchedBudget contextmgr.TokenBudget
 	SessionIDVal   string
+	// ThinkingVal is returned by Thinking ("" default); SwitchThinking
+	// records its argument for test inspection.
+	ThinkingVal      string
+	SwitchedThinking string
 	// StatsVal, when non-nil, is returned by Stats so tests can program the
 	// context-budget figures the TUI status line consumes.
 	StatsVal map[string]int
@@ -127,6 +131,20 @@ func (f *FakeAgent) CancelGoal() {
 
 // LastEndReason returns the fake's programmed end reason.
 func (f *FakeAgent) LastEndReason() events.AgentEndReason { return f.EndReason }
+
+// SwitchThinking records the requested thinking value for test inspection.
+func (f *FakeAgent) SwitchThinking(thinking string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.SwitchedThinking = thinking
+}
+
+// Thinking returns the programmed thinking value ("" default).
+func (f *FakeAgent) Thinking() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ThinkingVal
+}
 
 // WithMode implements agent.ModeSwitcher by recording the requested mode and
 // returning itself. It satisfies the interface TUI uses for mode switches.

@@ -374,6 +374,24 @@ func (a *Agent) SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget) 
 	}
 }
 
+// SwitchThinking replaces the resolved thinking value for subsequent turns.
+// The value must already be validated by engine.ResolveThinking ("" = send
+// nothing, "off", "on", or a model effort level). Runtime adjustment from
+// the TUI; takes effect on the next BuildTurnRequest.
+func (a *Agent) SwitchThinking(thinking string) {
+	if a.mgr != nil {
+		a.mgr.SetThinking(thinking)
+	}
+}
+
+// Thinking returns the current resolved thinking value ("" = send nothing).
+func (a *Agent) Thinking() string {
+	if a.mgr != nil {
+		return a.mgr.Thinking()
+	}
+	return ""
+}
+
 // SetMessages rebuilds the conversation from a flat message list.
 func (a *Agent) SetMessages(msgs []models.AgentMessage) {
 	a.mgr.SetMessages(msgs)

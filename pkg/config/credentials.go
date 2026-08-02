@@ -146,3 +146,34 @@ func SaveProviderSelection(provider, model string) error {
 	}
 	return nil
 }
+
+// SaveThinking persists the resolved thinking value to the main config file
+// (~/.lcoder/config.yaml), preserving every other existing key. The value must
+// be post-ResolveThinking (never a raw user input that a model rejects) so the
+// next launch reads a value the configured model actually accepts.
+func SaveThinking(thinking string) error {
+	path := configFilePath()
+	if path == "" {
+		return fmt.Errorf("cannot resolve home directory for config path")
+	}
+	raw := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			return fmt.Errorf("parse config %s: %w", path, err)
+		}
+		if raw == nil {
+			raw = map[string]any{}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read config %s: %w", path, err)
+	}
+	raw["thinking"] = thinking
+	data, err := yaml.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := fsutil.WritePrivateFile(path, data); err != nil {
+		return fmt.Errorf("write config %s: %w", path, err)
+	}
+	return nil
+}

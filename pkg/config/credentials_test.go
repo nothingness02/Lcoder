@@ -154,6 +154,50 @@ func TestSaveProviderSelectionPreservesExistingKeys(t *testing.T) {
 	}
 }
 
+func TestSaveThinkingPersistsThroughLoad(t *testing.T) {
+	setTempHome(t)
+	if err := SaveThinking("high"); err != nil {
+		t.Fatalf("SaveThinking: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Thinking != "high" {
+		t.Fatalf("expected persisted thinking, got %q", cfg.Thinking)
+	}
+}
+
+func TestSaveThinkingPreservesExistingKeys(t *testing.T) {
+	home := setTempHome(t)
+	path := filepath.Join(home, ".lcoder", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	existing := "provider: openai\nmodel: gpt-4o-mini\ntui:\n  theme: light\n"
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	if err := SaveThinking("low"); err != nil {
+		t.Fatalf("SaveThinking: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Thinking != "low" {
+		t.Fatalf("expected thinking 'low', got %q", cfg.Thinking)
+	}
+	if cfg.Provider != "openai" || cfg.Model != "gpt-4o-mini" {
+		t.Fatalf("provider/model not preserved, got %q/%q", cfg.Provider, cfg.Model)
+	}
+	if cfg.TUI.Theme != "light" {
+		t.Fatalf("expected tui.theme preserved as 'light', got %q", cfg.TUI.Theme)
+	}
+}
+
 func TestMergeCredentialsPreservesResilienceFields(t *testing.T) {
 	providers := map[string]ProviderConn{
 		"p": {APIKey: "config-key", Protocol: "anthropic"},

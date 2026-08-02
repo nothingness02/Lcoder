@@ -104,6 +104,8 @@ func (m *Model) bottomRegion() string {
 		}
 	} else if m.cmdPanel.visible {
 		sections = append(sections, renderCmdPanel(m.cmdPanel, m.mainWidth))
+	} else if m.effortSel != nil {
+		sections = append(sections, m.effortSel.render(m.mainWidth))
 	}
 
 	// Run errors surface here, pinned above the composer, instead of being
@@ -154,6 +156,9 @@ func (m *Model) modeLabel() string {
 	}
 	if g := m.agent.Goal(); g != nil && g.Status == agent.GoalActive {
 		label += " · goal"
+	}
+	if t := m.agent.Thinking(); t != "" {
+		label += " · think:" + t
 	}
 	return label
 }

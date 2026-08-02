@@ -273,6 +273,31 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Thinking-effort picker intercepts keys while open.
+	if m.effortSel != nil {
+		switch k.Type {
+		case tea.KeyLeft:
+			m.effortSel.move(-1)
+			return m, nil
+		case tea.KeyRight:
+			m.effortSel.move(1)
+			return m, nil
+		case tea.KeyEnter:
+			m.applyEffortSelection(true)
+			return m, nil
+		case tea.KeyEsc:
+			m.effortSel = nil
+			m.updateSizes()
+			return m, nil
+		case tea.KeyRunes:
+			// Alt+S applies to the current session only (no persistence).
+			if k.Alt && len(k.Runes) == 1 && (k.Runes[0] == 's' || k.Runes[0] == 'S') {
+				m.applyEffortSelection(false)
+				return m, nil
+			}
+		}
+	}
+
 	// Command panel (ephemeral output) intercepts keys while visible.
 	if m.cmdPanel.visible {
 		switch m.cmdPanel.kind {

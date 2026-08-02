@@ -342,6 +342,9 @@ func TestThinkingSpec(t *testing.T) {
 	if s := c.ThinkingSpec("openai", "openai", "toggler"); s.AlwaysThinking {
 		t.Error("toggle form means thinking can be disabled")
 	}
+	if s := c.ThinkingSpec("openai", "openai", "toggler"); !s.ThinkingToggle {
+		t.Error("toggle form must carry ThinkingToggle=true")
+	}
 	if s := c.ThinkingSpec("openai", "openai", "unknown-model"); s.Efforts != nil || s.AlwaysThinking {
 		t.Errorf("unknown model must return zero spec, got %+v", s)
 	}

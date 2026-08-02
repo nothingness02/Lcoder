@@ -254,6 +254,10 @@ type ThinkingSpec struct {
 	Efforts        []string
 	OffEffort      string
 	AlwaysThinking bool
+	// ThinkingToggle marks models whose thinking is a boolean on/off (no
+	// effort levels, e.g. classic Claude models). Used by the default-effort
+	// resolution in ResolveThinking.
+	ThinkingToggle bool
 }
 
 // ThinkingSpec derives the spec for provider/model on the given wire
@@ -268,7 +272,7 @@ func (c *Catalog) ThinkingSpec(protocol, provider, model string) ThinkingSpec {
 	if !ok {
 		return ThinkingSpec{}
 	}
-	spec := ThinkingSpec{Efforts: e.Efforts, OffEffort: e.OffEffort}
+	spec := ThinkingSpec{Efforts: e.Efforts, OffEffort: e.OffEffort, ThinkingToggle: e.ThinkingToggle}
 	if len(e.Efforts) > 0 && e.OffEffort == "" && !e.ThinkingToggle && protocol != "anthropic" {
 		spec.AlwaysThinking = true
 	}

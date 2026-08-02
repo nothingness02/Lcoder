@@ -82,6 +82,12 @@ func (c *Client) ResolveThinking(ctx context.Context, provider, model, want stri
 	return c.engine.ResolveThinking(provider, model, want)
 }
 
+// ThinkingEfforts returns the effort levels the model declares for the wire
+// protocol, plus whether thinking can be disabled; see engine.
+func (c *Client) ThinkingEfforts(ctx context.Context, provider, model string) ([]string, bool) {
+	return c.engine.ThinkingEfforts(provider, model)
+}
+
 // Status returns a structured snapshot of engine and catalog state
 // (providers, failover pools, concurrency gates, catalog refresh).
 func (c *Client) Status(ctx context.Context) engine.Status {
