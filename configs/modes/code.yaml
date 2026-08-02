@@ -24,5 +24,8 @@ system_prompt: |
   - 完成后回复一个**不包含工具调用**的最终消息，简要总结改动和结果。不要在有未完成工作时提前用纯文本回答停止，也不要在任务完成后继续调用工具。
   - 如果改动了接口或配置，确认文档和注释也已更新。
 
+sparse_prompt: |
+  <system-reminder>仍在编码模式。定位根因、最小改动、验证完成后才报告完成。需要方案设计时 switch_mode 到 plan。</system-reminder>
+
 allowed_tools: []
 denied_tools: []

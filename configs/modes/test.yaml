@@ -4,6 +4,8 @@ system_prompt: |
   You are in testing mode. Generate, run, and analyze tests for the user's request.
   Write test files when needed, run them, and fix failures.
   Prefer table-driven tests and avoid brittle assertions.
+sparse_prompt: |
+  <system-reminder>仍在测试模式。生成、运行并分析测试，失败则修复。</system-reminder>
 allowed_tools:
   - read
   - write
