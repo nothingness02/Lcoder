@@ -8,20 +8,40 @@
 
 ## Quick Start
 
-```bash
-# Build (only Go toolchain required — no Node, no Python)
-go build -o lcoder ./cmd/lcoder
+### One-line Install (recommended)
 
-# Set your API key
+```bash
+# Install the latest release (auto-detects OS/arch, downloads prebuilt binary)
+curl -fsSL https://raw.githubusercontent.com/nothingness02/Lcoder/master/install.sh | bash
+
+# Install a specific version
+curl -fsSL https://raw.githubusercontent.com/nothingness02/Lcoder/master/install.sh | bash -s -- --version v0.1.0
+
+# Install from a local binary (no download)
+./install.sh --binary /path/to/lcoder
+
+# Launch after install (the script adds lcoder to your PATH automatically)
+lcoder
+```
+
+The installer puts the binary in `~/.lcoder/bin/` and configures PATH (skip with `--no-modify-path`). Then set your API key and launch:
+
+```bash
 export ANTHROPIC_API_KEY="sk-ant-..."   # Anthropic (recommended)
 export OPENAI_API_KEY="sk-..."          # OpenAI-compatible
 export DEEPSEEK_API_KEY="sk-..."        # DeepSeek
-
-# Launch interactive TUI
-./lcoder
+lcoder
 ```
 
 `~/.lcoder/config.yaml` is created automatically on first run. Press `Enter` to start chatting.
+
+### Build from Source
+
+```bash
+# Only the Go toolchain required — no Node, no Python
+go build -o lcoder ./cmd/lcoder
+./lcoder
+```
 
 ### Docker
 

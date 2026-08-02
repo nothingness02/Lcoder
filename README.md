@@ -20,20 +20,40 @@
 
 ## 快速开始
 
-```bash
-# 编译（仅需 Go 工具链，无 Node/Python 依赖）
-go build -o lcoder ./cmd/lcoder
+### 一键安装（推荐）
 
-# 配置 API key
+```bash
+# 安装最新版（自动检测 OS/arch，下载预编译二进制）
+curl -fsSL https://raw.githubusercontent.com/nothingness02/Lcoder/master/install.sh | bash
+
+# 指定版本安装
+curl -fsSL https://raw.githubusercontent.com/nothingness02/Lcoder/master/install.sh | bash -s -- --version v0.1.0
+
+# 本地二进制安装（免下载）
+./install.sh --binary /path/to/lcoder
+
+# 安装后直接启动（安装脚本已自动加入 PATH）
+lcoder
+```
+
+安装脚本会把二进制放到 `~/.lcoder/bin/`，自动配置 PATH（支持 `--no-modify-path` 跳过）。之后配置 API key 并启动：
+
+```bash
 export ANTHROPIC_API_KEY="sk-ant-..."   # Anthropic（推荐）
 export OPENAI_API_KEY="sk-..."          # OpenAI 兼容
 export DEEPSEEK_API_KEY="sk-..."        # DeepSeek
-
-# 启动交互式 TUI
-./lcoder
+lcoder
 ```
 
 首次运行会自动创建 `~/.lcoder/config.yaml`，之后按 `Enter` 即可开始对话。
+
+### 从源码编译
+
+```bash
+# 仅需 Go 工具链，无 Node/Python 依赖
+go build -o lcoder ./cmd/lcoder
+./lcoder
+```
 
 ### Docker 启动
 
