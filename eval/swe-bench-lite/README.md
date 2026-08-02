@@ -94,6 +94,10 @@ python eval/swe-bench-lite/runner/run.py
 # 批量跑前 N 个任务，M 并行
 python eval/swe-bench-lite/runner/run.py --sample 50 --workers 2
 
+# goal 模式：用 lcoder --goal(GoalDriver 跨轮收敛 + 预算护栏)替代单次 -p
+GOAL_MODE=1 GOAL_TURNS=60 python eval/swe-bench-lite/runner/run.py \
+  --sample 18 --run-id goal-20260801 --variant goal-driver --note "GoalDriver 对比"
+
 # 跑批后归档为 runs/<run-id>（配置快照 + 轻量结果 + 更新 INDEX.md）
 python eval/swe-bench-lite/runner/run.py --sample 18 --run-id baseline-20260801 \
   --variant baseline --note "基准基线"

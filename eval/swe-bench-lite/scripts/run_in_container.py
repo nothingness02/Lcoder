@@ -32,6 +32,12 @@ AGENT_TIMEOUT_S = int(os.environ.get("AGENT_TIMEOUT_S", "1500"))
 INSTALL_TIMEOUT_S = int(os.environ.get("INSTALL_TIMEOUT_S", "1200"))
 TEST_TIMEOUT_S = int(os.environ.get("TEST_TIMEOUT_S", "600"))
 
+# goal 模式:用 lcoder --goal 驱动(GoalDriver 跨轮收敛 + 预算护栏),
+# 替代单次 -p prompt。默认关,兼容现有跑批。
+GOAL_MODE = os.environ.get("GOAL_MODE", "0") == "1"
+GOAL_TURNS = int(os.environ.get("GOAL_TURNS", "60"))
+GOAL_TOKENS = int(os.environ.get("GOAL_TOKENS", "0"))  # 0 = 不限额
+
 # 官方 SWE-bench 协议是一次性评估:agent 产出 patch 后只评测一次,
 # 无测试反馈重试,PASS_TO_PASS 全量运行。OFFICIAL_PROTOCOL=1 时强制遵守,
 # 使分数可与官方/其他 agent 横向对比;默认 extended 模式(有反馈+P2P 截断)。
@@ -199,8 +205,16 @@ def build_feedback_prompt(f2p_nodes, test_output, attempt, p2p_nodes=None, p2p_o
 
 def run_lcoder_agent(runtime_cfg, prompt, events_path, stderr_path, env, timeout,
                      continue_session=False, mode="a"):
-    """运行 lcoder agent,将 JSON 事件写入/追加到 events_path。"""
-    cmd = ["lcoder", "--config", runtime_cfg, "--json", "-p", prompt]
+    """运行 lcoder agent,将 JSON 事件写入/追加到 events_path。
+
+    GOAL_MODE=1 时用 --goal(GoalDriver 跨轮收敛 + 预算护栏),否则 -p 单次。
+    """
+    cmd = ["lcoder", "--config", runtime_cfg, "--json"]
+    if GOAL_MODE:
+        cmd += ["--goal", prompt, "--goal-turns", str(GOAL_TURNS),
+                "--goal-tokens", str(GOAL_TOKENS)]
+    else:
+        cmd += ["-p", prompt]
     if continue_session:
         cmd.append("--continue")
     with open(events_path, mode, encoding="utf-8") as ev, \

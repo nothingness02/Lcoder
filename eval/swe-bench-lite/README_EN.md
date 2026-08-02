@@ -62,6 +62,11 @@ python eval/swe-bench-lite/runner/run.py
 # Run first N tasks with M workers
 python eval/swe-bench-lite/runner/run.py --sample 50 --workers 2
 
+# Goal mode: drive via lcoder --goal (GoalDriver cross-turn convergence + budget guardrail)
+# instead of a single -p prompt
+GOAL_MODE=1 GOAL_TURNS=60 python eval/swe-bench-lite/runner/run.py \
+  --sample 18 --run-id goal-20260801 --variant goal-driver --note "GoalDriver comparison"
+
 # Archive a batch run as runs/<run-id> (config snapshot + light results + INDEX.md)
 python eval/swe-bench-lite/runner/run.py --sample 18 --run-id baseline-20260801 \
   --variant baseline --note "baseline run"

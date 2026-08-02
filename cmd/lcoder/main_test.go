@@ -59,3 +59,29 @@ func TestLoadConfigOverride(t *testing.T) {
 		t.Fatalf("expected openai, got %s", cfg.Provider)
 	}
 }
+
+func TestValidateRunModeFlags(t *testing.T) {
+	cases := []struct {
+		name    string
+		goal    string
+		prompt  string
+		wantErr bool
+	}{
+		{"goal only", "fix bug", "", false},
+		{"prompt only", "", "list files", false},
+		{"neither (TUI)", "", "", false},
+		{"both", "fix bug", "list files", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateRunModeFlags(tc.goal, tc.prompt)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error for goal=%q prompt=%q, got nil", tc.goal, tc.prompt)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error for goal=%q prompt=%q: %v", tc.goal, tc.prompt, err)
+			}
+		})
+	}
+}
+

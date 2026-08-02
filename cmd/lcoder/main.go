@@ -49,14 +49,32 @@ var (
 	unsafeMode             bool
 	jsonMode               bool
 	trustProjectExtensions bool
+	goalText               string
+	goalTurns              int
+	goalTokens             int
 )
+
+// Build metadata, injected via -ldflags at release time (goreleaser).
+// "dev" is the fallback for local builds.
+var (
+	Version   = "dev"
+	Commit    = "none"
+	BuildDate = "unknown"
+)
+
+func versionString() string {
+	return fmt.Sprintf("lcoder %s (commit %s, built %s)", Version, Commit, BuildDate)
+}
 
 func main() {
 	root := &cobra.Command{
 		Use:   "lcoder [prompt]",
 		Short: "Lcoder — a minimal, extensible SWE agent",
 		RunE:  runRoot,
+		Version: versionString(),
 	}
+
+	root.SetVersionTemplate("{{.Version}}\n")
 
 	// Persistent flags apply to the root command and subcommands that run the
 	// agent (e.g. "lcoder tui"); --prompt and --json stay root-local because
@@ -69,6 +87,9 @@ func main() {
 	root.PersistentFlags().StringVar(&modeName, "mode", "", "Agent mode: plan, code, explore, review, test")
 	root.Flags().StringVarP(&promptText, "prompt", "p", "", "Single prompt to run and exit")
 	root.Flags().BoolVar(&jsonMode, "json", false, "Output events as JSONL instead of TUI/text")
+	root.Flags().StringVar(&goalText, "goal", "", "Pursue an objective to completion (headless GoalDriver; mutually exclusive with -p)")
+	root.Flags().IntVar(&goalTurns, "goal-turns", 0, "Goal turn budget (0 = unlimited)")
+	root.Flags().IntVar(&goalTokens, "goal-tokens", 0, "Goal token budget (0 = unlimited)")
 	root.PersistentFlags().BoolVar(&trustProjectExtensions, "trust-project-extensions", false, "Load project-level extensions without prompting")
 	root.PersistentFlags().BoolVar(&unsafeMode, "unsafe", false, "Bypass permission engine (ultra-destructive commands still require approval)")
 
@@ -475,8 +496,14 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals...)
 	defer stop()
 
+	if err := validateRunModeFlags(goalText, promptText); err != nil {
+		return err
+	}
+
 	var runErr error
-	if jsonMode {
+	if goalText != "" {
+		runErr = runGoalMode(ctx, setup, goalText, goalTurns, goalTokens)
+	} else if jsonMode {
 		runErr = runJSONMode(ctx, setup, promptText)
 	} else if promptText != "" {
 		runErr = runOneShot(ctx, setup, promptText)
@@ -519,6 +546,79 @@ func writeBestEffortCheckpoint(setup *agentSetup, reason string) {
 // than losing everything since the last auto-checkpoint.
 func writeCrashCheckpoint(setup *agentSetup) {
 	writeBestEffortCheckpoint(setup, checkpoint.ReasonCrash)
+}
+
+// validateRunModeFlags enforces headless run-mode exclusivity. --goal and
+// --prompt both select a headless entry point; using both is ambiguous.
+func validateRunModeFlags(goal, prompt string) error {
+	if goal != "" && prompt != "" {
+		return fmt.Errorf("--goal and --prompt are mutually exclusive")
+	}
+	return nil
+}
+
+func runGoalMode(ctx context.Context, setup *agentSetup, objective string, turnBudget, tokenBudget int) error {
+	setup.ag.SetUserConfirm(cliConfirm{})
+	if setup.subagentHost != nil {
+		setup.subagentHost.SetUserConfirm(cliConfirm{})
+	}
+
+	// Slash-prefixed input (extension/builtin commands, manual skill triggers)
+	// bypasses the input hook, matching the TUI.
+	if setup.extBridge != nil && !strings.HasPrefix(objective, "/") {
+		newText, proceed, reason := setup.extBridge.InputHook(ctx, objective)
+		if !proceed {
+			return fmt.Errorf("input blocked: %s", reason)
+		}
+		objective = newText
+	}
+	msg := models.NewAgentMessage(models.RoleUser, models.TextContent{Text: objective})
+	if err := setup.sess.Append(msg); err != nil {
+		return fmt.Errorf("append message: %w", err)
+	}
+
+	// JSON event output mirrors runJSONMode: every event streams as JSONL.
+	jsonHandler := func(ctx context.Context, ev events.Event) error {
+		data, err := events.MarshalJSON(ev)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+	unsub := setup.bus.Subscribe(jsonHandler)
+	defer unsub()
+
+	// GoalDriver pursues the objective across turns until the model settles it
+	// via update_goal (complete/blocked), a budget is exhausted, or the run is
+	// interrupted. This is the headless entry point used by SWE-bench eval.
+	driver := agent.NewGoalDriver(setup.ag)
+	if err := driver.Run(ctx, objective, turnBudget, tokenBudget); err != nil {
+		return err
+	}
+
+	// Mirror the agent's full output into the session so every message reaches
+	// disk, matching runOneShot's persistence behavior.
+	final := setup.ag.AllMessages()
+	if err := setup.sess.AppendMissing(final); err != nil {
+		return fmt.Errorf("persist session: %w", err)
+	}
+
+	// Surface the settled goal outcome on stderr for headless consumers:
+	//   goal=complete / goal=blocked:<reason> / goal=paused:<reason>
+	if g := setup.ag.Goal(); g != nil {
+		switch g.Status {
+		case agent.GoalComplete:
+			fmt.Fprintf(os.Stderr, "[goal] complete\n")
+		case agent.GoalBlocked:
+			fmt.Fprintf(os.Stderr, "[goal] blocked: %s\n", g.BlockReason)
+			return fmt.Errorf("goal blocked: %s", g.BlockReason)
+		case agent.GoalPaused:
+			fmt.Fprintf(os.Stderr, "[goal] paused: %s\n", g.BlockReason)
+			return fmt.Errorf("goal paused: %s", g.BlockReason)
+		}
+	}
+	return nil
 }
 
 func runJSONMode(ctx context.Context, setup *agentSetup, prompt string) error {
