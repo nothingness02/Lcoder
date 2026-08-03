@@ -2,25 +2,20 @@
 
 ## 一、各 Agent 设计
 
-### Kimi Code — Goal（目标）系统
+### Kimi Code — Goal（目标）+ TodoList 双系统
 
-Kimi Code **没有 todo 列表**，用的是 **Goal（单一目标）** 系统：
+Kimi Code 同时有 **Goal（单一目标）** 和 **TodoList（任务列表）** 两个系统：
 
 ```
-GoalStatus: active → paused/blocked → complete(transient)
-
-- 每个 agent 同时只有 1 个 goal
-- goal 有 budget（turns/tokens/墙钟），达到上限自动 blocked
-- goal 有 completion_criterion（完成标准）
-- 生命周期由 GoalMode 驱动
-- 状态变化时才注入 reminder，不是每 turn
+Goal（大目标）:                       TodoList（子任务）:
+- 单一目标, 有预算上限                 - 多任务列表
+- 有 completion_criterion               - pending/in_progress/done
+- active/paused/blocked/complete        - 存 tool_store
+- 状态变化才注入 reminder                - 10-turn 去重低频提醒
 ```
 
-关键设计：
-- **单一目标**而非多任务列表——避免"有 N 个未完成任务"的焦虑
-- **完成标准**（criterion）——模型知道自己何时算完成，不会过度确认
-- **预算上限**——goal 有 token/turn 预算，达到自动停止（防死循环）
-- **状态机**——active/paused/blocked/complete，只有 active 才驱动续跑
+Goal 是主任务载体（有预算防死循环），TodoList 是进度追踪（工具驱动更新）。
+详见 `docs/todo-system-comparison.md`。
 
 ### Kimi Code — Plan 模式
 
