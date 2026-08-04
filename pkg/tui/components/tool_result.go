@@ -31,6 +31,10 @@ type ToolResultComponent struct {
 	// chip is a compact result statistic shown in the header (e.g. "12 lines").
 	chip string
 
+	// toolDetails carries structured result details (e.g. write's previous
+	// file content) used for diff previews; nil for restored sessions.
+	toolDetails map[string]any
+
 	// subagentChildren are per-child rows for the group display.
 	subagentChildren []SubagentChildRow
 }
@@ -77,6 +81,9 @@ func (c *ToolResultComponent) SetSubagentActivity(lines []string, tail string, l
 // SetChip attaches a compact result statistic for the header.
 func (c *ToolResultComponent) SetChip(chip string) { c.chip = chip }
 
+// SetToolDetails attaches structured result details for diff previews.
+func (c *ToolResultComponent) SetToolDetails(details map[string]any) { c.toolDetails = details }
+
 // SetSubagentChildren attaches per-child rows for the group display.
 func (c *ToolResultComponent) SetSubagentChildren(children []SubagentChildRow) {
 	c.subagentChildren = children
@@ -93,9 +100,9 @@ func (c *ToolResultComponent) Render(width int, expanded bool) string {
 	}
 	var base string
 	if expanded || c.expanded {
-		base = formatExpandedToolResult(c.toolName, c.toolArgs, c.isError, c.result, elapsed, c.running, width)
+		base = formatExpandedToolResult(c.toolName, c.toolArgs, c.toolDetails, c.isError, c.result, elapsed, c.running, width)
 	} else {
-		preview := collapseToolOutput(c.result, 2, 1, width)
+		preview := compactToolPreview(c.toolName, c.toolArgs, c.toolDetails, c.result, c.isError, width)
 		base = formatCompactToolResult(c.toolName, c.toolArgs, c.isError, preview, elapsed, c.running)
 	}
 	// Header chip: compact result statistic, e.g. " · 12 lines".

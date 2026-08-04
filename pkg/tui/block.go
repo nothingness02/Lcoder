@@ -31,6 +31,7 @@ type block struct {
 	elapsed     time.Duration
 	toolResult  string // full tool output shown in the Ctrl+O expanded view
 	toolChip    string // compact result statistic shown in the header (e.g. "12 lines")
+	toolDetails map[string]any // structured result details (e.g. write's "old_content" for diff previews)
 
 	// subagent extras: nested activity mirrored from a child agent (see
 	// events.SubagentActivityEvent). lines are completed activity entries;

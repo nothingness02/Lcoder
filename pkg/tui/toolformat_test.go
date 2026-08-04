@@ -46,26 +46,33 @@ func TestChipForTool(t *testing.T) {
 	cases := []struct {
 		name   string
 		tool   string
+		args   string
 		result models.ToolExecutionResult
 		want   string
 	}{
-		{"bash lines", "bash", models.NewToolExecutionResultText("a\nb\nc"), "3 lines"},
-		{"grep matches", "grep", models.ToolExecutionResult{
+		{"bash lines", "bash", `{"command":"ls"}`, models.NewToolExecutionResultText("a\nb\nc"), "3 lines"},
+		{"write content lines", "write", `{"path":"a.go","content":"l1\nl2\nl3\n"}`, models.NewToolExecutionResultText("Wrote 9 characters to a.go"), "3 lines"},
+		{"write fallback", "write", "", models.NewToolExecutionResultText("a\nb"), "2 lines"},
+		{"grep matches", "grep", "", models.ToolExecutionResult{
 			Content: []models.ContentPart{models.TextContent{Text: "x"}},
 			Details: map[string]any{"matches": 42},
 		}, "42 matches"},
-		{"find files", "find", models.ToolExecutionResult{
+		{"find files", "find", "", models.ToolExecutionResult{
 			Content: []models.ContentPart{models.TextContent{Text: "x"}},
 			Details: map[string]any{"matches": 7},
 		}, "7 files"},
-		{"edit edits", "edit", models.ToolExecutionResult{
+		{"edit diffstat chip", "edit", `{"path":"a.go","edits":[{"oldText":"foo\nbar","newText":"baz"}]}`, models.ToolExecutionResult{
+			Content: []models.ContentPart{models.TextContent{Text: "x"}},
+			Details: map[string]any{"edits": 1},
+		}, "+1 -2"},
+		{"edit fallback to edit count", "edit", "", models.ToolExecutionResult{
 			Content: []models.ContentPart{models.TextContent{Text: "x"}},
 			Details: map[string]any{"edits": 2},
 		}, "2 edits"},
-		{"unknown tool no chip", "web", models.NewToolExecutionResultText("a"), ""},
+		{"unknown tool no chip", "web", "", models.NewToolExecutionResultText("a"), ""},
 	}
 	for _, c := range cases {
-		if got := chipForTool(c.tool, c.result); got != c.want {
+		if got := chipForTool(c.tool, c.args, c.result); got != c.want {
 			t.Errorf("%s: chipForTool = %q, want %q", c.name, got, c.want)
 		}
 	}

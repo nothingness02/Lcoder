@@ -77,6 +77,7 @@ func (w *Write) Execute(ctx context.Context, callID string, args map[string]any)
 	// tmp/backup names carry the call id so parallel writes to the same file
 	// cannot clobber each other's staging files.
 	var hadBackup bool
+	var oldContent string
 	mode := os.FileMode(0o644)
 	backupPath := path + backupSuffix + "." + callID
 	if info, statErr := os.Stat(path); statErr == nil {
@@ -89,6 +90,12 @@ func (w *Write) Execute(ctx context.Context, callID string, args map[string]any)
 			return models.ToolExecutionResult{}, fmt.Errorf("backup failed: %w", err)
 		}
 		hadBackup = true
+		// Ship the previous content in the result details so the TUI can
+		// render the overwrite as a diff. Capped to keep tool events small;
+		// beyond the cap the TUI falls back to a plain content preview.
+		if len(original) <= maxWriteDiffOldSize {
+			oldContent = string(original)
+		}
 	}
 
 	tmpPath := path + tmpSuffix + "." + callID
@@ -111,12 +118,21 @@ func (w *Write) Execute(ctx context.Context, callID string, args map[string]any)
 		_ = os.Remove(backupPath)
 	}
 
+	details := map[string]any{"path": path}
+	if oldContent != "" {
+		details["old_content"] = oldContent
+	}
 	return models.ToolExecutionResult{
 		Content: []models.ContentPart{
 			models.TextContent{Text: fmt.Sprintf("Wrote %d characters to %s", len(content), path)},
 		},
-		Details: map[string]any{"path": path},
+		Details: details,
 	}, nil
 }
+
+// maxWriteDiffOldSize caps the previous file content shipped in the write
+// result's details (key "old_content", consumed by the TUI diff preview) so
+// tool events stay small.
+const maxWriteDiffOldSize = 256 * 1024
 
 var _ tools.Executable = (*Write)(nil)

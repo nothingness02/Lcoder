@@ -42,6 +42,7 @@ func toComponent(b block) components.BlockComponent {
 		comp.SetSubagentActivity(b.subagentLines, b.subagentTail, b.subagentLive)
 		comp.SetSubagentChildren(subagentChildRows(b))
 		comp.SetChip(b.toolChip)
+		comp.SetToolDetails(b.toolDetails)
 		return comp
 	}
 	return components.NewSystemLogComponent(b.id, b.raw)

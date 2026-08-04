@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/lcoder/lcoder/pkg/models"
+	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 // toolResultEntry is the minimal record formatToolSummary needs.
@@ -75,8 +76,10 @@ func FormatArgsPlain(args map[string]any) string {
 
 // chipForTool computes a compact result statistic for the tool header
 // (kimi-code's header chip): line counts for file/shell tools, match counts
-// for search tools, edit counts for edit. Empty when nothing meaningful.
-func chipForTool(name string, result models.ToolExecutionResult) string {
+// for search tools, a +added/-removed diffstat for edit. Empty when nothing
+// meaningful. argsJSON is the tool call's serialized arguments (may be empty
+// for late-appended blocks, in which case chips fall back to result data).
+func chipForTool(name, argsJSON string, result models.ToolExecutionResult) string {
 	text := result.Text()
 	lines := 0
 	for _, ln := range strings.Split(text, "\n") {
@@ -92,7 +95,13 @@ func chipForTool(name string, result models.ToolExecutionResult) string {
 		return v, ok
 	}
 	switch name {
-	case "bash", "read", "write":
+	case "bash", "read":
+		return countLabel(lines, "lines")
+	case "write":
+		if content := components.WriteContentFromArgs(argsJSON); content != "" {
+			content = strings.TrimSuffix(content, "\n")
+			return countLabel(len(strings.Split(content, "\n")), "lines")
+		}
 		return countLabel(lines, "lines")
 	case "ls":
 		return countLabel(lines, "entries")
@@ -107,6 +116,16 @@ func chipForTool(name string, result models.ToolExecutionResult) string {
 		}
 		return countLabel(lines, "files")
 	case "edit":
+		if added, removed := components.EditDiffStats(argsJSON); added > 0 || removed > 0 {
+			var parts []string
+			if added > 0 {
+				parts = append(parts, fmt.Sprintf("+%d", added))
+			}
+			if removed > 0 {
+				parts = append(parts, fmt.Sprintf("-%d", removed))
+			}
+			return strings.Join(parts, " ")
+		}
 		if v, ok := detail("edits"); ok {
 			return countLabel(v, "edits")
 		}

@@ -8,9 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/agent"
-	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
@@ -27,7 +25,7 @@ func TestTuiConfirmBlocksUntilResponse(t *testing.T) {
 	sender := &fakeProgramSender{msgs: make(chan tea.Msg, 1)}
 	confirm := &tuiConfirm{program: sender}
 
-	info := agent.ToolCallInfo{
+	info := agentapi.ToolCallInfo{
 		ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "ls"}},
 	}
 
@@ -59,7 +57,7 @@ func TestTuiConfirmBlocksUntilResponse(t *testing.T) {
 	}
 
 	// Unblock the waiting confirmation.
-	req.req.resp <- confirmResult{allow: true, scope: agent.ScopeOnce}
+	req.req.resp <- confirmResult{allow: true, scope: agentapi.ScopeOnce}
 
 	select {
 	case r := <-resultCh:
@@ -76,7 +74,7 @@ func TestTuiConfirmBlocksUntilResponse(t *testing.T) {
 
 func TestConfirmPanelSelectionAndDecision(t *testing.T) {
 	p := &confirmPanel{}
-	p.show(agent.ToolCallInfo{
+	p.show(agentapi.ToolCallInfo{
 		ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "ls"}},
 	}, make(chan confirmResult, 1))
 
@@ -109,23 +107,23 @@ func TestConfirmPanelSelectionAndDecision(t *testing.T) {
 	if res.Allow {
 		t.Fatal("confirm on Deny should return allow=false")
 	}
-	if res.Scope != agent.ScopeDeny {
+	if res.Scope != agentapi.ScopeDeny {
 		t.Fatalf("confirm on Deny should return scope=ScopeDeny, got %v", res.Scope)
 	}
 	p.next()
 	res = p.confirm()
-	if !res.Allow || res.Scope != agent.ScopeOnce {
+	if !res.Allow || res.Scope != agentapi.ScopeOnce {
 		t.Fatalf("confirm on Once should return allow=true scope=ScopeOnce, got %v", res)
 	}
 	p.next()
 	res = p.confirm()
-	if !res.Allow || res.Scope != agent.ScopeSession {
+	if !res.Allow || res.Scope != agentapi.ScopeSession {
 		t.Fatalf("confirm on Session should return allow=true scope=ScopeSession, got %v", res)
 	}
 }
 
 func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	m.width = 80
 	m.height = 24
 	m.blocks = append(m.blocks, block{kind: components.BlockUser, raw: "hello"})
@@ -134,7 +132,7 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 
 	resp := make(chan confirmResult, 1)
 	m2, _ := m.Update(confirmRequestMsg{req: confirmRequest{
-		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "ls"}}},
+		info: agentapi.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "ls"}}},
 		resp: resp,
 	}})
 	mm := m2.(*Model)
@@ -157,10 +155,10 @@ func TestConfirmPanelRendersAsBottomStrip(t *testing.T) {
 }
 
 func TestConfirmPanelArrowSelection(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	resp := make(chan confirmResult, 1)
 	m.Update(confirmRequestMsg{req: confirmRequest{
-		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
+		info: agentapi.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
 		resp: resp,
 	}})
 
@@ -178,10 +176,10 @@ func TestConfirmPanelArrowSelection(t *testing.T) {
 }
 
 func TestConfirmPanelEnterDecision(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	resp := make(chan confirmResult, 1)
 	m.Update(confirmRequestMsg{req: confirmRequest{
-		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
+		info: agentapi.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
 		resp: resp,
 	}})
 
@@ -205,16 +203,16 @@ func TestConfirmPanelEnterDecision(t *testing.T) {
 	if !cmsg.allow {
 		t.Fatal("Once selection should produce allow=true")
 	}
-	if cmsg.scope != agent.ScopeOnce {
+	if cmsg.scope != agentapi.ScopeOnce {
 		t.Fatalf("Once selection should produce scope=ScopeOnce, got %v", cmsg.scope)
 	}
 }
 
 func TestConfirmPanelUltraDestructiveHidesGlobal(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	resp := make(chan confirmResult, 1)
 	m2, _ := m.Update(confirmRequestMsg{req: confirmRequest{
-		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "rm -rf /"}}},
+		info: agentapi.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash", Arguments: map[string]any{"command": "rm -rf /"}}},
 		resp: resp,
 	}})
 	mm := m2.(*Model)
@@ -223,14 +221,80 @@ func TestConfirmPanelUltraDestructiveHidesGlobal(t *testing.T) {
 		t.Fatal("expected ultra-destructive panel")
 	}
 	for _, opt := range mm.confirm.options {
-		if opt.scope == agent.ScopeGlobal {
+		if opt.scope == agentapi.ScopeGlobal {
 			t.Fatal("global allow should not be offered for ultra-destructive commands")
 		}
 	}
 }
 
+func TestConfirmPanelEditShowsDiff(t *testing.T) {
+	p := &confirmPanel{}
+	p.show(agentapi.ToolCallInfo{
+		ToolCall: models.ToolCallContent{Name: "edit", Arguments: map[string]any{
+			"path":  "main.go",
+			"edits": []any{map[string]any{"oldText": "foo", "newText": "bar"}},
+		}},
+		Args: map[string]any{
+			"path":  "main.go",
+			"edits": []any{map[string]any{"oldText": "foo", "newText": "bar"}},
+		},
+	}, make(chan confirmResult, 1))
+
+	view := p.View(80)
+	if !strings.Contains(view, "Permission request: edit main.go") {
+		t.Fatalf("expected edit prompt with path, got:\n%s", view)
+	}
+	if !strings.Contains(view, "- foo") || !strings.Contains(view, "+ bar") {
+		t.Fatalf("expected clustered diff in panel, got:\n%s", view)
+	}
+	if strings.Contains(view, "oldText=") {
+		t.Fatalf("panel must not dump raw edits args, got:\n%s", view)
+	}
+}
+
+func TestConfirmPanelWriteShowsContentHead(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 15; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	args := map[string]any{"path": "main.go", "content": strings.Join(lines, "\n")}
+	p := &confirmPanel{}
+	p.show(agentapi.ToolCallInfo{
+		ToolCall: models.ToolCallContent{Name: "write", Arguments: args},
+		Args:     args,
+	}, make(chan confirmResult, 1))
+
+	view := stripANSI(p.View(80))
+	if !strings.Contains(view, "Permission request: write main.go") {
+		t.Fatalf("expected write prompt with path, got:\n%s", view)
+	}
+	if !strings.Contains(view, "line 1") || !strings.Contains(view, "line 10") {
+		t.Fatalf("expected content head in panel, got:\n%s", view)
+	}
+	if strings.Contains(view, "line 11") {
+		t.Fatalf("panel preview must truncate to %d lines, got:\n%s", confirmPreviewMaxLines, view)
+	}
+	if !strings.Contains(view, "+5 more") {
+		t.Fatalf("expected truncation hint, got:\n%s", view)
+	}
+}
+
+func TestConfirmPanelBashKeepsPlainArgs(t *testing.T) {
+	p := &confirmPanel{}
+	args := map[string]any{"command": "ls"}
+	p.show(agentapi.ToolCallInfo{
+		ToolCall: models.ToolCallContent{Name: "bash", Arguments: args},
+		Args:     args,
+	}, make(chan confirmResult, 1))
+
+	view := p.View(80)
+	if !strings.Contains(view, "command=ls") {
+		t.Fatalf("bash panel should keep flat args, got:\n%s", view)
+	}
+}
+
 func TestConfirmPanelCanScrollLog(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	m.width = 80
 	m.height = 10
 	m.updateSizes()
@@ -243,7 +307,7 @@ func TestConfirmPanelCanScrollLog(t *testing.T) {
 	m.rebuildViewport()
 
 	m.Update(confirmRequestMsg{req: confirmRequest{
-		info: agent.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
+		info: agentapi.ToolCallInfo{ToolCall: models.ToolCallContent{Name: "bash"}},
 		resp: make(chan confirmResult, 1),
 	}})
 
@@ -256,10 +320,10 @@ func TestConfirmPanelCanScrollLog(t *testing.T) {
 }
 
 func TestConfirmPanelStateTransitions(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 
 	resp := make(chan confirmResult, 1)
-	info := agent.ToolCallInfo{
+	info := agentapi.ToolCallInfo{
 		ToolCall: models.ToolCallContent{Name: "bash"},
 	}
 
@@ -272,7 +336,7 @@ func TestConfirmPanelStateTransitions(t *testing.T) {
 		t.Fatal("expected confirm panel visible")
 	}
 
-	m3, _ := mm.Update(confirmResponseMsg{allow: true, scope: agent.ScopeOnce})
+	m3, _ := mm.Update(confirmResponseMsg{allow: true, scope: agentapi.ScopeOnce})
 	mm = m3.(*Model)
 	if mm.state != stateProcessing {
 		t.Fatalf("expected stateProcessing, got %v", mm.state)

@@ -131,10 +131,12 @@ func formatCompactToolResult(toolName, args string, isError bool, preview string
 }
 
 // formatExpandedToolResult renders the Ctrl+O expanded view with the full tool
-// arguments and output. Edit calls render their change as a colored diff built
-// from the arguments instead of raw JSON. No head/tail truncation is applied so
-// the user can inspect everything the tool returned; width clips the body lines.
-func formatExpandedToolResult(toolName, args string, isError bool, content string, elapsed time.Duration, running bool, width int) string {
+// arguments and output. Edit calls render their change as a full clustered diff
+// built from the arguments instead of raw JSON; write calls render the same
+// diff on overwrite (old content from result details) or the full highlighted
+// content for new files. No head/tail truncation is applied so the user can
+// inspect everything the tool returned; width clips the body lines.
+func formatExpandedToolResult(toolName, args string, details map[string]any, isError bool, content string, elapsed time.Duration, running bool, width int) string {
 	dimStyle := styleDim()
 	bodyStyle := dimStyle
 	if isError {
@@ -158,13 +160,33 @@ func formatExpandedToolResult(toolName, args string, isError bool, content strin
 	}
 	sb.WriteString(dimStyle.Render(header))
 
-	// For edit calls the interesting payload is the change itself; render it as a
-	// colored diff built from the arguments rather than echoing raw JSON.
+	// For edit calls the interesting payload is the change itself; render it as
+	// a clustered diff built from the arguments rather than echoing raw JSON.
 	if toolName == "edit" {
-		if diff := buildEditDiff(args); diff != "" {
+		if rows := EditDiffRows(args, 0, diffExpandHint); len(rows) > 0 {
 			sb.WriteString("\n")
 			sb.WriteString(dimStyle.Render("  Changes:"))
-			for _, ln := range strings.Split(RenderDiff(ParseDiff(diff), width-4), "\n") {
+			for _, ln := range rows {
+				sb.WriteString("\n")
+				sb.WriteString("    " + ln)
+			}
+		}
+	} else if toolName == "write" {
+		// Overwrite with the previous content in the details: full diff.
+		// Otherwise the full written content, syntax highlighted.
+		if old, ok := details[oldContentDetailKey].(string); ok && old != "" {
+			if rows := RenderClusteredDiff(old, WriteContentFromArgs(args), 0, diffExpandHint); len(rows) > 0 {
+				sb.WriteString("\n")
+				sb.WriteString(dimStyle.Render("  Changes:"))
+				for _, ln := range rows {
+					sb.WriteString("\n")
+					sb.WriteString("    " + ln)
+				}
+			}
+		} else if rows := WriteContentRows(WriteContentFromArgs(args), writePathFromArgs(args), 0, diffExpandHint); len(rows) > 0 {
+			sb.WriteString("\n")
+			sb.WriteString(dimStyle.Render("  Content:"))
+			for _, ln := range rows {
 				sb.WriteString("\n")
 				sb.WriteString("    " + ln)
 			}
@@ -210,37 +232,6 @@ func formatArgsForDisplay(args string) string {
 		return truncate(args, 500)
 	}
 	return string(data)
-}
-
-// buildEditDiff constructs a unified-diff-like rendering of an edit tool call
-// from its arguments: each edit's oldText lines are marked removed and its
-// newText lines marked added. Returns "" when the args cannot be parsed into
-// edits, so the caller can fall back to the generic arguments section.
-func buildEditDiff(argsJSON string) string {
-	var m map[string]any
-	if err := json.Unmarshal([]byte(argsJSON), &m); err != nil {
-		return ""
-	}
-	edits, ok := m["edits"].([]any)
-	if !ok || len(edits) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	for _, raw := range edits {
-		edit, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		oldText, _ := edit["oldText"].(string)
-		newText, _ := edit["newText"].(string)
-		for _, ln := range strings.Split(oldText, "\n") {
-			sb.WriteString("-" + ln + "\n")
-		}
-		for _, ln := range strings.Split(newText, "\n") {
-			sb.WriteString("+" + ln + "\n")
-		}
-	}
-	return strings.TrimRight(sb.String(), "\n")
 }
 
 // toolKeyArg extracts the most meaningful argument from a tool's JSON args.

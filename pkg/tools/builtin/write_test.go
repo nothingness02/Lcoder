@@ -38,6 +38,53 @@ func TestWrite_BackupAndOverwrite(t *testing.T) {
 	if res.Text() == "" {
 		t.Fatal("expected non-empty result")
 	}
+	if got, ok := res.Details["old_content"].(string); !ok || got != "old" {
+		t.Fatalf("overwrite should ship old content in details, got %v", res.Details)
+	}
+}
+
+func TestWrite_NewFileHasNoOldContentDetail(t *testing.T) {
+	dir := t.TempDir()
+	write := NewWrite(dir).(*Write)
+
+	res, err := write.Execute(context.Background(), "call_1", map[string]any{
+		"path":    "fresh.txt",
+		"content": "hello",
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, ok := res.Details["old_content"]; ok {
+		t.Fatalf("new file must not carry old_content, got %v", res.Details)
+	}
+}
+
+func TestWrite_OversizedOldContentOmitted(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "big.bin")
+	big := make([]byte, maxWriteDiffOldSize+1)
+	if err := os.WriteFile(target, big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	write := NewWrite(dir).(*Write)
+	res, err := write.Execute(context.Background(), "call_1", map[string]any{
+		"path":    "big.bin",
+		"content": "new",
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, ok := res.Details["old_content"]; ok {
+		t.Fatal("old_content beyond the size cap must be omitted from details")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "new" {
+		t.Fatalf("file = %q, want new", string(data))
+	}
 }
 
 func TestWrite_FailureKeepsOriginal(t *testing.T) {
