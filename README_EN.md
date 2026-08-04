@@ -102,6 +102,8 @@ Lcoder's terminal interface is built around "conversation-driven programming." D
 | `Ctrl+M` | MCP / HTTP extensions panel |
 | `Ctrl+L` | Clear session |
 | `PgUp` / `PgDn` | Scroll history |
+| `Ctrl+Home` / `Ctrl+End` | Jump to oldest / latest message |
+| `Ctrl+Y` | Copy focused block (or last reply) to clipboard |
 
 ### Slash Commands
 

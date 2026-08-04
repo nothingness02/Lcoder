@@ -168,11 +168,13 @@ inject():
 
 ## 七、Lcoder 的对应关系
 
-| Kimi Code | Lcoder | 差距 |
+| Kimi Code | Lcoder | 状态 |
 |-----------|--------|------|
-| DynamicInjector 基类 | `applyMode()` + `refreshEphemeralReminders()` | 无统一注入器抽象 |
-| origin.variant | 无 | 无去重/回放路由 |
-| 每 step 静默 + 自去重 | 每 turn 硬注入 | **无去重窗口** |
-| GoalInjector 三档强度 | 无 | 无 goal 系统 |
+| DynamicInjector 基类 | `pkg/agent/injection.go` 的 `Injector` 接口 + `InjectionManager` | 已对齐（按 Lcoder 现状裁剪） |
+| origin.variant | `Injector.Variant()`，作为 Snapshot/Restore 的 key | 已对齐（无独立回放路由，ephemeral 通道不落历史） |
+| 每 step 静默 + 自去重 | `Inject()` 返回空串即静默；todo 10-turn 窗口（fingerprint 写入检测）、mode 2-turn/5-turn 节奏 + 静默档 | 已对齐 |
+| GoalInjector 三档强度 | 无 | 无 goal 系统（goal 模式走 continuation prompt，不在注入器范围） |
 | ToolsDiffInjector | `tool_activate` | 无 manifest 公告 |
-| 压缩后重注 | 需查 | — |
+| 压缩后重注 | `InjectionManager.OnCompacted()`，压缩提交后下一 turn 强制重注一次 | 已对齐 |
+| 状态跨会话传递 | `AgentSnapshot.Reminders`（checkpoint）+ `WithMode` Snapshot/Restore | 已对齐 |
+| reminder 消息形态 | 状态类（todo/mode）走 ephemeral，不落历史；事件类（mode 切换通知）经 `appendSwitchNotice` 持久化为普通 user 消息 | 有意分歧：事件持久、状态重推导 |

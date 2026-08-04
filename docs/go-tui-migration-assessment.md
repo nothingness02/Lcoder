@@ -149,3 +149,30 @@ Lcoder TUI: 7,586 行代码 + 5,896 行测试，97 个文件
 | go-tui 成熟度 | ⭐⭐ Pre-1.0，社区小 |
 | 迁移工期 | 3-4 周（单人全职） |
 | 建议 | **暂不迁移**，先用其思路优化现有实现 |
+
+## 八、复评（2026-08）：维持不迁移，记录可优化方向
+
+### 复评结论
+
+- go-tui 仍为 Pre-1.0（v0.13.x），单作者、无生产案例，三条核心风险均未消除。
+- 折中方案已大部分落地：帧调度（`pkg/tui/scheduler.go`，throttle+coalesce，30fps / VSCode 10fps）、块级渲染缓存（`components/assistant.go`）、glamour renderer 缓存、虚拟视口 + sticky bottom、性能回归测试（`rebuild_bench_test.go`）。
+- go-tui 的两大杀手锏中，buffer diff 已被"帧调度+块缓存"等效解决；净收益只剩声明式 .gsx 布局一项。
+- 迁移成本上升：TUI 已增至 116 个文件（7,586 行代码 + 5,896 行测试），与事件总线、权限审批、checkpoint、@文件索引、goal 模式、子 agent 镜像深度耦合，重估工期 4-6 周。
+- **当前 TUI 的问题是打磨问题，不是框架问题。**
+
+### 可优化方向（按优先级）
+
+| # | 方向 | 思路来源 | 工作量 | 说明 |
+|---|------|---------|:---:|------|
+| 1 | **流式增量重建** | go-tui cell diff | 数天 | `rebuildViewport`（`pkg/tui/view.go:19`）每帧对所有 block 跑 `layoutComponents` + `buildVirtualContent`；流式期间只有末尾 block 在变，可物化前缀内容、每帧只重渲染尾部 |
+| 2 | **表现力增强** | go-tui examples | 1-2 周 | 内联/紧凑模式（对标 `15-inline-mode`）、工具执行进度动画、更细的主题系统。表现力短板在设计投入而非框架能力 |
+| 3 | **布局代码减负** | go-tui 声明式 | 持续 | 继续抽公共布局函数（`panelFrame`、`statusLine` 模式），向声明式靠拢但不引入模板编译链 |
+| 4 | **复评触发点** | — | — | go-tui 发布 1.0、或出现知名生产项目采用时，重新评估迁移 |
+
+### 已落地（2026-08）
+
+- **复制文本**：`Ctrl+Y` 复制聚焦块（或最后一条回复）到剪贴板——Unix 走 OSC 52（SSH/tmux 友好），Windows 走 Win32 剪贴板 API（conhost 也覆盖），见 `pkg/tui/clipboard*.go`、`copy.go`。
+- **历史回看**：`PgUp`/`PgDn` 翻页、`Ctrl+Home`/`Ctrl+End` 跳到最早/最新消息（输入态与流式中均可用），视口右缘滚动位置指示条，见 `view.go scrollbarView`。
+- **退出后 scrollback**：TUI 退出 alt screen 后把本次会话 transcript 以纯文本打印到 stdout，进入终端原生 scrollback，见 `pkg/tui/transcript.go`。
+- **目录 mention**：`@dir` 可补全、可校验、可提交（`mention.go`/`fileindex.go`/`fd.go`）。
+- 结论：原生终端体验的高频诉求（复制、快速回看）已在 alt screen 架构内覆盖；仅剩"会话中拖终端自带滚动条"需要 inline 渲染（3-5 周），暂不投入。

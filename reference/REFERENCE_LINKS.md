@@ -23,7 +23,8 @@
 | 项目 | GitHub 仓库 | 说明 |
 |------|------------|------|
 | **Higress** | https://github.com/higress-group/higress.git | AI 网关，可作为 LLM provider 路由/代理的参考 |
-
+|**go-tui**|https://github.com/grindlemire/go-tui.git|支持html和css声明形式的tui库表达风格更加顺畅|
+|**bubbles** |https://github.com/charmbracelet/bubbles.git|bubble tea的组件库|
 ---
 
 ## 使用方式
