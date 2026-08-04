@@ -1,13 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/lcoder/lcoder/pkg/agent"
-	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/tui/components"
-	"strings"
 )
 
 func TestParseGoalCommand(t *testing.T) {
@@ -34,12 +32,12 @@ func TestParseGoalCommand(t *testing.T) {
 	}
 }
 
-// /goal <objective> 建立 goal 后必须立即把 objective 作为第一条 prompt 提交
-// (对齐 kimi-code:/goal 即开始追求,而不是等用户再输入一条)。
-// 同步可观测的判据:objective 作为 user 块进入 transcript 且进入 processing。
+// /goal <objective> 建立 goal 后必须立即把 objective 作为第一条 prompt 开始追求
+// (对齐 kimi-code:/goal 即开始追求,而不是等用户再输入一条)。续跑由 host 的
+// goal driver 承担;TUI 侧同步可观测的判据:objective 作为 user 块进入
+// transcript 且进入 processing。
 func TestGoalStartSubmitsObjectivePrompt(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1",
-		"openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	m.state = stateInput
 	m.dispatchSlash("/goal fix the failing test")
 
@@ -55,7 +53,7 @@ func TestGoalStartSubmitsObjectivePrompt(t *testing.T) {
 	if m.state != stateProcessing {
 		t.Fatalf("model must enter processing state, got %v", m.state)
 	}
-	if g := m.agent.Goal(); g == nil || g.Status != agent.GoalActive {
+	if g := m.agent.Goal(); g == nil || g.Status != agentapi.GoalActive {
 		t.Fatal("goal must be active")
 	}
 }

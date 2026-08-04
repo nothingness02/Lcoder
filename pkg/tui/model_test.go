@@ -6,23 +6,24 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/host"
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/testutil"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
-func newTestModel() (*Model, *testutil.FakeAgent, *testutil.FakeSession) {
+func newTestModel() (*Model, *testutil.FakeAgent, *events.Bus) {
 	bus := events.New()
-	ag := &testutil.FakeAgent{}
-	sess := &testutil.FakeSession{ID: "abc123"}
-	store := &testutil.FakeSessionStore{}
-	m := NewModel(bus, ag, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	ag := &testutil.FakeAgent{SessionIDVal: "abc123"}
+	m := NewModel(ag, host.Services{Bus: bus}, DisplayConfig{
+		CWD:        ".",
+		ModelRef:   "openai/gpt-4o-mini",
+		ThemeStyle: "dark",
+	})
 	m.width = 80
 	m.height = 24
-	return m, ag, sess
+	return m, ag, bus
 }
 
 func TestStatusTextShowsCapabilities(t *testing.T) {
@@ -30,10 +31,24 @@ func TestStatusTextShowsCapabilities(t *testing.T) {
 	if strings.Contains(m.statusText(), "caps:") {
 		t.Fatal("expected no caps segment before capabilities are set")
 	}
-	m.SetCapabilities([]string{"tools", "vision"})
+	m.capabilities = []string{"tools", "vision"}
 	out := m.statusText()
 	if !strings.Contains(out, "caps:") || !strings.Contains(out, "tools") || !strings.Contains(out, "vision") {
 		t.Fatalf("expected capabilities in status, got %q", out)
+	}
+}
+
+// The /status panel surfaces the micro-compaction state only when the agent
+// reports it enabled (default is disabled, so normally nothing shows).
+func TestStatusTextShowsMicroCompactWhenEnabled(t *testing.T) {
+	m, ag, _ := newTestModel()
+	if strings.Contains(m.statusText(), "micro-compact:") {
+		t.Fatal("expected no micro-compact segment when disabled")
+	}
+	ag.MicroCompactStatusVal = "on (cutoff 12)"
+	out := m.statusText()
+	if !strings.Contains(out, "micro-compact: on (cutoff 12)") {
+		t.Fatalf("expected micro-compact status in /status, got %q", out)
 	}
 }
 
@@ -163,12 +178,8 @@ func TestFormatArgs(t *testing.T) {
 	}
 }
 
-// Ensure concrete types satisfy the TUI interfaces.
-var (
-	_ AgentRunner   = (*fakeAgent)(nil)
-	_ SessionWriter = (*fakeSession)(nil)
-	_ SessionWriter = (*session.Session)(nil)
-)
+// Ensure the fake satisfies the TUI's protocol handle.
+var _ AgentCore = (*fakeAgent)(nil)
 
 func TestParseModeCommand(t *testing.T) {
 	cases := []struct {

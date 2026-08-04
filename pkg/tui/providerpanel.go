@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/contextmgr"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
@@ -300,7 +300,7 @@ func (m *Model) commitProvider() {
 	budget, _ := m.cfg.ResolveContextBudget(window, maxOutput)
 	m.agent.SwitchModel(
 		models.ModelRef{Provider: provName, ID: modelID},
-		contextmgr.TokenBudget{
+		agentapi.TokenBudget{
 			MaxTotal:      budget.MaxTotal,
 			TargetTotal:   budget.TargetTotal,
 			ReserveOutput: budget.ReserveOutput,

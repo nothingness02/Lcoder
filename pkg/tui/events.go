@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/models"
@@ -21,6 +22,17 @@ func (m *Model) handleEvent(ev events.Event) tea.Cmd {
 		m.streamLive = ""
 		m.streamMsgID = ""
 		m.turnTools = m.turnTools[:0]
+		// A run may also be started by the host's goal driver (outside the
+		// runner queue), so the processing UI (spinner, esc hint) tracks the
+		// run events rather than only queue submissions. The transition is
+		// guarded: an open overlay (session picker, provider wizard,
+		// extensions) owns the state and must not be clobbered by a run
+		// starting behind it.
+		if m.state == stateInput || m.state == stateProcessing {
+			m.state = stateProcessing
+			m.input.SetProcessing(true)
+		}
+		m.turnStartFrame = m.spinner.frame
 
 	case events.MessageStartEvent:
 		m.compacting = false
@@ -104,6 +116,50 @@ func (m *Model) handleEvent(ev events.Event) tea.Cmd {
 		m.completedTurns++
 		m.compacting = false
 		m.updateContextStats()
+		// Mirror of the AgentStart transition: a host-driven (goal) run ending
+		// returns the UI to input; the next continuation's AgentStart flips it
+		// back. Queue-submitted runs settle again in onAgentDone right after.
+		// Guarded like AgentStart: an open overlay keeps its state.
+		if m.state == stateProcessing {
+			m.state = stateInput
+			m.input.SetProcessing(false)
+		}
+
+	case events.GoalUpdatedEvent:
+		// Keep the local goal copy current (status line "· goal" marker); an
+		// empty Status means the record was cleared.
+		if e.Status == "" {
+			m.goal = nil
+		} else {
+			m.goal = &agentapi.GoalState{
+				Objective:   e.Objective,
+				Status:      agentapi.GoalStatus(e.Status),
+				TurnBudget:  e.TurnBudget,
+				TurnsUsed:   e.TurnsUsed,
+				TokenBudget: e.TokenBudget,
+				TokensUsed:  e.TokensUsed,
+				BlockReason: e.Reason,
+			}
+		}
+		// A goal that stops without a terminal run event (the host driver's
+		// first run can fail before AgentStart/AgentEnd, e.g. a session Append
+		// error) would otherwise leave the UI stuck in processing forever.
+		// Reset to input and surface the reason.
+		if m.state == stateProcessing {
+			switch agentapi.GoalStatus(e.Status) {
+			case agentapi.GoalPaused, agentapi.GoalBlocked, "":
+				m.state = stateInput
+				m.input.SetProcessing(false)
+				reason := e.Reason
+				if reason == "" {
+					reason = "goal " + e.Status
+					if e.Status == "" {
+						reason = "goal cleared"
+					}
+				}
+				m.addSystem(styleWarn().Render("goal pursuit stopped: " + reason))
+			}
+		}
 
 	case events.CompactionStartedEvent:
 		m.compacting = true
@@ -333,7 +389,8 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 			m.blocks[i].toolResult = text
 			m.blocks[i].toolErr = isError
 			m.blocks[i].toolRunning = false
-			m.blocks[i].toolChip = chipForTool(name, result)
+			m.blocks[i].toolDetails = result.Details
+			m.blocks[i].toolChip = chipForTool(name, m.blocks[i].toolArgs, result)
 			if !m.blocks[i].toolStart.IsZero() {
 				m.blocks[i].elapsed = time.Since(m.blocks[i].toolStart)
 			}
@@ -342,7 +399,7 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 			return
 		}
 	}
-	m.appendBlock(block{kind: components.BlockTool, id: id, toolName: name, toolResult: text, toolErr: isError, toolChip: chipForTool(name, result)})
+	m.appendBlock(block{kind: components.BlockTool, id: id, toolName: name, toolResult: text, toolErr: isError, toolDetails: result.Details, toolChip: chipForTool(name, "", result)})
 }
 
 // blocksFromMessages rebuilds the block history from a stored conversation.

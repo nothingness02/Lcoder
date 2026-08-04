@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
@@ -14,7 +12,7 @@ import (
 // transcript visible above, not as a full-screen replacement — the unified
 // editor-replacement layout.
 func TestPanelsRenderAsBottomStrip(t *testing.T) {
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{}, &fakeSessionStore{}, ".", "s1", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	m.width = 80
 	m.height = 24
 	m.mainWidth = 80

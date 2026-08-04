@@ -21,19 +21,21 @@ type steerRequest struct {
 // runnerQueue serializes calls to the agent so the UI never blocks the bubbletea
 // update loop. It runs in a dedicated goroutine and delivers completion messages
 // (AgentDoneMsg) on a channel that the model drains via a tea.Cmd.
+//
+// The queue holds the stable agentapi.CoreAPI handle: mode switches swap the
+// underlying runner inside the host, so the queue never re-points. Session
+// persistence of the prompt happens inside Core.Prompt (host layer), not here.
 type runnerQueue struct {
-	agent   AgentRunner
-	session SessionWriter
+	agent   AgentCore
 	prompts chan promptRequest
 	steers  chan steerRequest
 	results chan tea.Msg
 }
 
-// newRunnerQueue creates a queue for the given agent and session.
-func newRunnerQueue(agent AgentRunner, session SessionWriter) *runnerQueue {
+// newRunnerQueue creates a queue for the given core.
+func newRunnerQueue(agent AgentCore) *runnerQueue {
 	return &runnerQueue{
 		agent:   agent,
-		session: session,
 		prompts: make(chan promptRequest, 8),
 		steers:  make(chan steerRequest, 8),
 		results: make(chan tea.Msg, 8),
@@ -52,10 +54,6 @@ func (q *runnerQueue) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case p := <-q.prompts:
-			if err := q.session.Append(p.msg); err != nil {
-				q.sendResult(ctx, AgentDoneMsg{Err: err})
-				continue
-			}
 			err := q.agent.Prompt(ctx, p.msg)
 			q.sendResult(ctx, AgentDoneMsg{Err: err})
 		case s := <-q.steers:
@@ -71,8 +69,8 @@ func (q *runnerQueue) sendResult(ctx context.Context, msg tea.Msg) {
 	}
 }
 
-// SubmitPrompt enqueues a user prompt. The message is appended to the session
-// and submitted to the agent by the worker.
+// SubmitPrompt enqueues a user prompt. The core persists the message to the
+// active session and runs the agent.
 func (q *runnerQueue) SubmitPrompt(text string) {
 	q.prompts <- promptRequest{text: text, msg: models.UserMessage(text)}
 }
@@ -85,16 +83,4 @@ func (q *runnerQueue) SubmitSteer(msg models.AgentMessage) {
 // Results returns the channel that receives completion messages from the worker.
 func (q *runnerQueue) Results() <-chan tea.Msg {
 	return q.results
-}
-
-// SetAgent updates the agent target. Used after a mode switch, which replaces
-// the active agent.
-func (q *runnerQueue) SetAgent(agent AgentRunner) {
-	q.agent = agent
-}
-
-// SetSession updates the session target. Used after switching or creating a
-// session so subsequent prompts append to the correct conversation.
-func (q *runnerQueue) SetSession(session SessionWriter) {
-	q.session = session
 }

@@ -9,9 +9,14 @@ import (
 	"github.com/lcoder/lcoder/pkg/task"
 )
 
-// Runner abstracts the agent for UI interaction. It is defined in the agent
+// Runner abstracts the agent for in-process driving. It is defined in the agent
 // package so the concrete Agent can implement it without a return-type
 // indirection, and so mode switching can be expressed through an interface.
+//
+// Deprecated for UI use: interactive surfaces (TUI, future transports) should
+// depend on agentapi.CoreAPI instead. Runner is retained for in-process
+// drivers (GoalDriver, headless mode, tests) that legitimately need the
+// internal surface (Stats map, *task.Manager).
 type Runner interface {
 	Prompt(ctx context.Context, msg models.AgentMessage) error
 	Continue(ctx context.Context) error
@@ -46,6 +51,9 @@ type Runner interface {
 	CancelGoal()
 	// LastEndReason returns how the most recent run ended.
 	LastEndReason() events.AgentEndReason
+	// MicroCompactStatus returns the mechanical tool-result trimming status
+	// ("" when disabled) for /status echo.
+	MicroCompactStatus() string
 }
 
 // ModeSwitcher extends Runner with the ability to create a new agent instance

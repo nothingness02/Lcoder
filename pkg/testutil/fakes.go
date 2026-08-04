@@ -3,27 +3,27 @@ package testutil
 
 import (
 	"context"
-	"strconv"
+	"fmt"
 	"sync"
 
-	"github.com/lcoder/lcoder/pkg/agent"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/task"
 )
 
-// FakeAgent is a minimal implementation of agent.Runner (and ModeSwitcher) for
-// TUI and executor tests. All fields are exported so tests can program or
-// inspect behavior. Prompts and Messages are protected by a mutex so tests can
-// safely read them while the TUI runner delivers prompts from a goroutine.
+// FakeAgent is a minimal implementation of agentapi.CoreAPI for TUI tests.
+// All fields are exported so tests can program or inspect behavior. Every
+// method takes the mutex, so tests can safely read or reprogram fields while
+// the TUI runner delivers prompts from a goroutine (program fields before
+// starting the model, or hold no expectations about intermediate states).
 type FakeAgent struct {
 	mu             sync.Mutex
 	Prompts        []models.AgentMessage
 	Messages       []models.AgentMessage
 	ModeName       string
-	TaskMgr        *task.Manager
+	TasksVal       []task.Task
 	SwitchedModel  models.ModelRef
 	SwitchedBudget contextmgr.TokenBudget
 	SessionIDVal   string
@@ -31,61 +31,229 @@ type FakeAgent struct {
 	// records its argument for test inspection.
 	ThinkingVal      string
 	SwitchedThinking string
-	// StatsVal, when non-nil, is returned by Stats so tests can program the
+	// ContextStatsVal is returned by ContextStats so tests can program the
 	// context-budget figures the TUI status line consumes.
-	StatsVal map[string]int
+	ContextStatsVal agentapi.ContextStats
+	// MicroCompactStatusVal is returned by MicroCompactStatus ("" = disabled).
+	MicroCompactStatusVal string
 	// GoalVal is the fake goal record manipulated by the goal methods.
-	GoalVal *agent.GoalState
+	GoalVal *agentapi.GoalState
 	// EndReason is returned by LastEndReason (zero value = "").
 	EndReason events.AgentEndReason
+
+	// SkillsBlockVal records the last SetSkillsBlock content.
+	SkillsBlockVal string
+	// SetModeErr, when non-nil, is returned by SetMode; ModeName is left
+	// unchanged, mirroring the host's refuse-then-don't-touch semantics.
+	SetModeErr error
+	// BusyErr, when non-nil, is returned by run submissions (Prompt,
+	// Continue) and state-changing operations (SetMode, OpenSession,
+	// NewSession, TruncateAfter, RestoreCheckpoint) with no side effects,
+	// mirroring the host's in-flight refusal (host.ErrAgentBusy). Tests set
+	// it to host.ErrAgentBusy to exercise the TUI's busy-error paths.
+	BusyErr error
+
+	// SessionsList is returned by ListSessions (the session picker).
+	SessionsList []agentapi.SessionInfo
+	// SessionMsgs programs OpenSession: the messages swapped in per id.
+	SessionMsgs map[string][]models.AgentMessage
+	// OpenSessionErr, when non-nil, is returned by OpenSession.
+	OpenSessionErr error
+	// NewSessionCount counts NewSession calls.
+	NewSessionCount int
+	// TruncateAfterCalls records every TruncateAfter message id.
+	TruncateAfterCalls []string
+	// RenamedSessions records RenameSession calls (id → title).
+	RenamedSessions map[string]string
+
+	// CheckpointIDs backs ListCheckpoints.
+	CheckpointIDs []string
+	// SavedCheckpointCount counts SaveCheckpoint calls.
+	SavedCheckpointCount int
+	// SaveCheckpointErr, when non-nil, is returned by SaveCheckpoint.
+	SaveCheckpointErr error
+	// RestoredCheckpoint records the id passed to RestoreCheckpoint;
+	// RestoreMsgs, when non-nil, replaces Messages on restore.
+	RestoredCheckpoint string
+	RestoreMsgs        []models.AgentMessage
+	RestoreErr         error
 }
+
+var _ agentapi.CoreAPI = (*FakeAgent)(nil)
 
 func (f *FakeAgent) Prompt(_ context.Context, msg models.AgentMessage) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.BusyErr != nil {
+		return f.BusyErr
+	}
 	f.Prompts = append(f.Prompts, msg)
 	return nil
 }
 
-func (f *FakeAgent) Continue(_ context.Context) error { return nil }
+func (f *FakeAgent) Continue(_ context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BusyErr != nil {
+		return f.BusyErr
+	}
+	return nil
+}
 func (f *FakeAgent) AllMessages() []models.AgentMessage {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.Messages
 }
-func (f *FakeAgent) SetMessages(msgs []models.AgentMessage) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.Messages = msgs
-}
-func (f *FakeAgent) Stats() map[string]int { return f.StatsVal }
 func (f *FakeAgent) PromptsLen() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.Prompts)
 }
 func (f *FakeAgent) Mode() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.ModeName == "" {
 		return "code"
 	}
 	return f.ModeName
 }
-func (f *FakeAgent) SessionID() string   { return f.SessionIDVal }
-func (f *FakeAgent) SetSessionID(id string) { f.SessionIDVal = id }
-func (f *FakeAgent) SetUserConfirm(uc agent.UserConfirmation) {}
+
+// SetMode records the requested mode (the real host swaps the underlying
+// runner; the fake just flips the label) — only on success, mirroring the
+// host's semantics where a refused switch leaves the active mode untouched.
+func (f *FakeAgent) SetMode(mode string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BusyErr != nil {
+		return f.BusyErr
+	}
+	if f.SetModeErr != nil {
+		return f.SetModeErr
+	}
+	f.ModeName = mode
+	return nil
+}
+
+func (f *FakeAgent) SessionID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.SessionIDVal
+}
+func (f *FakeAgent) SetUserConfirm(agentapi.UserConfirmation) {}
 func (f *FakeAgent) Steer(models.AgentMessage)                {}
 func (f *FakeAgent) Abort()                                   {}
 func (f *FakeAgent) ClearSkillFilter()                        {}
 func (f *FakeAgent) SwitchModel(ref models.ModelRef, budget contextmgr.TokenBudget) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.SwitchedModel = ref
 	f.SwitchedBudget = budget
 }
-func (f *FakeAgent) TaskManager() *task.Manager {
-	return f.TaskMgr
+
+// ContextStats returns the programmed context accounting.
+func (f *FakeAgent) ContextStats() agentapi.ContextStats {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ContextStatsVal
+}
+
+// SetSkillsBlock records the skills block content.
+func (f *FakeAgent) SetSkillsBlock(content string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.SkillsBlockVal = content
+}
+
+// Tasks returns the programmed task snapshot.
+func (f *FakeAgent) Tasks() []task.Task {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.TasksVal
+}
+
+// OpenSession swaps in the programmed messages for id, mirroring the host's
+// atomic session switch (messages + session id + tasks rebuilt from history).
+func (f *FakeAgent) OpenSession(id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BusyErr != nil {
+		return f.BusyErr
+	}
+	if f.OpenSessionErr != nil {
+		return f.OpenSessionErr
+	}
+	msgs, ok := f.SessionMsgs[id]
+	if !ok {
+		return fmt.Errorf("fake: unknown session %q", id)
+	}
+	f.Messages = msgs
+	f.SessionIDVal = id
+	f.TasksVal = tasksFromMessages(msgs)
+	return nil
+}
+
+// NewSession starts a fresh empty session.
+func (f *FakeAgent) NewSession() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BusyErr != nil {
+		return f.BusyErr
+	}
+	f.NewSessionCount++
+	f.Messages = nil
+	f.TasksVal = nil
+	f.SessionIDVal = fmt.Sprintf("fake-new-%d", f.NewSessionCount)
+	return nil
+}
+
+// TruncateAfter records the call and prunes Messages to just after the given
+// message id (an empty id clears the conversation), mirroring the host's
+// fork-based truncation from the TUI's perspective.
+func (f *FakeAgent) TruncateAfter(messageID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BusyErr != nil {
+		return f.BusyErr
+	}
+	f.TruncateAfterCalls = append(f.TruncateAfterCalls, messageID)
+	if messageID == "" {
+		f.Messages = nil
+		return nil
+	}
+	for i, msg := range f.Messages {
+		if msg.ID == messageID {
+			f.Messages = f.Messages[:i+1]
+			return nil
+		}
+	}
+	return fmt.Errorf("fake: message %q not found", messageID)
+}
+
+// ListSessions returns the programmed session metadata.
+func (f *FakeAgent) ListSessions() ([]agentapi.SessionInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.SessionsList, nil
+}
+
+// RenameSession records the rename and updates the matching SessionsList entry.
+func (f *FakeAgent) RenameSession(sessionID, title string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.RenamedSessions == nil {
+		f.RenamedSessions = make(map[string]string)
+	}
+	f.RenamedSessions[sessionID] = title
+	for i, s := range f.SessionsList {
+		if s.ID == sessionID {
+			f.SessionsList[i].Title = title
+		}
+	}
+	return nil
 }
 
 // Goal returns the fake's goal record (nil unless StartGoal was called).
-func (f *FakeAgent) Goal() *agent.GoalState {
+func (f *FakeAgent) Goal() *agentapi.GoalState {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.GoalVal == nil {
@@ -99,15 +267,15 @@ func (f *FakeAgent) Goal() *agent.GoalState {
 func (f *FakeAgent) StartGoal(objective string, turnBudget, tokenBudget int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.GoalVal = &agent.GoalState{Objective: objective, Status: agent.GoalActive, TurnBudget: turnBudget, TokenBudget: tokenBudget}
+	f.GoalVal = &agentapi.GoalState{Objective: objective, Status: agentapi.GoalActive, TurnBudget: turnBudget, TokenBudget: tokenBudget}
 }
 
 // PauseGoal marks the fake goal paused.
 func (f *FakeAgent) PauseGoal(reason string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.GoalVal != nil && f.GoalVal.Status == agent.GoalActive {
-		f.GoalVal.Status = agent.GoalPaused
+	if f.GoalVal != nil && f.GoalVal.Status == agentapi.GoalActive {
+		f.GoalVal.Status = agentapi.GoalPaused
 		f.GoalVal.BlockReason = reason
 	}
 }
@@ -116,8 +284,8 @@ func (f *FakeAgent) PauseGoal(reason string) {
 func (f *FakeAgent) ResumeGoal() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.GoalVal != nil && (f.GoalVal.Status == agent.GoalPaused || f.GoalVal.Status == agent.GoalBlocked) {
-		f.GoalVal.Status = agent.GoalActive
+	if f.GoalVal != nil && (f.GoalVal.Status == agentapi.GoalPaused || f.GoalVal.Status == agentapi.GoalBlocked) {
+		f.GoalVal.Status = agentapi.GoalActive
 		f.GoalVal.BlockReason = ""
 	}
 }
@@ -130,7 +298,11 @@ func (f *FakeAgent) CancelGoal() {
 }
 
 // LastEndReason returns the fake's programmed end reason.
-func (f *FakeAgent) LastEndReason() events.AgentEndReason { return f.EndReason }
+func (f *FakeAgent) LastEndReason() events.AgentEndReason {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.EndReason
+}
 
 // SwitchThinking records the requested thinking value for test inspection.
 func (f *FakeAgent) SwitchThinking(thinking string) {
@@ -146,63 +318,65 @@ func (f *FakeAgent) Thinking() string {
 	return f.ThinkingVal
 }
 
-// WithMode implements agent.ModeSwitcher by recording the requested mode and
-// returning itself. It satisfies the interface TUI uses for mode switches.
-func (f *FakeAgent) WithMode(mode string) agent.Runner {
-	f.ModeName = mode
-	return f
+// MicroCompactStatus returns the programmed trimming status ("" default).
+func (f *FakeAgent) MicroCompactStatus() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.MicroCompactStatusVal
 }
 
-var (
-	_ agent.Runner     = (*FakeAgent)(nil)
-	_ agent.ModeSwitcher = (*FakeAgent)(nil)
-)
-
-// FakeSession is a minimal implementation of the TUI SessionWriter interface.
-type FakeSession struct {
-	ID       string
-	Messages []models.AgentMessage
+// SaveCheckpoint records the call and returns the current session id as the
+// checkpoint id (matching the production store keying).
+func (f *FakeAgent) SaveCheckpoint() (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.SavedCheckpointCount++
+	if f.SaveCheckpointErr != nil {
+		return "", f.SaveCheckpointErr
+	}
+	return f.SessionIDVal, nil
 }
 
-func (f *FakeSession) Append(msg models.AgentMessage) error {
-	f.Messages = append(f.Messages, msg)
+// RestoreCheckpoint records the id and swaps in RestoreMsgs when programmed.
+func (f *FakeAgent) RestoreCheckpoint(id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BusyErr != nil {
+		return f.BusyErr
+	}
+	f.RestoredCheckpoint = id
+	if f.RestoreErr != nil {
+		return f.RestoreErr
+	}
+	if f.RestoreMsgs != nil {
+		f.Messages = f.RestoreMsgs
+	}
 	return nil
 }
-func (f *FakeSession) SessionID() string { return f.ID }
 
-// FakeSessionStore is a minimal implementation of the TUI SessionStore interface.
-type FakeSessionStore struct {
-	Sessions []*session.Session
-	Session  *session.Session
-	Err      error
-	// Dir, when set, causes Create to delegate to a real session store in that
-	// directory so tests can exercise new-session creation end-to-end.
-	Dir     string
-	Created []*session.Session
-}
-
-func (f *FakeSessionStore) List(cwd string) ([]*session.Session, error) {
-	return f.Sessions, f.Err
-}
-func (f *FakeSessionStore) LoadByID(cwd, id string) (*session.Session, error) {
-	return f.Session, f.Err
-}
-func (f *FakeSessionStore) Create(cwd string) (*session.Session, error) {
-	if f.Err != nil {
-		return nil, f.Err
+// ListCheckpoints returns the programmed checkpoint ids.
+func (f *FakeAgent) ListCheckpoints() ([]agentapi.CheckpointInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	infos := make([]agentapi.CheckpointInfo, 0, len(f.CheckpointIDs))
+	for _, id := range f.CheckpointIDs {
+		infos = append(infos, agentapi.CheckpointInfo{ID: id})
 	}
-	if f.Dir != "" {
-		s, err := session.NewStore(f.Dir).Create(cwd)
-		if err != nil {
-			return nil, err
+	return infos, nil
+}
+
+// tasksFromMessages rebuilds the task list from history by finding the most
+// recent todo_write tool call. Returns nil when none is present. (Same logic
+// as the host's helper.)
+func tasksFromMessages(msgs []models.AgentMessage) []task.Task {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		for _, tc := range msgs[i].ToolCalls() {
+			if tc.Name == task.ToolName {
+				if tasks, err := task.Parse(tc.Arguments["todos"]); err == nil {
+					return tasks
+				}
+			}
 		}
-		f.Created = append(f.Created, s)
-		return s, nil
 	}
-	s := f.Session
-	if s == nil {
-		s = &session.Session{ID: "fake-created-" + strconv.Itoa(len(f.Created)), CWD: cwd}
-	}
-	f.Created = append(f.Created, s)
-	return s, nil
+	return nil
 }

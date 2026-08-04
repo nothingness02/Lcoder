@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/task"
 )
 
 // SlashHandler executes a slash command. It receives the TUI model and any
@@ -44,33 +43,14 @@ func init() {
 			}},
 		{Name: "new", Aliases: []string{"clear"}, Description: "New session / clear chat", Category: "Session",
 			Handler: func(m *Model, _ string) tea.Cmd {
-				if m.store == nil {
-					m.showTextPanel("new", styleError().Render("no session store available"))
+				if err := m.agent.NewSession(); err != nil {
+					if m.reportBusyErr("new session", err) {
+						return nil
+					}
+					m.showTextPanel("new", styleError().Render("new session: "+err.Error()))
 					return nil
 				}
-				sess, err := m.store.Create(m.cwd)
-				if err != nil {
-					m.showTextPanel("new", styleError().Render(fmt.Sprintf("create session: %v", err)))
-					return nil
-				}
-				m.session = sess
-				if m.onSessionChange != nil {
-					m.onSessionChange(sess)
-				}
-				m.runner.SetSession(sess)
-				m.agent.SetSessionID(sess.ID)
-				m.agent.SetMessages(nil)
-				if tm := m.agent.TaskManager(); tm != nil {
-					_ = tm.Restore(task.ManagerState{})
-				}
-				m.blocks = nil
-				m.components = nil
-				m.tasks = nil
-				m.history = newInputHistory()
-				m.suggestion = ""
-				m.errMsg = ""
-				m.completedTurns = 0
-				m.rebuildViewport()
+				m.reloadFromCore()
 				return nil
 			}},
 		{Name: "save", Description: "Save current agent checkpoint", Category: "Session",

@@ -43,7 +43,7 @@ func (s errorStore) Load(string) (*checkpoint.Checkpoint, error) {
 	return nil, errors.New("not implemented")
 }
 func (s errorStore) List() ([]string, error) { return nil, nil }
-func (s errorStore) Delete(string) error      { return nil }
+func (s errorStore) Delete(string) error     { return nil }
 
 func TestCheckpointManagerManualCheckpointSaves(t *testing.T) {
 	store := checkpoint.NewFileStore(t.TempDir())

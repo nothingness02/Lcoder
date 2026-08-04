@@ -18,8 +18,8 @@ import (
 func testContextManager() *contextmgr.Manager {
 	return contextmgr.NewManager(
 		contextmgr.TokenBudget{
-			MaxTotal:    128000,
-			TargetTotal: 120000,
+			MaxTotal:      128000,
+			TargetTotal:   120000,
 			ReserveOutput: 8192,
 			MaxOutput:     16384,
 		},
@@ -118,5 +118,57 @@ func TestAgentCheckpointRoundTrip(t *testing.T) {
 		if b.Priority != 100 {
 			t.Errorf("system block priority = %d, want 100", b.Priority)
 		}
+	}
+}
+
+// restore 的 GoalUpdatedEvent 在 mgr/loopState 恢复之后才发射:事件携带恢复
+// 后的 Turn,订阅者看到的是恢复完成的上下文。
+func TestRestoreGoalEventCarriesRestoredTurn(t *testing.T) {
+	client := llmtest.Client(llmtest.Turn(llmtest.Done(models.AssistantMessage("ok"), nil)))
+
+	original := New(Config{
+		SystemPrompt:   "x",
+		Model:          models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		ContextManager: testContextManager(),
+	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
+	original.StartGoal("ship it", 5, 0)
+	original.loopState.SetTurn(9)
+
+	cp, err := original.Checkpoint()
+	if err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+
+	restored := New(Config{
+		SystemPrompt:   "y",
+		Model:          models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		ContextManager: testContextManager(),
+	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
+
+	var goalEvents []events.GoalUpdatedEvent
+	restored.Subscribe(func(_ context.Context, ev events.Event) error {
+		if g, ok := ev.(events.GoalUpdatedEvent); ok {
+			goalEvents = append(goalEvents, g)
+		}
+		return nil
+	})
+
+	if err := restored.Restore(cp); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	if len(goalEvents) != 1 {
+		t.Fatalf("expected exactly 1 GoalUpdatedEvent from restore, got %d", len(goalEvents))
+	}
+	ev := goalEvents[0]
+	if ev.Turn != 9 {
+		t.Errorf("GoalUpdatedEvent.Turn = %d, want 9 (restored turn)", ev.Turn)
+	}
+	// A checkpointed active goal degrades to paused.
+	if ev.Status != string(GoalPaused) {
+		t.Errorf("GoalUpdatedEvent.Status = %q, want %q", ev.Status, GoalPaused)
+	}
+	if g := restored.Goal(); g == nil || g.Status != GoalPaused || g.Objective != "ship it" {
+		t.Errorf("restored goal = %+v, want paused 'ship it'", g)
 	}
 }

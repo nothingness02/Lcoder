@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/host"
 	"github.com/lcoder/lcoder/pkg/llm/llmtest"
 )
 
@@ -146,10 +147,12 @@ func TestSlashProviderOpensPanel(t *testing.T) {
 }
 
 func TestFirstLaunchAutoOpensPanel(t *testing.T) {
-	bus := events.New()
-	store := &fakeSessionStore{}
-	m := NewModel(bus, &fakeAgent{}, &fakeSession{ID: "x"}, store, ".", "x",
-		"openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, true /* needsProviderSetup */, nil)
+	m := NewModel(&fakeAgent{}, host.Services{Bus: events.New()}, DisplayConfig{
+		CWD:                ".",
+		ModelRef:           "openai/gpt-4o-mini",
+		ThemeStyle:         "dark",
+		NeedsProviderSetup: true,
+	})
 	defer m.Close()
 
 	if m.state != stateProvider || !m.provPanel.visible {

@@ -102,3 +102,74 @@ func TestGoalBudgetVetoStopsContinuation(t *testing.T) {
 		t.Fatal("soft continuation must be vetoed by the over-budget goal")
 	}
 }
+
+// 无变化的 goal 操作(complete 上 Pause、空 mutate、complete 上 Resume)不得发射
+// 内容不变的 GoalUpdatedEvent;CancelGoal 的 nil 快照则必须每次都发射。
+func TestGoalNoOpMutationsDoNotEmit(t *testing.T) {
+	client := llmtest.Client(llmtest.Turn(llmtest.Done(models.AssistantMessage("ok"), nil)))
+	ag := New(Config{
+		SystemPrompt: "x",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
+
+	var emitted []events.GoalUpdatedEvent
+	ag.Subscribe(func(_ context.Context, ev events.Event) error {
+		if g, ok := ev.(events.GoalUpdatedEvent); ok {
+			emitted = append(emitted, g)
+		}
+		return nil
+	})
+
+	ag.StartGoal("obj", 0, 0)                                       // +1 (active)
+	if _, err := ag.goals.applyUpdate("complete", ""); err != nil { // +1 (complete)
+		t.Fatalf("applyUpdate: %v", err)
+	}
+	ag.PauseGoal("nope")                   // complete goal: no-op, no event
+	ag.ResumeGoal()                        // complete goal: no-op, no event
+	ag.BlockGoal("nope")                   // complete goal: no-op, no event
+	ag.goals.mutate(func(g *GoalState) {}) // zero change: no event
+	if len(emitted) != 2 {
+		t.Fatalf("no-op mutations emitted events: %d events: %+v", len(emitted), emitted)
+	}
+
+	ag.CancelGoal() // +1 (cleared)
+	ag.CancelGoal() // +1: nil snapshot must always fire, even when already cleared
+	if len(emitted) != 4 {
+		t.Fatalf("CancelGoal must always emit, got %d events", len(emitted))
+	}
+	if last := emitted[len(emitted)-1]; last.Status != "" || last.Objective != "" {
+		t.Fatalf("cleared snapshot = %+v, want empty status/objective", last)
+	}
+}
+
+// WithMode 后 goalHolder 的 onChange 必须重接到新 Agent:事件的 Turn 取自新
+// agent 的 loopState,而不是冻结在第一个 Agent 上。
+func TestWithModeRewiresGoalOnChange(t *testing.T) {
+	client := llmtest.Client(llmtest.Turn(llmtest.Done(models.AssistantMessage("ok"), nil)))
+	ag := New(Config{
+		SystemPrompt: "x",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		Mode:         "code",
+	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New())
+
+	var turns []int
+	ag.Subscribe(func(_ context.Context, ev events.Event) error {
+		if g, ok := ev.(events.GoalUpdatedEvent); ok {
+			turns = append(turns, g.Turn)
+		}
+		return nil
+	})
+
+	ag.StartGoal("first", 0, 0) // old agent, turn 0
+
+	fresh := ag.WithMode("review").(*Agent)
+	fresh.loopState.SetTurn(42)
+	fresh.StartGoal("second", 0, 0)
+
+	if len(turns) != 2 {
+		t.Fatalf("expected 2 goal events, got %v", turns)
+	}
+	if turns[1] != 42 {
+		t.Fatalf("post-WithMode event Turn = %d, want 42 (fresh agent's loopState)", turns[1])
+	}
+}

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/agent"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 )
 
 // parseGoalArgs parses /goal arguments into a subcommand and, for start, the
@@ -36,16 +36,31 @@ func parseGoalArgs(args string) (sub, objective string, turns, tokens int) {
 	return "start", objective, turns, tokens
 }
 
-// handleGoalCommand implements the /goal command family.
+// handleGoalCommand implements the /goal command family. The pursuit loop
+// itself lives in the host's goal driver (started by StartGoal/ResumeGoal);
+// the TUI only issues the commands and renders state.
 func handleGoalCommand(m *Model, args string) tea.Cmd {
 	sub, objective, turns, tokens := parseGoalArgs(args)
 	switch sub {
 	case "start":
+		// StartGoal launches the host goal driver, whose first run uses the
+		// objective as its prompt (kimi-code's /goal semantics); continuations
+		// are driven by the host. The TUI renders the objective as a user bar
+		// and enters the processing UI; the run's AgentStart/AgentEnd events
+		// take it from there.
 		m.agent.StartGoal(objective, turns, tokens)
+		m.addUser(objective)
+		m.viewport.GotoBottom()
+		m.rebuildViewport()
+		m.state = stateProcessing
+		m.input.SetProcessing(true)
+		// Same cleanup as startPrompt: stale run errors, transient notices,
+		// and block focus must not leak into the new pursuit.
+		m.errMsg = ""
+		m.notice = ""
+		m.focusedBlockIndex = -1
 		m.showTextPanel("goal", styleSuccess().Render("goal started: "+objective))
-		// 立即以 objective 开跑第一个 run(kimi-code 的 /goal 语义);之后的
-		// continuation 由 onAgentDone 接线(见 keys.go)。
-		return m.startPrompt(objective)
+		return spinnerTick()
 	case "status":
 		m.showTextPanel("goal", formatGoalStatus(m.agent.Goal()))
 	case "pause":
@@ -58,9 +73,6 @@ func handleGoalCommand(m *Model, args string) tea.Cmd {
 		}
 		m.agent.ResumeGoal()
 		m.showTextPanel("goal", styleSuccess().Render("goal resumed"))
-		if cmd := m.continueGoalIfActive(); cmd != nil {
-			return cmd
-		}
 	case "cancel":
 		m.agent.CancelGoal()
 		m.showTextPanel("goal", styleDim().Render("goal cleared"))
@@ -69,7 +81,7 @@ func handleGoalCommand(m *Model, args string) tea.Cmd {
 }
 
 // formatGoalStatus renders the goal record for the status panel.
-func formatGoalStatus(g *agent.GoalState) string {
+func formatGoalStatus(g *agentapi.GoalState) string {
 	if g == nil {
 		return styleDim().Render("no active goal")
 	}
@@ -86,21 +98,4 @@ func formatGoalStatus(g *agent.GoalState) string {
 		out += "\nreason: " + g.BlockReason
 	}
 	return out
-}
-
-// continueGoalIfActive submits the next continuation prompt when a goal is
-// still active after a run (or a resume). Returns nil when the pursuit ends.
-func (m *Model) continueGoalIfActive() tea.Cmd {
-	g := m.agent.Goal()
-	prompt, done := agent.NextGoalAction(g, m.agent.LastEndReason())
-	if done {
-		if g != nil && g.Status == agent.GoalActive {
-			m.agent.PauseGoal("goal driver stopped")
-		}
-		return nil
-	}
-	m.state = stateProcessing
-	m.input.SetProcessing(true)
-	m.runner.SubmitPrompt(prompt)
-	return waitForRunnerResultCmd(m.runner.Results())
 }

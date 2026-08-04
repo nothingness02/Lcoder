@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lcoder/lcoder/pkg/agent"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 )
 
 // rebuildViewport re-renders all blocks into the viewport and pins to bottom
@@ -19,6 +19,7 @@ import (
 func (m *Model) rebuildViewport() {
 	layouts := layoutComponents(m.components, m.viewport.Width, m.toolsExpanded, m.focusedBlockIndex)
 	total := maxTotalHeight(layouts)
+	m.transcriptLines = total
 
 	atBottom := m.viewport.AtBottom()
 	scrollY := m.viewport.YOffset
@@ -51,8 +52,10 @@ func (m *Model) bottomHeight() int {
 }
 
 // syncBottomLayout resizes the viewport when the bottom region's height
-// changed outside a resize (composer growth, menu/chips rows). Without it
-// the frame grows past the terminal and the top lines are pushed off-screen.
+// changed outside a resize (composer growth, menu/chips rows, the processing
+// status line appearing above the composer). Without it the frame grows past
+// the terminal and the top lines are pushed off-screen. A user parked at the
+// bottom stays pinned across the height change.
 func (m *Model) syncBottomLayout() {
 	if m.width == 0 {
 		return
@@ -61,12 +64,16 @@ func (m *Model) syncBottomLayout() {
 	if h == m.bottomRows {
 		return
 	}
+	wasAtBottom := m.viewport.AtBottom()
 	m.bottomRows = h
 	vh := m.height - h - m.topBarHeight()
 	if vh < 3 {
 		vh = 3
 	}
 	m.viewport.Height = vh
+	if wasAtBottom {
+		m.viewport.GotoBottom()
+	}
 	m.rebuildViewport()
 }
 
@@ -114,6 +121,19 @@ func (m *Model) bottomRegion() string {
 		sections = append(sections, styleError().Render("  ✗ "+m.errMsg))
 	}
 
+	// Transient feedback (e.g. clipboard copy) — dim, cleared on the next
+	// keystroke, so it never becomes scrollback noise.
+	if m.notice != "" {
+		sections = append(sections, styleDim().Render("  "+m.notice))
+	}
+
+	// While the agent runs, the processing status (spinner, interrupt hint,
+	// elapsed) is pinned directly above the composer; the idle status line
+	// below keeps showing mode/context/cost, so both stay visible.
+	if m.state == stateProcessing {
+		sections = append(sections, m.statusLineView())
+	}
+
 	sections = append(sections, m.input.View())
 
 	// Live mention chips: resolved @file basenames under the composer, dimmed
@@ -126,12 +146,22 @@ func (m *Model) bottomRegion() string {
 		sections = append(sections, styleFaint().Render("  "+m.suggestion))
 	}
 
-	sections = append(sections, m.statusLineView())
+	sections = append(sections, m.idleStatusView())
 
 	return strings.Join(sections, "\n")
 }
 
-// statusLineView builds the one-line status bar for the current state.
+// idleStatusView builds the below-composer status bar: mode label (with goal
+// and thinking markers) on the left, context usage/model/cost on the right.
+// It is shown in every state, including while processing.
+func (m *Model) idleStatusView() string {
+	left := styleDim().Render(m.modeLabel())
+	return statusLine(m.mainWidth, left, m.contextRight())
+}
+
+// statusLineView builds the processing status bar (spinner + interrupt hint +
+// elapsed) shown above the composer while the agent runs; outside processing
+// it matches the idle line.
 func (m *Model) statusLineView() string {
 	if m.state == stateProcessing {
 		left := m.spinner.view()
@@ -143,18 +173,18 @@ func (m *Model) statusLineView() string {
 		right := styleDim().Render(fmt.Sprintf("esc to interrupt · %s · %ds", m.model, elapsed))
 		return statusLine(m.mainWidth, left, right)
 	}
-	left := styleDim().Render(m.modeLabel())
-	return statusLine(m.mainWidth, left, m.contextRight())
+	return m.idleStatusView()
 }
 
 // modeLabel returns the current agent mode for the status bar, with a goal
-// marker while a goal is being pursued.
+// marker while a goal is being pursued (tracked from GoalUpdatedEvent, seeded
+// by the initial Goal() query — no per-frame polling).
 func (m *Model) modeLabel() string {
 	label := "ready"
 	if mode := m.agent.Mode(); mode != "" {
 		label = mode
 	}
-	if g := m.agent.Goal(); g != nil && g.Status == agent.GoalActive {
+	if g := m.goal; g != nil && g.Status == agentapi.GoalActive {
 		label += " · goal"
 	}
 	if t := m.agent.Thinking(); t != "" {
@@ -190,25 +220,32 @@ func abbrevTokens(n int) string {
 	}
 }
 
-// updateContextStats refreshes the cached context budget usage from the agent.
-// Stats() walks every block and estimates tokens, so it is too expensive for
-// the per-frame View path; it runs only at turn/compaction boundaries. When the
-// agent reports no drop limit (tests, unconfigured budget) the cache is reset
-// to -1 so the status line hides the segment.
+// updateContextStats refreshes the cached context budget usage from the core.
+// ContextStats() walks every block and estimates tokens, so it is too
+// expensive for the per-frame View path; it runs only at turn/compaction
+// boundaries. When the agent reports no drop limit (tests, unconfigured
+// budget) the cache is reset to -1 so the status line hides the segment. The
+// used count prefers the provider-reported real prompt total (RealPromptTotal
+// = input + cache_read + cache_creation) when a turn has reported usage, and
+// falls back to the char-based heuristic estimate otherwise — the real number
+// is what actually counts against the context window on the wire.
 func (m *Model) updateContextStats() {
 	if m.agent == nil {
 		m.contextPct = -1
 		return
 	}
-	stats := m.agent.Stats()
-	drop := stats["drop_limit"]
-	if drop <= 0 {
+	stats := m.agent.ContextStats()
+	if stats.DropLimit <= 0 {
 		m.contextPct = -1
 		return
 	}
-	m.contextPct = stats["total"] * 100 / drop
-	m.contextUsedTok = stats["total"]
-	m.contextLimitTok = drop
+	used := stats.RealPromptTotal
+	if used <= 0 {
+		used = stats.Total
+	}
+	m.contextPct = used * 100 / stats.DropLimit
+	m.contextUsedTok = used
+	m.contextLimitTok = stats.DropLimit
 }
 
 // panelFrame wraps a bottom-strip panel in the shared top-border frame.
@@ -222,6 +259,38 @@ func panelFrame(width int, content string) string {
 		Render(content)
 }
 
+// scrollbarView renders the one-column scroll indicator pinned to the right
+// edge of the transcript: a dim track with an accent thumb sized and positioned
+// proportionally to the visible window. When the conversation fits the screen
+// the column stays blank so the layout never shifts.
+func (m *Model) scrollbarView() string {
+	h := m.viewport.Height
+	if h <= 0 {
+		return ""
+	}
+	bar := make([]string, h)
+	maxOff := m.transcriptLines - h
+	if maxOff <= 0 {
+		for i := range bar {
+			bar[i] = " "
+		}
+		return strings.Join(bar, "\n")
+	}
+	thumb := h * h / m.transcriptLines
+	if thumb < 1 {
+		thumb = 1
+	}
+	top := (h - thumb) * m.viewport.YOffset / maxOff
+	for i := range bar {
+		if i >= top && i < top+thumb {
+			bar[i] = styleAccent().Render("█")
+		} else {
+			bar[i] = styleDim().Render("│")
+		}
+	}
+	return strings.Join(bar, "\n")
+}
+
 // View implements tea.Model.
 func (m Model) View() string {
 	switch m.state {
@@ -230,6 +299,11 @@ func (m Model) View() string {
 	}
 
 	top := m.viewport.View()
+	if m.width > 0 {
+		top = lipgloss.JoinHorizontal(lipgloss.Top,
+			lipgloss.NewStyle().Width(m.viewport.Width).Render(top),
+			m.scrollbarView())
+	}
 	bottom := m.bottomRegion()
 	if bar := m.topBarView(); bar != "" {
 		return lipgloss.JoinVertical(lipgloss.Left, bar, top, bottom)

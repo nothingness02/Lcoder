@@ -15,10 +15,10 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/permissions"
-	"github.com/lcoder/lcoder/pkg/tools/builtin"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tools"
+	"github.com/lcoder/lcoder/pkg/tools/builtin"
 )
 
 const switchModeToolName = "switch_mode"
@@ -455,14 +455,9 @@ func (e *executor) runToolCall(ctx context.Context, turn int, assistantMsg model
 			result = models.NewToolExecutionResultError(applyErr.Error())
 			isError = true
 		} else {
-			g := e.goals.get()
+			// applyUpdate already emitted the GoalUpdatedEvent snapshot via the
+			// goalHolder's single emission point.
 			result = models.NewToolExecutionResultText("Goal marked " + string(newStatus))
-			e.emitter.emit(ctx, events.GoalUpdatedEvent{
-				Base:     events.Base{Type: events.GoalUpdated, Turn: turn},
-				Objective: g.Objective,
-				Status:   string(newStatus),
-				Reason:   g.BlockReason,
-			})
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
@@ -29,34 +30,26 @@ var DefaultCoreTools = []string{"read", "bash", "edit", "ls", "grep", skills.Use
 // their output is injected for that turn only and cleared at the turn boundary.
 type ReminderProducer func(messages []models.AgentMessage) []string
 
-// UserConfirmation handles interactive permission approvals for tool calls.
-type UserConfirmation interface {
-	Confirm(ctx context.Context, info ToolCallInfo) (allow bool, err error)
-	ConfirmWithScope(ctx context.Context, info ToolCallInfo) (ConfirmResult, error)
-}
+// Approval types live in the protocol package (pkg/agentapi); these aliases
+// keep the agent package's internal code and all existing call sites
+// unchanged.
+type UserConfirmation = agentapi.UserConfirmation
+
+type ToolCallInfo = agentapi.ToolCallInfo
 
 // ConfirmScope describes how widely a user-approved permission should apply.
-type ConfirmScope int
+type ConfirmScope = agentapi.ConfirmScope
 
 const (
-	ScopeDeny ConfirmScope = iota
-	ScopeOnce
-	// ScopeSession approves the exact call for the rest of the session
-	// (in-memory, never persisted).
-	ScopeSession
-	// ScopeProject writes a generalized allow rule into the project's
-	// .lcoder/permissions.yaml (permanent, this machine only).
-	ScopeProject
-	// ScopeGlobal writes a generalized allow rule into the user-level
-	// permissions file (permanent, all projects).
-	ScopeGlobal
+	ScopeDeny    = agentapi.ScopeDeny
+	ScopeOnce    = agentapi.ScopeOnce
+	ScopeSession = agentapi.ScopeSession
+	ScopeProject = agentapi.ScopeProject
+	ScopeGlobal  = agentapi.ScopeGlobal
 )
 
 // ConfirmResult is the outcome of a scoped confirmation.
-type ConfirmResult struct {
-	Allow bool
-	Scope ConfirmScope
-}
+type ConfirmResult = agentapi.ConfirmResult
 
 // Config controls agent behavior.
 type Config struct {
@@ -67,12 +60,12 @@ type Config struct {
 	// 0 means unlimited. Exceeding it ends the run IMMEDIATELY with
 	// EndReasonMaxTurns — it does NOT pass the continuation chain (mirrors
 	// Kimi's maxSteps throw: a hard, one-shot terminal condition).
-	MaxTurnsPerRun int
-	ContextManager *contextmgr.Manager
-	TransformContext  TransformContext
-	BeforeToolCall    BeforeToolCallHook
-	AfterToolCall     AfterToolCallHook
-	ShouldStop        ShouldStopFunc
+	MaxTurnsPerRun   int
+	ContextManager   *contextmgr.Manager
+	TransformContext TransformContext
+	BeforeToolCall   BeforeToolCallHook
+	AfterToolCall    AfterToolCallHook
+	ShouldStop       ShouldStopFunc
 	// ContinuationDeciders decide whether the loop continues after a stop
 	// signal. They run in registration order; the FIRST decider returning
 	// (false, _) or (_, err) wins and the loop stops. All returning true
@@ -84,8 +77,8 @@ type Config struct {
 	// policies (and still ahead of user rules). Extension permission hooks
 	// plug in here (opencode's permission.ask equivalent).
 	ExtraGuardPolicies []permissions.Policy
-	Mode              string
-	ModeManager       *ModeManager
+	Mode               string
+	ModeManager        *ModeManager
 
 	// CWD is the agent's working directory. It backs the executor's path
 	// guard workspace boundary (executor.go) and project-scope rule
@@ -178,18 +171,9 @@ type Agent struct {
 	taskMgr   *task.Manager
 	goals     *goalHolder
 	cpMgr     *checkpointManager
-	rc        *reminderCoordinator
+	injector  *InjectionManager
 
 	contextSnapshotRecorder *observability.ContextSnapshotRecorder
-
-	// lastReminderMode is the mode the previous turn's reminder described. A
-	// mismatch means the mode just changed, which forces the full prompt and
-	// emits the release notice for the mode being left.
-	lastReminderMode string
-	// modeReminderTurns counts turns since the last full mode prompt, so the
-	// abbreviated form can be refreshed periodically rather than drifting out
-	// of the model's attention across a long tool loop.
-	modeReminderTurns int
 }
 
 // State describes the agent runtime state.
@@ -208,29 +192,6 @@ type TransformContext func(ctx context.Context, messages []models.AgentMessage) 
 // BeforeToolCallHook runs after argument validation and permission approval and
 // may block execution.
 type BeforeToolCallHook func(ctx context.Context, info ToolCallInfo) (*BeforeToolCallResult, error)
-
-// ToolCallInfo is provided to hooks.
-type ToolCallInfo struct {
-	AssistantMessage models.AgentMessage
-	ToolCall         models.ToolCallContent
-	Args             map[string]any
-	Context          []models.AgentMessage
-}
-
-// BashCommand returns the bash command from the tool call, or an empty string
-// if the tool is not bash or has no command argument.
-func (info ToolCallInfo) BashCommand() string {
-	if info.ToolCall.Name != "bash" {
-		return ""
-	}
-	if cmd, _ := info.Args["command"].(string); cmd != "" {
-		return cmd
-	}
-	if cmd, _ := info.ToolCall.Arguments["command"].(string); cmd != "" {
-		return cmd
-	}
-	return ""
-}
 
 // BeforeToolCallResult indicates whether a tool call should be blocked.
 type BeforeToolCallResult struct {
@@ -328,10 +289,11 @@ func New(cfg Config, llmClient *llm.Client, registry *tools.Registry, perms *per
 	ag.loopState = newStateHolder()
 	ag.taskMgr = task.NewManager()
 	ag.goals = &goalHolder{}
+	ag.goals.onChange = ag.emitGoalUpdated
 	ag.streamer = &streamer{cfg: &ag.cfg, llm: ag.llm, mgr: ag.mgr, emitter: ag.emitter}
 	ag.executor = &executor{cfg: &ag.cfg, mgr: ag.mgr, registry: ag.registry, permissions: perms, emitter: ag.emitter, taskMgr: ag.taskMgr, goals: ag.goals}
 	ag.cpMgr = newCheckpointManager(ag)
-	ag.rc = newReminderCoordinator(ag.taskMgr, cfg.ReminderProducers)
+	ag.injector = newInjectionManager(ag.taskMgr, &ag.cfg, cfg.ReminderProducers, ag.appendSwitchNotice)
 	return ag
 }
 
@@ -497,16 +459,21 @@ func (a *Agent) WithMode(mode string) Runner {
 		taskMgr:                 a.taskMgr,
 		goals:                   a.goals,
 		contextSnapshotRecorder: a.contextSnapshotRecorder,
-		// Carry the reminder bookkeeping across the switch. Left at zero,
-		// modeReminder would see no previous mode and skip the notice that the old
-		// mode's restrictions are lifted — the one thing a mode switch most needs to
-		// say, and which the switch_mode tool path does emit.
-		lastReminderMode:  a.lastReminderMode,
-		modeReminderTurns: a.modeReminderTurns,
 	}
 	fresh.cpMgr = newCheckpointManager(fresh)
 	fresh.executor.goals = a.goals // share the goal record across the mode switch
-	fresh.rc = newReminderCoordinator(fresh.taskMgr, fresh.cfg.ReminderProducers)
+	// The goal holder is shared, so rewire its single emission hook to the
+	// fresh agent: otherwise GoalUpdatedEvent keeps reading the old agent's
+	// loopState (frozen Turn) and the closure pins the old agent in memory.
+	// WithMode runs while idle, and the holder has exactly one owner after
+	// the switch, so the rewire is safe.
+	fresh.goals.onChange = fresh.emitGoalUpdated
+	fresh.injector = newInjectionManager(fresh.taskMgr, &fresh.cfg, fresh.cfg.ReminderProducers, fresh.appendSwitchNotice)
+	// Carry the injector bookkeeping across the switch. Left at zero, the mode
+	// injector would see no previous mode and skip the notice that the old
+	// mode's restrictions are lifted — the one thing a mode switch most needs to
+	// say, and which the switch_mode tool path does emit.
+	fresh.injector.Restore(a.injector.Snapshot())
 	fresh.loopState.restore(a.loopState.snapshot())
 	fresh.loopState.SetResuming(true)
 	fresh.executor.restore(a.executor.snapshot())
@@ -551,7 +518,7 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 
 		a.emit(ctx, events.TurnStartEvent{Base: events.Base{Type: events.TurnStart, Turn: turn}})
 
-		a.refreshEphemeralReminders()
+		a.refreshEphemeralReminders(turn)
 
 		a.maybeCompact(ctx, turn)
 
@@ -615,46 +582,46 @@ func (a *Agent) run(ctx context.Context, initialPrompts []models.AgentMessage) e
 			break
 		}
 
-	if a.shouldStop(ctx, assistantMsg, toolResults) {
-		usage, _ := a.streamer.takeUsage()
-		stop := StopContext{
-			TurnSummary: TurnSummary{
-				Message:     assistantMsg,
-				ToolResults: toolResults,
-				Context:     a.mgr.AllMessages(),
-			},
-			Reason: StopEndTurn,
-			Turn:   turn,
-			Usage:  usage,
-			LLM:    a.llm,
-		}
-		// Built-in hard vetoes (goal budget, goal.go) run first: they can
-		// only STOP the loop, never continue it.
-		vetoed := false
-		for _, veto := range a.builtinContinuationDeciders() {
-			ok, err := veto(ctx, stop)
-			if err != nil || !ok {
-				vetoed = true
-				break
+		if a.shouldStop(ctx, assistantMsg, toolResults) {
+			usage, _ := a.streamer.takeUsage()
+			stop := StopContext{
+				TurnSummary: TurnSummary{
+					Message:     assistantMsg,
+					ToolResults: toolResults,
+					Context:     a.mgr.AllMessages(),
+				},
+				Reason: StopEndTurn,
+				Turn:   turn,
+				Usage:  usage,
+				LLM:    a.llm,
 			}
-		}
-		// Configured deciders decide continuation: first (false,_) or (_,err)
-		// wins. An empty chain stops — the pre-chain nil-hook behavior.
-		cont := false
-		if !vetoed {
-			cont = len(a.cfg.ContinuationDeciders) > 0
-			for _, decide := range a.cfg.ContinuationDeciders {
-				ok, err := decide(ctx, stop)
+			// Built-in hard vetoes (goal budget, goal.go) run first: they can
+			// only STOP the loop, never continue it.
+			vetoed := false
+			for _, veto := range a.builtinContinuationDeciders() {
+				ok, err := veto(ctx, stop)
 				if err != nil || !ok {
-					cont = false
+					vetoed = true
 					break
 				}
 			}
+			// Configured deciders decide continuation: first (false,_) or (_,err)
+			// wins. An empty chain stops — the pre-chain nil-hook behavior.
+			cont := false
+			if !vetoed {
+				cont = len(a.cfg.ContinuationDeciders) > 0
+				for _, decide := range a.cfg.ContinuationDeciders {
+					ok, err := decide(ctx, stop)
+					if err != nil || !ok {
+						cont = false
+						break
+					}
+				}
+			}
+			if !cont {
+				break
+			}
 		}
-		if !cont {
-			break
-		}
-	}
 	}
 
 	if a.contextSnapshotRecorder != nil {
@@ -701,12 +668,13 @@ func (a *Agent) builtinContinuationDeciders() []ContinuationDecider {
 	return []ContinuationDecider{a.goalBudgetVeto}
 }
 
-// refreshEphemeralReminders stages reminders for the upcoming turn.
-// It always includes any unfinished task reminder, then runs any configured
-// ReminderProducers over the current conversation.
-func (a *Agent) refreshEphemeralReminders() {
+// refreshEphemeralReminders stages reminders for the upcoming turn. The
+// injection manager asks each injector in turn; injectors decide for
+// themselves whether to speak or stay silent (silence is the default), so
+// most turns inject nothing.
+func (a *Agent) refreshEphemeralReminders(turn int) {
 	a.mgr.ClearEphemeralReminders()
-	reminders := a.rc.Reminders(a.mgr.AllMessages())
+	reminders := a.injector.Collect(InjectContext{Turn: turn, Messages: a.mgr.AllMessages()})
 	if len(reminders) > 0 {
 		a.mgr.SetEphemeralReminders(reminders)
 	}
@@ -714,6 +682,16 @@ func (a *Agent) refreshEphemeralReminders() {
 
 func (a *Agent) appendMessage(msg models.AgentMessage) {
 	a.mgr.AppendRecent(msg)
+}
+
+// appendSwitchNotice persists a mode-switch release notice into the
+// conversation as an ordinary user message (the same channel steering
+// messages use). Unlike the standing reminders, which are ephemeral because
+// they re-derive current state every turn, a switch is a one-shot event: the
+// model should be able to find the transition point when it looks back over
+// its history.
+func (a *Agent) appendSwitchNotice(text string) {
+	a.appendMessage(models.UserMessage(text))
 }
 
 // maybeCompact asks the context manager to commit a compaction at a turn
@@ -755,6 +733,9 @@ func (a *Agent) maybeCompact(ctx context.Context, turn int) {
 		})
 	}
 	if res.Committed {
+		// Compaction folded the reminders' context away: every injector
+		// re-injects once on the next turn, then resumes its quiet cadence.
+		a.injector.OnCompacted()
 		a.emit(ctx, events.CompactionCommittedEvent{
 			Base:         events.Base{Type: events.CompactionCommitted, Turn: turn},
 			Summary:      res.Summary,
@@ -780,6 +761,15 @@ func (a *Agent) Stats() map[string]int {
 	return a.mgr.Stats()
 }
 
+// MicroCompactStatus reports the mechanical tool-result trimming status for
+// /status echo ("" when disabled).
+func (a *Agent) MicroCompactStatus() string {
+	if a.mgr == nil {
+		return ""
+	}
+	return a.mgr.MicroCompactStatus()
+}
+
 // LatestAssistantMessage returns the most recent assistant message in context.
 func (a *Agent) LatestAssistantMessage() (models.AgentMessage, bool) {
 	msgs := a.mgr.AllMessages()
@@ -791,11 +781,12 @@ func (a *Agent) LatestAssistantMessage() (models.AgentMessage, bool) {
 	return models.AgentMessage{}, false
 }
 
-// applyMode stages the active mode's reminder for the upcoming turn and
-// returns the tool definitions for it.
+// applyMode returns the base system prompt and the tool definitions for the
+// active mode. The mode text itself is injected by the modeInjector at the
+// turn boundary (see refreshEphemeralReminders), not here.
 //
-// The mode text is injected as an ephemeral reminder rather than written into
-// the system block, and the tool list is returned unfiltered. Both are
+// The mode text travels as an ephemeral reminder rather than being written
+// into the system block, and the tool list is returned unfiltered. Both are
 // deliberate: Anthropic's cache prefix is ordered tools -> system -> messages,
 // so rewriting the system block on a switch_mode invalidated everything after
 // it, and filtering the tool array invalidated the widest layer of all —
@@ -819,56 +810,13 @@ func (a *Agent) applyMode() (string, []models.ToolDefinition) {
 		return base, tools
 	}
 
-	// Evict before the ModeManager check, not after: a mode block restored from
-	// a checkpoint written before mode text became an ephemeral reminder must go
+	// Evict before returning, not after: a mode block restored from a
+	// checkpoint written before mode text became an ephemeral reminder must go
 	// even when no mode manager is configured, or it stays in the system prompt —
 	// and so in the cache prefix — for the rest of the session.
 	a.mgr.RemoveBlock(contextmgr.BlockMode, "mode")
 
-	if a.cfg.ModeManager == nil {
-		return base, tools
-	}
-
-	if text := a.modeReminder(); text != "" {
-		a.mgr.AddEphemeralReminder(text)
-	}
 	return base, tools
-}
-
-// modeReminderFullRefreshTurns is how many assistant turns may pass before the
-// abbreviated reminder is replaced by the full mode prompt again.
-const modeReminderFullRefreshTurns = 5
-
-// modeReminder returns the reminder text for the upcoming turn: the full mode
-// prompt on entry and on periodic refresh, the abbreviated form in between, and
-// a one-shot release notice on the turn after leaving a restrictive mode.
-func (a *Agent) modeReminder() string {
-	mode := a.cfg.ModeManager.Get(a.cfg.Mode)
-	prev := a.lastReminderMode
-	switched := prev != mode.Name
-	a.lastReminderMode = mode.Name
-	
-	var parts []string
-	if switched && prev != "" {
-		parts = append(parts, "You have switched from "+prev+" mode to "+mode.Name+
-			" mode. Any tool restrictions from "+prev+" mode no longer apply.")
-	}
-	if mode.SystemPrompt == "" {
-		a.modeReminderTurns = 0
-		return strings.Join(parts, "\n\n")
-	}
-	
-	// Count this turn before testing the threshold, so the full text returns on
-	// the Nth turn after the last one rather than the N+1th.
-	a.modeReminderTurns++
-	text := mode.SystemPrompt
-	if switched || a.modeReminderTurns > modeReminderFullRefreshTurns {
-		a.modeReminderTurns = 1
-	} else if mode.SparsePrompt != "" {
-		text = mode.SparsePrompt
-	}
-	parts = append(parts, "# Mode: "+mode.Name+"\n\n"+text)
-	return strings.Join(parts, "\n\n")
 }
 
 func matchToolName(name string, patterns map[string]bool) bool {

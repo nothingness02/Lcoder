@@ -291,6 +291,37 @@ func (r ToolExecutionResult) Text() string {
 	return out
 }
 
+// MarshalJSON serializes the result, encoding the polymorphic Content parts
+// with the same envelope used for AgentMessage content.
+func (r ToolExecutionResult) MarshalJSON() ([]byte, error) {
+	type alias ToolExecutionResult
+	return json.Marshal(
+		&struct {
+			Content []contentPartEnvelope `json:"content"`
+			*alias
+		}{
+			Content: wrapContentParts(r.Content),
+			alias:   (*alias)(&r),
+		})
+}
+
+// UnmarshalJSON decodes a result produced by MarshalJSON, restoring the
+// concrete ContentPart types.
+func (r *ToolExecutionResult) UnmarshalJSON(data []byte) error {
+	type alias ToolExecutionResult
+	aux := &struct {
+		Content []contentPartEnvelope `json:"content"`
+		*alias
+	}{
+		alias: (*alias)(r),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	r.Content = unwrapContentParts(aux.Content)
+	return nil
+}
+
 // NewToolExecutionResultText creates a ToolExecutionResult containing a single text part.
 func NewToolExecutionResultText(text string) ToolExecutionResult {
 	return ToolExecutionResult{

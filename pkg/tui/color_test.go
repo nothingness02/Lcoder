@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
@@ -19,10 +17,7 @@ func TestColorPanelOpensAndAppliesAccent(t *testing.T) {
 		components.ColorAccent = origComponents
 	}()
 
-	bus := events.New()
-	ag := &fakeAgent{}
-	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	m.width = 80
 	m.height = 24
 	m.state = stateInput

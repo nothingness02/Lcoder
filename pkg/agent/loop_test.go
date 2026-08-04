@@ -65,8 +65,8 @@ func TestAgentOneTurn(t *testing.T) {
 
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), bus, obs)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("hi")); err != nil {
@@ -100,8 +100,8 @@ func TestAgentToolCall(t *testing.T) {
 
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
 			return true, nil
 		},
@@ -139,8 +139,8 @@ func TestAgentNaturalCompletionDefault(t *testing.T) {
 
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		// Deliberately no ShouldStop: exercise the default behavior.
 	}, client, testRegistry(t.TempDir()), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
@@ -163,8 +163,8 @@ func TestAgentAbortIsReentrant(t *testing.T) {
 
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
 	// Calling Abort multiple times must not panic.
@@ -185,8 +185,8 @@ func TestAgentAbortStopsStream(t *testing.T) {
 
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
 	go func() {
@@ -236,11 +236,11 @@ func TestAgentWithModeSnapshot(t *testing.T) {
 
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "base",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
-		ModeManager:       mm,
-		Mode:              "code",
-		ContextManager:    mgr,
+		SystemPrompt:   "base",
+		Model:          models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		ModeManager:    mm,
+		Mode:           "code",
+		ContextManager: mgr,
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
 	steerMsg := models.UserMessage("steer me")
@@ -279,8 +279,8 @@ func TestAgentTransformContext(t *testing.T) {
 	transformCalled := false
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			transformCalled = true
 			return msgs, nil
@@ -328,8 +328,8 @@ func TestAgentPermissionAskAllowed(t *testing.T) {
 	})
 	confirmed := false
 	ag := New(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		ShouldStop: func(ctx context.Context, turn TurnSummary) (bool, error) {
 			return true, nil
 		},
@@ -369,8 +369,8 @@ func TestAgentPermissionDeny(t *testing.T) {
 		{Tool: "ls", Pattern: "*", Decision: permissions.Deny},
 	})
 	ag := New(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 	}, client, testRegistry(t.TempDir()), perms, events.New())
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("list files")); err != nil {
@@ -398,8 +398,8 @@ func TestAgentEventHandlerErrorIsObservedNotFatal(t *testing.T) {
 	obs := observability.NewCollector(exporter)
 	_ = obs.Subscribe(bus)
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 	}, client, testRegistry("."), permissions.NewEngine(permissions.DefaultConfig()), bus, obs)
 
 	if err := ag.Prompt(context.Background(), models.UserMessage("hi")); err != nil {
@@ -430,8 +430,8 @@ func TestAgentTransformContextPreservesEphemeralReminders(t *testing.T) {
 	))
 
 	ag := New(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		ReminderProducers: []ReminderProducer{
 			func(messages []models.AgentMessage) []string {
 				return []string{"remember to check tests"}
@@ -467,8 +467,8 @@ func TestAgentTransformContextPreservesCacheBreakpoints(t *testing.T) {
 	))
 
 	ag := New(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs, nil
 		},
@@ -488,8 +488,8 @@ func TestAgentTransformContextRecomputesBreakpointsWhenCountChanges(t *testing.T
 	))
 
 	ag := New(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs[:1], nil
 		},
@@ -515,8 +515,8 @@ func TestAgentTransformContextRecomputesMaxTokens(t *testing.T) {
 	))
 
 	ag := New(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 		TransformContext: func(ctx context.Context, msgs []models.AgentMessage) ([]models.AgentMessage, error) {
 			return msgs[:1], nil
 		},
@@ -565,8 +565,8 @@ func TestAgentAbortCancelsRunningTool(t *testing.T) {
 
 	obs := observability.NewCollector(observability.NewMemoryExporter())
 	ag := NewWithObservability(Config{
-		SystemPrompt:      "You are helpful.",
-		Model:             models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
+		SystemPrompt: "You are helpful.",
+		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o-mini"},
 	}, client, registry, permissions.NewEngine(permissions.DefaultConfig()), events.New(), obs)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

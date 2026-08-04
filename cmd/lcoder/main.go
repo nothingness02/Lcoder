@@ -16,6 +16,7 @@ import (
 	"github.com/lcoder/lcoder/internal/paths"
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/agent/hooks"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/agenthost"
 	"github.com/lcoder/lcoder/pkg/agentsetup"
 	"github.com/lcoder/lcoder/pkg/checkpoint"
@@ -25,6 +26,7 @@ import (
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/extension/bridge"
 	extruntime "github.com/lcoder/lcoder/pkg/extension/runtime"
+	"github.com/lcoder/lcoder/pkg/host"
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/models"
@@ -102,6 +104,7 @@ func main() {
 	root.AddCommand(traceCmd())
 	root.AddCommand(metricsCmd())
 	root.AddCommand(tuiCmd())
+	root.AddCommand(rpcCmd())
 	root.AddCommand(installCmd())
 	root.AddCommand(uninstallCmd())
 	root.AddCommand(listExtensionsCmd())
@@ -768,13 +771,52 @@ func runTUI(ctx context.Context, setup *agentSetup) error {
 		}
 	}
 
-	return tui.Run(setup.bus, setup.ag, setup.sess, setup.store, setup.cwd, modelRef, setup.cfg.TUI.Theme, setup.mcpRegistry, setup.cfg.modeManager, caps, setup.llmClient, setup.cfg.Config, needsSetup,
+	// Assemble the protocol core: session mirror, goal driver, and the session
+	// swap notifications (compaction sink + subagent parent session) all live
+	// in the host now; the TUI only sees the agentapi.CoreAPI handle.
+	core := host.NewCore(setup.ag, setup.bus, setup.store, setup.sess, setup.cwd,
 		func(s *session.Session) {
 			setup.activeSession.Set(s)
 			if setup.subagentHost != nil {
 				setup.subagentHost.SetParentSession(s.ID)
 			}
-		},
-		setup.subagentHost,
-		setup.cfg.skillCatalog)
+		})
+	defer core.Close()
+
+	services := host.Services{
+		Bus:          setup.bus,
+		LLMClient:    setup.llmClient,
+		MCPRegistry:  setup.mcpRegistry,
+		SkillCatalog: setup.cfg.skillCatalog,
+		Config:       setup.cfg.Config,
+		Modes:        modeInfos(setup.cfg.modeManager),
+	}
+	display := tui.DisplayConfig{
+		CWD:                setup.cwd,
+		ModelRef:           modelRef,
+		ThemeStyle:         setup.cfg.TUI.Theme,
+		Capabilities:       caps,
+		NeedsProviderSetup: needsSetup,
+	}
+	// The interactive approval callback is created inside tui.Run (it needs the
+	// bubbletea program); the subagent host shares it, wired here so a mode
+	// switch inside the core does not disturb it.
+	return tui.Run(core, services, display, func(uc agentapi.UserConfirmation) {
+		if setup.subagentHost != nil {
+			setup.subagentHost.SetUserConfirm(uc)
+		}
+	})
+}
+
+// modeInfos snapshots the mode catalog for the TUI's /modes panel.
+func modeInfos(mm *agent.ModeManager) []agentapi.ModeInfo {
+	if mm == nil {
+		return nil
+	}
+	modes := mm.List()
+	out := make([]agentapi.ModeInfo, 0, len(modes))
+	for _, m := range modes {
+		out = append(out, agentapi.ModeInfo{Name: m.Name, Description: m.Description})
+	}
+	return out
 }

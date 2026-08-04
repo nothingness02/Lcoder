@@ -68,8 +68,8 @@ func (m *Model) topBarView() string {
 		return ""
 	}
 	session := ""
-	if m.session != nil {
-		session = m.session.SessionID()
+	if m.agent != nil {
+		session = m.agent.SessionID()
 	}
 	return renderTopBar(topBarInfo{
 		mode:    m.modeLabel(),

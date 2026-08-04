@@ -1,9 +1,21 @@
 package tui
 
-import "github.com/lcoder/lcoder/pkg/testutil"
+import (
+	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/host"
+	"github.com/lcoder/lcoder/pkg/testutil"
+)
 
 // Compatibility aliases so existing TUI tests can keep using the short local
-// names while the canonical fixtures live in pkg/testutil.
+// name while the canonical fixture lives in pkg/testutil.
 type fakeAgent = testutil.FakeAgent
-type fakeSession = testutil.FakeSession
-type fakeSessionStore = testutil.FakeSessionStore
+
+// newTestCoreModel builds a Model around a fake CoreAPI with the common test
+// display/services defaults.
+func newTestCoreModel(ag *testutil.FakeAgent) *Model {
+	return NewModel(ag, host.Services{Bus: events.New()}, DisplayConfig{
+		CWD:        ".",
+		ModelRef:   "openai/gpt-4o-mini",
+		ThemeStyle: "dark",
+	})
+}

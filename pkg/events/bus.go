@@ -16,9 +16,17 @@ type AsyncOptions struct {
 // Handler processes agent events.
 type Handler func(ctx context.Context, event Event) error
 
+// syncSubscription is a registered synchronous handler with a unique id, so
+// unsubscription removes exactly the right entry regardless of order.
+type syncSubscription struct {
+	id      uint64
+	handler Handler
+}
+
 // Bus broadcasts events to registered handlers.
 type Bus struct {
-	handlers []Handler
+	handlers []syncSubscription
+	nextID   uint64
 	async    []*asyncHandler
 	mu       sync.RWMutex
 	closed   bool
@@ -40,22 +48,27 @@ type asyncHandler struct {
 	close   sync.Once
 }
 
-// Subscribe registers a synchronous handler. The returned function unsubscribes it.
+// Subscribe registers a synchronous handler. The returned function unsubscribes
+// it — by subscription id, not position, so non-LIFO unsubscription removes
+// exactly this handler. Calling it twice is a no-op.
 func (b *Bus) Subscribe(handler Handler) func() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
 		return func() {}
 	}
-	idx := len(b.handlers)
-	b.handlers = append(b.handlers, handler)
+	b.nextID++
+	id := b.nextID
+	b.handlers = append(b.handlers, syncSubscription{id: id, handler: handler})
 	return func() {
 		b.mu.Lock()
 		defer b.mu.Unlock()
-		if idx >= len(b.handlers) {
-			return
+		for i, s := range b.handlers {
+			if s.id == id {
+				b.handlers = append(b.handlers[:i], b.handlers[i+1:]...)
+				return
+			}
 		}
-		b.handlers = append(b.handlers[:idx], b.handlers[idx+1:]...)
 	}
 }
 
@@ -144,7 +157,7 @@ func (b *Bus) Emit(ctx context.Context, event Event) error {
 		b.mu.RUnlock()
 		return errors.New("event bus is closed")
 	}
-	handlers := make([]Handler, len(b.handlers))
+	handlers := make([]syncSubscription, len(b.handlers))
 	copy(handlers, b.handlers)
 	async := make([]*asyncHandler, len(b.async))
 	copy(async, b.async)
@@ -152,7 +165,7 @@ func (b *Bus) Emit(ctx context.Context, event Event) error {
 
 	var firstErr error
 	for _, h := range handlers {
-		if err := h(ctx, event); err != nil && firstErr == nil {
+		if err := h.handler(ctx, event); err != nil && firstErr == nil {
 			firstErr = errors.New("event handler failed for " + string(event.EventType()) + ": " + err.Error())
 		}
 	}

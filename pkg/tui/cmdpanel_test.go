@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/agent"
-	"github.com/lcoder/lcoder/pkg/config"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/host"
 	"github.com/lcoder/lcoder/pkg/mcp"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/tui/components"
@@ -33,28 +33,11 @@ func TestCmdPanelHelpShowsPanelNotBlock(t *testing.T) {
 }
 
 func TestCmdPanelModesSelectsAndSwitches(t *testing.T) {
-	dir, err := os.MkdirTemp("", "lcoder-modes-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-
-	content := `name: review
-description: Review mode
-system_prompt: you review
-`
-	if err := os.WriteFile(filepath.Join(dir, "review.yaml"), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mm := agent.NewModeManager()
-	if err := mm.LoadModes([]string{dir}); err != nil {
-		t.Fatal(err)
-	}
-
-	bus := events.New()
 	ag := &fakeAgent{}
-	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, mm, nil, config.Config{}, nil, false, nil)
+	m := NewModel(ag, host.Services{
+		Bus:   events.New(),
+		Modes: []agentapi.ModeInfo{{Name: "review", Description: "Review mode"}},
+	}, DisplayConfig{CWD: ".", ModelRef: "openai/gpt-4o-mini", ThemeStyle: "dark"})
 	m.width = 80
 	m.height = 24
 	m.state = stateInput
@@ -127,9 +110,7 @@ func TestCmdPanelTypingDismisses(t *testing.T) {
 }
 
 func TestCmdPanelSkillTriggers(t *testing.T) {
-	bus := events.New()
 	ag := &fakeAgent{}
-	sess := &fakeSession{ID: "abc123"}
 
 	dir := t.TempDir()
 	source := filepath.Join(dir, "SKILL.md")
@@ -146,7 +127,7 @@ Review the code for risks.
 	loaded := skills.NewCatalog([]skills.ScopedMeta{
 		{SkillMeta: skills.SkillMeta{Name: "security-review", Description: "Review code", Source: source}},
 	})
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, loaded)
+	m := NewModel(ag, host.Services{Bus: events.New(), SkillCatalog: loaded}, DisplayConfig{CWD: ".", ModelRef: "openai/gpt-4o-mini", ThemeStyle: "dark"})
 	m.width = 80
 	m.height = 24
 	m.state = stateInput
@@ -173,10 +154,8 @@ func TestCmdPanelMCPOpensAndReconnectShortcut(t *testing.T) {
 	reg := mcp.NewRegistry([]mcp.ServerConfig{
 		{Name: "remote", Transport: "sse", URL: "http://127.0.0.1:0", Timeout: 1},
 	})
-	bus := events.New()
 	ag := &fakeAgent{}
-	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", reg, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(ag, host.Services{Bus: events.New(), MCPRegistry: reg}, DisplayConfig{CWD: ".", ModelRef: "openai/gpt-4o-mini", ThemeStyle: "dark"})
 	m.width = 80
 	m.height = 24
 	m.state = stateInput
@@ -214,10 +193,8 @@ func TestCmdPanelMCPCloseShortcut(t *testing.T) {
 	reg := mcp.NewRegistry([]mcp.ServerConfig{
 		{Name: "remote", Transport: "sse", URL: "http://127.0.0.1:0", Timeout: 1},
 	})
-	bus := events.New()
 	ag := &fakeAgent{}
-	sess := &fakeSession{ID: "abc123"}
-	m := NewModel(bus, ag, sess, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", reg, nil, nil, config.Config{}, nil, false, nil)
+	m := NewModel(ag, host.Services{Bus: events.New(), MCPRegistry: reg}, DisplayConfig{CWD: ".", ModelRef: "openai/gpt-4o-mini", ThemeStyle: "dark"})
 	m.width = 80
 	m.height = 24
 	m.state = stateInput

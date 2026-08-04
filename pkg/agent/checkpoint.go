@@ -57,6 +57,7 @@ func (a *Agent) captureWithReason(reason string) (*checkpoint.Checkpoint, error)
 			DeferredTools:  a.cfg.DeferredTools,
 			CoreTools:      append([]string(nil), a.cfg.CoreTools...),
 			Goal:           goalSnapshotOf(a.goals.get()),
+			Reminders:      a.injector.Snapshot(),
 		},
 		Context: &checkpoint.ContextSnapshot{
 			Budget:             mgrState.Budget,
@@ -157,25 +158,11 @@ func (a *Agent) restore(cp *checkpoint.Checkpoint) error {
 	a.cfg.DeferredTools = cp.Agent.DeferredTools
 	a.cfg.CoreTools = append([]string(nil), cp.Agent.CoreTools...)
 
-	// A checkpointed active goal always degrades to paused: the process died
-	// mid-pursuit, so resuming is the user's explicit decision (/goal resume).
-	if cp.Agent.Goal != nil {
-		g := &GoalState{
-			Objective:   cp.Agent.Goal.Objective,
-			Status:      GoalStatus(cp.Agent.Goal.Status),
-			TurnBudget:  cp.Agent.Goal.TurnBudget,
-			TokenBudget: cp.Agent.Goal.TokenBudget,
-			TurnsUsed:   cp.Agent.Goal.TurnsUsed,
-			TokensUsed:  cp.Agent.Goal.TokensUsed,
-			BlockReason: cp.Agent.Goal.BlockReason,
-		}
-		if g.Status == GoalActive {
-			g.Status = GoalPaused
-			if g.BlockReason == "" {
-				g.BlockReason = "restored after crash"
-			}
-		}
-		a.goals.set(g)
+	// Reinstate the injector dedup bookkeeping so a resumed session keeps its
+	// quiet cadence instead of re-injecting everything from scratch. Old
+	// checkpoints omit the field and simply start with a clean cadence.
+	if len(cp.Agent.Reminders) > 0 {
+		a.injector.Restore(cp.Agent.Reminders)
 	}
 
 	mgrState := &contextmgr.ManagerState{
@@ -212,6 +199,30 @@ func (a *Agent) restore(cp *checkpoint.Checkpoint) error {
 	// Mark the holder so the next run continues from the restored turn counter
 	// instead of resetting to 0.
 	a.loopState.SetResuming(true)
+
+	// A checkpointed active goal always degrades to paused: the process died
+	// mid-pursuit, so resuming is the user's explicit decision (/goal resume).
+	// This runs AFTER mgr.Restore/loopState.restore so the GoalUpdatedEvent it
+	// emits carries the restored turn and subscribers observe a fully restored
+	// context, not the pre-restore one.
+	if cp.Agent.Goal != nil {
+		g := &GoalState{
+			Objective:   cp.Agent.Goal.Objective,
+			Status:      GoalStatus(cp.Agent.Goal.Status),
+			TurnBudget:  cp.Agent.Goal.TurnBudget,
+			TokenBudget: cp.Agent.Goal.TokenBudget,
+			TurnsUsed:   cp.Agent.Goal.TurnsUsed,
+			TokensUsed:  cp.Agent.Goal.TokensUsed,
+			BlockReason: cp.Agent.Goal.BlockReason,
+		}
+		if g.Status == GoalActive {
+			g.Status = GoalPaused
+			if g.BlockReason == "" {
+				g.BlockReason = "restored after crash"
+			}
+		}
+		a.goals.set(g)
+	}
 
 	a.executor.restore(RuntimeState{
 		ActiveDeferred: cp.Runtime.ActiveDeferred,

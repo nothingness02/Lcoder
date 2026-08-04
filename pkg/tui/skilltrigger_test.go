@@ -6,18 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/host"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 // newSkillModel builds a model with one loaded skill for trigger tests.
-func newSkillModel(t *testing.T) (*Model, *fakeAgent, *fakeSession) {
-	bus := events.New()
+func newSkillModel(t *testing.T) (*Model, *fakeAgent) {
 	agent := &fakeAgent{}
-	sess := &fakeSession{ID: "abc123"}
-	store := &fakeSessionStore{}
 
 	dir := t.TempDir()
 	source := filepath.Join(dir, "SKILL.md")
@@ -33,15 +30,19 @@ Write a test for the user's request.
 
 	skill := skills.SkillMeta{Name: "tester", Description: "writing tests", Source: source}
 	catalog := skills.NewCatalog([]skills.ScopedMeta{{SkillMeta: skill}})
-	m := NewModel(bus, agent, sess, store, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, catalog)
+	m := NewModel(agent, host.Services{Bus: events.New(), SkillCatalog: catalog}, DisplayConfig{
+		CWD:        ".",
+		ModelRef:   "openai/gpt-4o-mini",
+		ThemeStyle: "dark",
+	})
 	m.width = 80
 	m.height = 24
 	m.state = stateInput
-	return m, agent, sess
+	return m, agent
 }
 
 func TestSubmitManualSkillTrigger(t *testing.T) {
-	m, _, _ := newSkillModel(t)
+	m, _ := newSkillModel(t)
 
 	cmd := m.submit("/skill:tester add a case")
 	if cmd == nil {
@@ -72,7 +73,7 @@ func TestSubmitManualSkillTrigger(t *testing.T) {
 }
 
 func TestSubmitUnknownSkillTrigger(t *testing.T) {
-	m, _, _ := newSkillModel(t)
+	m, _ := newSkillModel(t)
 
 	cmd := m.submit("/skill:nope do it")
 	if cmd != nil {

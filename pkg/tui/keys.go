@@ -1,17 +1,17 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/agent"
-	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/internal/paths"
+	"github.com/lcoder/lcoder/pkg/agentapi"
+	"github.com/lcoder/lcoder/pkg/host"
+	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/skills"
-	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
@@ -63,12 +63,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case EventMsg:
-		return m, tea.Batch(waitForEventCmd(m.eventCh), m.handleEvent(msg.Event))
+		cmd := m.handleEvent(msg.Event)
+		// Agent start/end flips the processing status line on/off, changing the
+		// bottom region's height without a keypress; resync or the frame
+		// overflows (or leaves a blank row) until the next keystroke.
+		m.syncBottomLayout()
+		return m, tea.Batch(waitForEventCmd(m.eventCh), cmd)
 
 	case AgentDoneMsg:
 		if cmd := m.onAgentDone(msg.Err); cmd != nil {
+			m.syncBottomLayout()
 			return m, cmd
 		}
+		m.syncBottomLayout()
 		return m, waitForRunnerResultCmd(m.runner.Results())
 
 	case mcpActionMsg:
@@ -417,10 +424,45 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Transcript navigation and clipboard: PgUp/PgDn page, Ctrl+Home/End jump
+	// to the oldest/latest message, Ctrl+Y copies the focused block (or the
+	// last assistant reply). Each scroll rebuilds so the virtual window is
+	// materialized for the new offset (same path as the mouse wheel).
+	switch k.Type {
+	case tea.KeyPgUp:
+		m.viewport.PageUp()
+		m.rebuildViewport()
+		return m, nil
+	case tea.KeyPgDown:
+		m.viewport.PageDown()
+		m.rebuildViewport()
+		return m, nil
+	case tea.KeyCtrlHome:
+		m.viewport.GotoTop()
+		m.rebuildViewport()
+		return m, nil
+	case tea.KeyCtrlEnd:
+		m.viewport.GotoBottom()
+		m.rebuildViewport()
+		return m, nil
+	case tea.KeyCtrlY:
+		m.copyBlock()
+		return m, nil
+	}
+
 	switch k.Type {
 	case tea.KeyEnter:
 		if m.menuVisible {
 			return m.acceptMenu()
+		}
+		// Windows coninput delivers a pasted \r as an ordinary KeyEnter in a
+		// fast burst with no bracketed-paste marker; treat it as a literal
+		// newline instead of submitting a separate message per line.
+		if m.burstEnter() {
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(k)
+			m.input.SyncHeight()
+			return m, cmd
 		}
 		text := strings.TrimSpace(m.input.Value())
 		if text == "" {
@@ -458,8 +500,11 @@ func (m *Model) handleInputKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 	}
 
 	// Default: let the textarea consume the key, then update menu visibility.
-	// Any non-Tab keystroke dismisses the ghost suggestion.
+	// Any non-Tab keystroke dismisses the ghost suggestion and the transient
+	// notice.
 	m.suggestion = ""
+	m.notice = ""
+	m.noteKey()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
 	m.input.SyncHeight()
@@ -496,8 +541,34 @@ func (m *Model) handleProcessingKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 	case tea.KeyCtrlT:
 		m.toggleTaskSidebar()
 		return m, nil
+	case tea.KeyPgUp:
+		m.viewport.PageUp()
+		m.rebuildViewport()
+		return m, nil
+	case tea.KeyPgDown:
+		m.viewport.PageDown()
+		m.rebuildViewport()
+		return m, nil
+	case tea.KeyCtrlHome:
+		m.viewport.GotoTop()
+		m.rebuildViewport()
+		return m, nil
+	case tea.KeyCtrlEnd:
+		m.viewport.GotoBottom()
+		m.rebuildViewport()
+		return m, nil
+	case tea.KeyCtrlY:
+		m.copyBlock()
+		return m, nil
 	case tea.KeyEnter:
-		// Follow-up while processing: steer the running agent.
+		// Follow-up while processing: steer the running agent. A \r inside a
+		// Windows paste burst is a literal newline, not a steer submit.
+		if m.burstEnter() {
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(k)
+			m.input.SyncHeight()
+			return m, cmd
+		}
 		text := strings.TrimSpace(m.input.Value())
 		if text != "" {
 			m.input.Reset()
@@ -507,6 +578,8 @@ func (m *Model) handleProcessingKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		return m, nil
 	}
 	// Allow composing a follow-up without submitting.
+	m.notice = ""
+	m.noteKey()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
 	m.input.SyncHeight()
@@ -527,13 +600,13 @@ func (m *Model) handleConfirmKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		res := m.confirm.confirm()
 		return m, func() tea.Msg { return confirmResponseMsg{allow: res.Allow, scope: res.Scope} }
 	case tea.KeyEsc:
-		return m, func() tea.Msg { return confirmResponseMsg{allow: false, scope: agent.ScopeDeny} }
+		return m, func() tea.Msg { return confirmResponseMsg{allow: false, scope: agentapi.ScopeDeny} }
 	case tea.KeyRunes:
 		switch strings.ToLower(string(k.Runes)) {
 		case "y":
-			return m, func() tea.Msg { return confirmResponseMsg{allow: true, scope: agent.ScopeOnce} }
+			return m, func() tea.Msg { return confirmResponseMsg{allow: true, scope: agentapi.ScopeOnce} }
 		case "n":
-			return m, func() tea.Msg { return confirmResponseMsg{allow: false, scope: agent.ScopeDeny} }
+			return m, func() tea.Msg { return confirmResponseMsg{allow: false, scope: agentapi.ScopeDeny} }
 		}
 	}
 
@@ -572,7 +645,7 @@ func (m *Model) submit(text string) tea.Cmd {
 }
 
 // startPrompt records the user block and enqueues the prompt with the runner.
-// The runner worker appends the message to the session and calls agent.Prompt.
+// The core (host) appends the message to the active session inside Prompt.
 // Submitting scrolls history back to the bottom (the user wants to watch the
 // new exchange, even if they were reading older messages).
 func (m *Model) startPrompt(text string) tea.Cmd {
@@ -582,24 +655,18 @@ func (m *Model) startPrompt(text string) tea.Cmd {
 	m.state = stateProcessing
 	m.input.SetProcessing(true)
 	m.errMsg = ""
+	m.notice = ""
 	m.focusedBlockIndex = -1
 	m.turnStartFrame = m.spinner.frame
 	m.runner.SubmitPrompt(expandHomeMentions(text))
 	return spinnerTick()
 }
 
-// onAgentDone returns the model to the input state and persists the session.
-// A run error goes to the fixed region (errMsg), not the transcript.
-// onAgentDone settles the UI after a run. When a goal is still active it
-// submits the continuation prompt and returns a non-nil Cmd so the caller
-// keeps waiting on the runner; the UI stays in processing state.
+// onAgentDone settles the UI after a queue-submitted run: back to the input
+// state, run error to the fixed region (errMsg), suggestion refresh. Session
+// persistence is the host's mirror subscription, and goal continuations are
+// the host's goal driver — neither is the TUI's job anymore.
 func (m *Model) onAgentDone(err error) tea.Cmd {
-	m.persistSession()
-	if err == nil {
-		if cmd := m.continueGoalIfActive(); cmd != nil {
-			return cmd
-		}
-	}
 	m.state = stateInput
 	m.input.SetProcessing(false)
 	if err != nil {
@@ -710,8 +777,8 @@ func (m *Model) handlePickerKey(k tea.KeyMsg) (*Model, tea.Cmd) {
 		m.state = stateInput
 		return m, nil
 	case tea.KeyEnter:
-		if sel := m.picker.Selected(); sel != nil {
-			m.loadSession(sel)
+		if id := m.picker.Selected(); id != "" {
+			m.openSessionByID(id)
 		}
 		m.picker.Hide()
 		m.state = stateInput
@@ -740,21 +807,41 @@ func (m *Model) dispatchSlash(text string) tea.Cmd {
 	return entry.Handler(m, sc.Args)
 }
 
-// switchMode changes the agent mode if the runner supports it. An empty mode
-// opens the mode selection panel; a named mode switches silently (the status
-// line reflects the active mode).
+// switchMode changes the agent mode through the core handle (the host swaps
+// the underlying runner; this handle stays valid). An empty mode opens the
+// mode selection panel; a named mode switches silently (the status line
+// reflects the active mode).
 func (m *Model) switchMode(mode string) {
 	if mode == "" {
 		m.openModePanel()
 		return
 	}
-	if sw, ok := m.agent.(ModeSwitcher); ok {
-		m.agent = sw.WithMode(mode)
-		m.runner.SetAgent(m.agent)
-		m.closePanel()
-	} else {
-		m.showTextPanel("mode", styleError().Render("agent does not support modes"))
+	if err := m.agent.SetMode(mode); err != nil {
+		if m.reportBusyErr("mode switch", err) {
+			return
+		}
+		m.showTextPanel("mode", styleError().Render("mode switch failed: "+err.Error()))
+		return
 	}
+	m.closePanel()
+}
+
+// reportBusyErr surfaces host contention failures as a transient system
+// warning instead of an error panel: the host rejects state-changing calls
+// while a run or goal pursuit is in flight (ErrAgentBusy) and after Close
+// (ErrCoreClosed), both of which the user can simply retry later. It returns
+// true when the error was handled; other errors return false so the caller
+// keeps its original error presentation.
+func (m *Model) reportBusyErr(action string, err error) bool {
+	switch {
+	case errors.Is(err, host.ErrAgentBusy):
+		m.addSystem(styleWarn().Render(action + ": agent is running; try again after the current turn"))
+	case errors.Is(err, host.ErrCoreClosed):
+		m.addSystem(styleWarn().Render(action + ": agent core is closed"))
+	default:
+		return false
+	}
+	return true
 }
 
 // showTextPanel displays read-only command output above the composer.
@@ -773,17 +860,13 @@ func (m *Model) closePanel() {
 
 // openModePanel shows the available agent modes as a selection box.
 func (m *Model) openModePanel() {
-	if m.modeManager == nil {
+	if len(m.modes) == 0 {
 		m.showTextPanel("modes", styleDim().Render("no modes loaded"))
 		return
 	}
 	var items []cmdPanelItem
-	for _, mode := range m.modeManager.List() {
+	for _, mode := range m.modes {
 		items = append(items, cmdPanelItem{label: mode.Name, desc: mode.Description, value: mode.Name})
-	}
-	if len(items) == 0 {
-		m.showTextPanel("modes", styleDim().Render("no modes loaded"))
-		return
 	}
 	m.cmdPanel = cmdPanel{visible: true, kind: cmdPanelSelect, title: "modes", items: items, action: actionSwitchMode}
 	m.updateSizes()
@@ -826,9 +909,7 @@ func (m *Model) toggleSkillDisabled(name string) {
 	}
 	_ = skills.SaveDisabledFile(paths.LCoderHome("skills.yaml"), disabled)
 
-	if m.skillsBlockUpdater != nil {
-		m.skillsBlockUpdater(m.skills.Block())
-	}
+	m.agent.SetSkillsBlock(m.skills.Block())
 	if off {
 		m.agent.ClearSkillFilter()
 	}
@@ -928,20 +1009,23 @@ func (m *Model) statusText() string {
 		"mode: " + m.modeLabel(),
 		"model: " + m.model,
 		"cwd: " + m.cwd,
-		"session: " + truncate(m.session.SessionID(), 12),
+		"session: " + truncate(m.agent.SessionID(), 12),
 	}
 	if len(m.capabilities) > 0 {
 		parts = append(parts, "caps: "+strings.Join(m.capabilities, ","))
+	}
+	if mc := m.agent.MicroCompactStatus(); mc != "" {
+		parts = append(parts, "micro-compact: "+mc)
 	}
 	return styleDim().Render(strings.Join(parts, "  ·  "))
 }
 
 // retryLast rolls back to just before the final user prompt and re-runs it.
-// The rollback is pi-style: the session forks at the message preceding the
-// last user prompt, so the retry forms a new branch while the abandoned turn
-// stays reachable on the old one. The agent context is pruned to the same
-// point; startPrompt re-submits the prompt, so the user message is not
-// duplicated in either the context or the session.
+// The rollback is pi-style: the host forks the session at the message
+// preceding the last user prompt, so the retry forms a new branch while the
+// abandoned turn stays reachable on the old one. The agent context is pruned
+// to the same point by TruncateAfter; startPrompt re-submits the prompt, so
+// the user message is not duplicated in either the context or the session.
 func (m *Model) retryLast() tea.Cmd {
 	msgs := m.agent.AllMessages()
 	lastUserIdx := -1
@@ -957,53 +1041,45 @@ func (m *Model) retryLast() tea.Cmd {
 	}
 	lastUser := msgs[lastUserIdx].Text()
 
-	if sess, ok := m.session.(*session.Session); ok {
-		active := sess.ActiveMessages()
-		cut := -1
-		for i := len(active) - 1; i >= 0; i-- {
-			if active[i].Role == models.RoleUser {
-				cut = i
-				break
-			}
-		}
-		if cut >= 0 {
-			forkAt := ""
-			if cut > 0 {
-				forkAt = active[cut-1].ID
-			}
-			if _, err := sess.Fork(forkAt); err != nil {
-				m.addSystem(styleWarn().Render("retry: " + err.Error()))
-				return nil
-			}
-		}
+	forkAt := ""
+	if lastUserIdx > 0 {
+		forkAt = msgs[lastUserIdx-1].ID
 	}
-
-	m.agent.SetMessages(msgs[:lastUserIdx])
+	if err := m.agent.TruncateAfter(forkAt); err != nil {
+		if m.reportBusyErr("retry", err) {
+			return nil
+		}
+		m.addSystem(styleWarn().Render("retry: " + err.Error()))
+		return nil
+	}
 	return m.startPrompt(lastUser)
 }
 
-// loadSession replaces history with a stored session's messages and rebuilds the
-// task sidebar from the latest todo_write call in that history. It also switches
-// the active SessionWriter and runner queue so subsequent prompts go to the new
-// session.
-func (m *Model) loadSession(sess *session.Session) {
-	if sess == nil {
+// openSessionByID switches to a stored session through the core (the host
+// loads messages, rebuilds the task list, and re-points its persistence
+// mirror), then rebuilds the display from the core's new state.
+func (m *Model) openSessionByID(id string) {
+	if err := m.agent.OpenSession(id); err != nil {
+		if m.reportBusyErr("open session", err) {
+			return
+		}
+		m.addSystem(styleWarn().Render("open session: " + err.Error()))
 		return
 	}
-	msgs := sess.ActiveMessages()
+	m.reloadFromCore()
+}
+
+// reloadFromCore rebuilds the conversation display, task strip, and per-session
+// UI state from the core's current messages/tasks. Shared by /sessions, /new,
+// and checkpoint restore.
+func (m *Model) reloadFromCore() {
+	msgs := m.agent.AllMessages()
 	m.blocks = blocksFromMessages(msgs)
 	m.components = componentsFromBlocks(m.blocks)
-	m.tasks = tasksFromMessages(msgs)
-	m.session = sess
-	if m.onSessionChange != nil {
-		m.onSessionChange(sess)
-	}
-	m.runner.SetSession(sess)
-	m.agent.SetSessionID(sess.ID)
-	m.agent.SetMessages(sess.EffectiveMessages())
-	if tm := m.agent.TaskManager(); tm != nil {
-		_ = tm.Restore(task.ManagerState{Tasks: m.tasks})
-	}
+	m.tasks = m.agent.Tasks()
+	// Re-seed the goal copy from the core instead of assuming the host clears
+	// it on session switches; GoalUpdatedEvent keeps it current from here.
+	m.goal = m.agent.Goal()
 	m.history = newInputHistory()
 	m.suggestion = ""
 	m.errMsg = ""
@@ -1017,22 +1093,9 @@ func (m *Model) loadSession(sess *session.Session) {
 
 // openSessionPicker switches to the picker overlay.
 func (m *Model) openSessionPicker() {
-	var cur *session.Session
-	if s, ok := m.session.(*session.Session); ok {
-		cur = s
-	}
-	m.picker = NewSessionPicker(m.store, m.cwd, "select", cur)
+	m.picker = NewSessionPicker(m.agent)
 	m.picker.SetWidth(m.mainWidth - 4)
 	m.state = stateSessionPicker
-}
-
-// persistSession mirrors the agent's full context window (assistant and
-// tool_result messages, not just the user prompts appended at submit time) into
-// the session and writes it to disk. No-op if not a *session.Session.
-func (m *Model) persistSession() {
-	if sess, ok := m.session.(*session.Session); ok {
-		_ = sess.AppendMissing(m.agent.AllMessages())
-	}
 }
 
 // moveFocus shifts the focused block index among interactive (UpdatableComponent)

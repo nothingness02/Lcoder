@@ -5,56 +5,42 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 )
 
-// GoalStatus mirrors Kimi Code's goal record lifecycle.
-type GoalStatus string
+// Goal status types and the goal record live in the protocol package
+// (pkg/agentapi) so CoreAPI can expose them; these aliases keep the agent
+// package's internal code and all existing call sites unchanged.
+type GoalStatus = agentapi.GoalStatus
 
 const (
-	GoalActive   GoalStatus = "active"   // driver 正在追求
-	GoalPaused   GoalStatus = "paused"   // 中断/错误/崩溃恢复,可 resume
-	GoalBlocked  GoalStatus = "blocked"  // 预算耗尽或模型判死局,可 resume
-	GoalComplete GoalStatus = "complete" // 模型经 update_goal 自标完成
+	GoalActive   = agentapi.GoalActive   // driver 正在追求
+	GoalPaused   = agentapi.GoalPaused   // 中断/错误/崩溃恢复,可 resume
+	GoalBlocked  = agentapi.GoalBlocked  // 预算耗尽或模型判死局,可 resume
+	GoalComplete = agentapi.GoalComplete // 模型经 update_goal 自标完成
 )
 
-// GoalState is the agent-held goal record. The model mutates it ONLY through
-// the update_goal tool (applied by the executor); the driver and /goal
-// commands mutate it through Agent methods.
-type GoalState struct {
-	Objective   string
-	Status      GoalStatus
-	TurnBudget  int // 0 = 不限
-	TokenBudget int // 0 = 不限;累计 output token(CompletionTokens)
-	TurnsUsed   int
-	TokensUsed  int
-	BlockReason string
-}
-
-// OverBudget reports whether any configured budget is exhausted.
-func (g *GoalState) OverBudget() bool {
-	if g.TurnBudget > 0 && g.TurnsUsed >= g.TurnBudget {
-		return true
-	}
-	if g.TokenBudget > 0 && g.TokensUsed >= g.TokenBudget {
-		return true
-	}
-	return false
-}
-
-// RecordUsage adds one turn's output tokens to the budget ledger. The ONLY
-// writer is the run loop at turn boundaries — never event subscribers or
-// deciders — so the ledger cannot be double-counted.
-func (g *GoalState) RecordUsage(u models.LLMUsage) {
-	g.TokensUsed += u.CompletionTokens
-}
+// GoalState is the agent-held goal record.
+type GoalState = agentapi.GoalState
 
 // goalHolder shares the goal record between the Agent (driver, run loop) and
 // the executor (update_goal application), surviving WithMode clones.
+//
+// It is also the single emission point for GoalUpdatedEvent: every mutation
+// path (set/mutate/applyUpdate) compares the goal snapshot before and after
+// the change and notifies onChange only when it actually changed, so no-op
+// transitions (PauseGoal on a complete goal, zero-usage accounting, ...) do
+// not spam subscribers with identical snapshots. The exception is set(nil):
+// CancelGoal always emits the cleared (nil) snapshot. The owning Agent wires
+// onChange to its event emitter in New and rewires it in WithMode.
 type goalHolder struct {
 	mu   sync.RWMutex
 	goal *GoalState
+	// onChange, when non-nil, is invoked outside the lock after every
+	// effective mutation with a snapshot of the goal (nil after CancelGoal).
+	onChange func(*GoalState)
 }
 
 func (h *goalHolder) get() *GoalState {
@@ -69,16 +55,40 @@ func (h *goalHolder) get() *GoalState {
 
 func (h *goalHolder) set(g *GoalState) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	before := h.goal
 	h.goal = g
+	h.mu.Unlock()
+	if g == nil {
+		// CancelGoal always emits, so subscribers reliably see the clear.
+		h.notify()
+		return
+	}
+	if before != nil && *before == *g {
+		return // no observable change
+	}
+	h.notify()
 }
 
 // mutate applies fn to the live goal under lock.
 func (h *goalHolder) mutate(fn func(*GoalState)) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.goal != nil {
-		fn(h.goal)
+	if h.goal == nil {
+		h.mu.Unlock()
+		return
+	}
+	before := *h.goal
+	fn(h.goal)
+	changed := *h.goal != before
+	h.mu.Unlock()
+	if changed {
+		h.notify()
+	}
+}
+
+// notify emits a snapshot of the current goal to onChange, if wired.
+func (h *goalHolder) notify() {
+	if h.onChange != nil {
+		h.onChange(h.get())
 	}
 }
 
@@ -86,30 +96,63 @@ func (h *goalHolder) mutate(fn func(*GoalState)) {
 // (update_goal tool). Only active → complete/blocked is legal.
 func (h *goalHolder) applyUpdate(status, reason string) (GoalStatus, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.goal == nil {
+		h.mu.Unlock()
 		return "", fmt.Errorf("no active goal; start one with /goal before calling update_goal")
 	}
 	if h.goal.Status != GoalActive {
+		h.mu.Unlock()
 		return "", fmt.Errorf("goal is %s, not active; only an active goal can be updated", h.goal.Status)
 	}
+	before := *h.goal
 	switch GoalStatus(status) {
 	case GoalComplete:
 		h.goal.Status = GoalComplete
 	case GoalBlocked:
 		if reason == "" {
+			h.mu.Unlock()
 			return "", fmt.Errorf("reason is required when status=blocked")
 		}
 		h.goal.Status = GoalBlocked
 		h.goal.BlockReason = reason
 	default:
+		h.mu.Unlock()
 		return "", fmt.Errorf("invalid status %q: must be complete or blocked", status)
 	}
-	return h.goal.Status, nil
+	newStatus := h.goal.Status
+	changed := *h.goal != before
+	h.mu.Unlock()
+	if changed {
+		h.notify()
+	}
+	return newStatus, nil
 }
 
 // Goal returns a copy of the current goal record, or nil.
 func (a *Agent) Goal() *GoalState { return a.goals.get() }
+
+// emitGoalUpdated is the goalHolder onChange hook: it converts the post-change
+// snapshot into a GoalUpdatedEvent on the agent's bus. A nil snapshot means the
+// record was cleared (CancelGoal); the event carries an empty Status.
+func (a *Agent) emitGoalUpdated(g *GoalState) {
+	turn := 0
+	if a.loopState != nil {
+		turn = a.loopState.Turn()
+	}
+	ev := events.GoalUpdatedEvent{
+		Base: events.Base{Type: events.GoalUpdated, Turn: turn},
+	}
+	if g != nil {
+		ev.Objective = g.Objective
+		ev.Status = string(g.Status)
+		ev.Reason = g.BlockReason
+		ev.TurnBudget = g.TurnBudget
+		ev.TurnsUsed = g.TurnsUsed
+		ev.TokenBudget = g.TokenBudget
+		ev.TokensUsed = g.TokensUsed
+	}
+	a.emit(context.Background(), ev)
+}
 
 // StartGoal creates an active goal, replacing any settled one.
 func (a *Agent) StartGoal(objective string, turnBudget, tokenBudget int) {
@@ -143,6 +186,19 @@ func (a *Agent) ResumeGoal() {
 
 // CancelGoal clears the goal record.
 func (a *Agent) CancelGoal() { a.goals.set(nil) }
+
+// BlockGoal marks an active goal blocked with a reason. It is the exported
+// form of blockGoal for goal drivers living outside this package (pkg/host);
+// the in-package GoalDriver keeps using blockGoal.
+func (a *Agent) BlockGoal(reason string) { a.blockGoal(reason) }
+
+// NoteGoalTurn records one driver-initiated pursuit turn against the goal's
+// turn budget. It is the exported form of the increment the in-package
+// GoalDriver performs per iteration, for drivers living outside this package
+// (pkg/host).
+func (a *Agent) NoteGoalTurn() {
+	a.goals.mutate(func(live *GoalState) { live.TurnsUsed++ })
+}
 
 // blockGoal marks an active goal blocked with a reason.
 func (a *Agent) blockGoal(reason string) {

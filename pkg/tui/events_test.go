@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/tui/components"
@@ -274,11 +275,11 @@ func TestBlocksFromMessagesMergesToolResults(t *testing.T) {
 }
 
 // The idle status line surfaces context budget usage once the agent reports a
-// drop limit. Stats() is expensive, so it is sampled only at the AgentEnd
+// drop limit. ContextStats() is expensive, so it is sampled only at the AgentEnd
 // boundary and cached on the model.
 func TestContextPctShownAfterAgentEnd(t *testing.T) {
 	m, ag, _ := newTestModel()
-	ag.StatsVal = map[string]int{"total": 40000, "drop_limit": 100000}
+	ag.ContextStatsVal = agentapi.ContextStats{Total: 40000, DropLimit: 100000}
 	m.mainWidth = 80
 
 	m.handleEvent(events.AgentEndEvent{})
@@ -296,7 +297,7 @@ func TestContextPctShownAfterAgentEnd(t *testing.T) {
 // rather than divide by zero or render a bogus 0%.
 func TestContextPctHiddenWithoutDropLimit(t *testing.T) {
 	m, ag, _ := newTestModel()
-	ag.StatsVal = nil // FakeAgent default: no stats
+	ag.ContextStatsVal = agentapi.ContextStats{} // FakeAgent default: no stats
 	m.mainWidth = 80
 
 	m.handleEvent(events.AgentEndEvent{})
@@ -312,11 +313,134 @@ func TestContextPctHiddenWithoutDropLimit(t *testing.T) {
 // A drop limit of zero is as unusable as a missing one; guard the division.
 func TestContextPctHiddenOnZeroDropLimit(t *testing.T) {
 	m, ag, _ := newTestModel()
-	ag.StatsVal = map[string]int{"total": 5000, "drop_limit": 0}
+	ag.ContextStatsVal = agentapi.ContextStats{Total: 5000}
 
 	m.handleEvent(events.AgentEndEvent{})
 
 	if m.contextPct != -1 {
 		t.Fatalf("contextPct = %d, want -1 on zero drop limit", m.contextPct)
+	}
+}
+
+// The status line prefers the provider-reported real prompt total over the
+// char-based heuristic estimate: the real number is what actually counts
+// against the context window on the wire.
+func TestContextPctPrefersRealPromptTotal(t *testing.T) {
+	m, ag, _ := newTestModel()
+	ag.ContextStatsVal = agentapi.ContextStats{
+		Total:           40000, // heuristic (4 chars/token)
+		RealPromptTotal: 90000, // provider-reported: input + cache_read + cache_creation
+		DropLimit:       100000,
+	}
+	m.mainWidth = 80
+
+	m.handleEvent(events.AgentEndEvent{})
+
+	if m.contextPct != 90 {
+		t.Fatalf("contextPct = %d, want 90 from real prompt total", m.contextPct)
+	}
+	if m.contextUsedTok != 90000 {
+		t.Fatalf("contextUsedTok = %d, want 90000 (real)", m.contextUsedTok)
+	}
+	view := stripANSI(m.statusLineView())
+	if !strings.Contains(view, "context: 90% (87.9k/97.7k)") {
+		t.Fatalf("status line should show real-based usage, got %q", view)
+	}
+}
+
+// Without a real prompt total the status line falls back to the heuristic
+// estimate, so a fresh session (or a provider that reports no usage) still
+// shows a sane percentage.
+func TestContextPctFallsBackToHeuristicWithoutRealUsage(t *testing.T) {
+	m, ag, _ := newTestModel()
+	ag.ContextStatsVal = agentapi.ContextStats{Total: 40000, DropLimit: 100000} // no real prompt total
+	m.mainWidth = 80
+
+	m.handleEvent(events.AgentEndEvent{})
+
+	if m.contextPct != 40 {
+		t.Fatalf("contextPct = %d, want 40 from heuristic fallback", m.contextPct)
+	}
+	if m.contextUsedTok != 40000 {
+		t.Fatalf("contextUsedTok = %d, want 40000 (heuristic)", m.contextUsedTok)
+	}
+}
+
+func TestFinishToolPassesDetailsIntoBlock(t *testing.T) {
+	m, _, _ := newTestModel()
+
+	m.handleEvent(events.ToolExecutionStartEvent{
+		ToolCallID: "w1",
+		ToolName:   "write",
+		Args:       map[string]any{"path": "a.go", "content": "new\ncontent"},
+	})
+	m.handleEvent(events.ToolExecutionEndEvent{
+		ToolCallID: "w1",
+		ToolName:   "write",
+		Result: models.ToolExecutionResult{
+			Content: []models.ContentPart{models.TextContent{Text: "Wrote 11 characters to a.go"}},
+			Details: map[string]any{"path": "a.go", "old_content": "old\ncontent"},
+		},
+	})
+
+	var b *block
+	for i := range m.blocks {
+		if m.blocks[i].kind == components.BlockTool && m.blocks[i].id == "w1" {
+			b = &m.blocks[i]
+		}
+	}
+	if b == nil {
+		t.Fatal("expected a write tool block")
+	}
+	if got, ok := b.toolDetails["old_content"].(string); !ok || got != "old\ncontent" {
+		t.Fatalf("details not passed into block, got %v", b.toolDetails)
+	}
+	// The component built from the block renders the overwrite as a diff.
+	comp := toComponent(*b).(*components.ToolResultComponent)
+	out := comp.Render(80, false)
+	if !strings.Contains(out, "- old") || !strings.Contains(out, "+ new") {
+		t.Fatalf("expected overwrite diff in component, got:\n%s", out)
+	}
+}
+
+func TestBlocksFromMessagesWithoutDetailsDegrades(t *testing.T) {
+	msgs := []models.AgentMessage{
+		{
+			Role: models.RoleAssistant,
+			ID:   "a1",
+			Content: []models.ContentPart{
+				models.ToolCallContent{
+					ID:   "c1",
+					Name: "write",
+					Arguments: map[string]any{
+						"path":    "a.go",
+						"content": "line1\nline2",
+					},
+				},
+			},
+		},
+		models.NewAgentMessage(models.RoleToolResult, models.ToolResultContent{
+			ToolCallID: "c1",
+			Name:       "write",
+			Content:    []models.ContentPart{models.TextContent{Text: "Wrote 11 characters to a.go"}},
+		}),
+	}
+	blocks := blocksFromMessages(msgs)
+	var tb *block
+	for i := range blocks {
+		if blocks[i].kind == components.BlockTool {
+			tb = &blocks[i]
+		}
+	}
+	if tb == nil {
+		t.Fatal("expected a tool block")
+	}
+	if tb.toolDetails != nil {
+		t.Fatalf("restored blocks must not have details, got %v", tb.toolDetails)
+	}
+	// Without details the restored write renders the content preview, no diff.
+	out := toComponent(*tb).Render(80, false)
+	if !strings.Contains(out, "line1") {
+		t.Fatalf("restored write should fall back to content preview, got:\n%s", out)
 	}
 }

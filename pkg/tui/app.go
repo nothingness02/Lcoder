@@ -3,20 +3,10 @@ package tui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/agent"
-	"github.com/lcoder/lcoder/pkg/agenthost"
-	"github.com/lcoder/lcoder/pkg/checkpoint"
-	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/contextmgr"
-	"github.com/lcoder/lcoder/pkg/events"
-	"github.com/lcoder/lcoder/pkg/llm"
-	"github.com/lcoder/lcoder/pkg/mcp"
-	"github.com/lcoder/lcoder/pkg/models"
-	"github.com/lcoder/lcoder/pkg/session"
-	"github.com/lcoder/lcoder/pkg/skills"
+	"github.com/lcoder/lcoder/pkg/agentapi"
+	"github.com/lcoder/lcoder/pkg/host"
 )
 
 // runInputHook is applied to the model created by Run. Install it via
@@ -29,27 +19,14 @@ func SetInputHook(hook func(text string) (string, bool, string)) {
 	runInputHook = hook
 }
 
-// Run starts the TUI application.
-// onSessionChange, when non-nil, is notified whenever the active session is
-// swapped (/sessions, /new) so the compaction sink records folds to the session
-// actually in use.
-func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, capabilities []string, llmClient *llm.Client, cfg config.Config, needsProviderSetup bool, onSessionChange func(*session.Session), subagentHost *agenthost.Host, skillCatalog *skills.Catalog) error {
-	checkpointDir := filepath.Join(session.DefaultDir(), "checkpoints")
-	checkpointStore := checkpoint.NewFileStore(checkpointDir)
-	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, needsProviderSetup, skillCatalog)
-	model.SetCapabilities(capabilities)
+// Run starts the TUI application around the protocol handle and the local
+// workbench services. The interactive approval callback is created here (it
+// needs the bubbletea program) and wired into the core; wireConfirm, when
+// non-nil, receives the same callback so the caller can wire additional
+// consumers (the subagent host) that must survive mode switches.
+func Run(core agentapi.CoreAPI, services host.Services, display DisplayConfig, wireConfirm func(agentapi.UserConfirmation)) error {
+	model := NewModel(core, services, display)
 	model.SetInputHook(runInputHook)
-	model.SetOnSessionChange(onSessionChange)
-	if mgr := ag.ContextManager(); mgr != nil && skillCatalog != nil {
-		model.SetSkillsBlockUpdater(func(content string) {
-			if content == "" {
-				mgr.RemoveBlock(contextmgr.BlockSkills, "skills")
-				return
-			}
-			mgr.SetBlock(contextmgr.NewBlock(contextmgr.BlockSkills, "skills", contextmgr.StabilityStable, 90,
-				models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: content})))
-		})
-	}
 	defer model.Close()
 
 	// Detect terminal background ONCE before bubbletea grabs stdin (the OSC 11
@@ -62,21 +39,25 @@ func Run(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session
 		tea.WithMouseCellMotion(),
 	)
 	confirm := &tuiConfirm{program: program}
-	ag.SetUserConfirm(confirm)
-	if subagentHost != nil {
-		subagentHost.SetUserConfirm(confirm)
+	core.SetUserConfirm(confirm)
+	if wireConfirm != nil {
+		wireConfirm(confirm)
 	}
 	if _, err := program.Run(); err != nil {
 		return fmt.Errorf("run tui: %w", err)
+	}
+	// The alternate screen is gone now: print the transcript so the session
+	// lives on in the terminal's native scrollback (opt-out via
+	// tui.exit_transcript: false).
+	if services.Config.TUI.ExitTranscript {
+		writeTranscript(os.Stdout, model.blocks)
 	}
 	return nil
 }
 
 // RunWithIO starts the TUI with custom input/output for testing.
-func RunWithIO(bus *events.Bus, ag *agent.Agent, sess *session.Session, store *session.Store, cwd, modelRef, themeStyle string, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, input *os.File, output *os.File, skillCatalog *skills.Catalog) (tea.Model, error) {
-	checkpointDir := filepath.Join(session.DefaultDir(), "checkpoints")
-	checkpointStore := checkpoint.NewFileStore(checkpointDir)
-	model := NewModel(bus, ag, sess, store, cwd, sess.ID, modelRef, themeStyle, mcpRegistry, modeManager, llmClient, cfg, checkpointStore, false, skillCatalog)
+func RunWithIO(core agentapi.CoreAPI, services host.Services, display DisplayConfig, input *os.File, output *os.File) (tea.Model, error) {
+	model := NewModel(core, services, display)
 	defer model.Close()
 
 	program := tea.NewProgram(

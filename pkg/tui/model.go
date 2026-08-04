@@ -6,13 +6,12 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/lcoder/lcoder/pkg/agent"
-	"github.com/lcoder/lcoder/pkg/checkpoint"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 	"github.com/lcoder/lcoder/pkg/config"
 	"github.com/lcoder/lcoder/pkg/events"
+	"github.com/lcoder/lcoder/pkg/host"
 	"github.com/lcoder/lcoder/pkg/llm"
 	"github.com/lcoder/lcoder/pkg/mcp"
-	"github.com/lcoder/lcoder/pkg/session"
 	"github.com/lcoder/lcoder/pkg/skills"
 	"github.com/lcoder/lcoder/pkg/task"
 	"github.com/lcoder/lcoder/pkg/tui/components"
@@ -31,22 +30,33 @@ const (
 	stateProvider
 )
 
+// DisplayConfig carries the display-only parameters of a TUI launch (no agent
+// state): what to show in the header/status and whether to open the
+// first-launch provider wizard.
+type DisplayConfig struct {
+	CWD                string
+	ModelRef           string
+	ThemeStyle         string
+	Capabilities       []string
+	NeedsProviderSetup bool
+}
+
 // Model is the single top-level bubbletea model for the Lcoder TUI.
 type Model struct {
 	width, height int
 	cwd           string
 
-	agent           AgentRunner
-	session         SessionWriter
-	store           SessionStore
-	checkpointStore checkpoint.Store
-	bus             *events.Bus
+	// agent is the stable agentapi.CoreAPI handle (a *host.Core in
+	// production): mode switches swap the runner inside the host, and session
+	// persistence happens there too — the TUI holds no session or checkpoint
+	// store.
+	agent AgentCore
+	bus   *events.Bus
 
-	unsubscribe        func()
-	persistUnsubscribe func()
-	eventCh            chan events.Event
-	runner             *runnerQueue
-	runnerCancel       context.CancelFunc
+	unsubscribe  func()
+	eventCh      chan events.Event
+	runner       *runnerQueue
+	runnerCancel context.CancelFunc
 
 	state uiState
 
@@ -64,13 +74,23 @@ type Model struct {
 
 	// sched coalesces stream-driven viewport rebuilds; rebuilds counts actual
 	// rebuildViewport executions (acceptance probe for the frame scheduler).
-	sched    frameScheduler
-	rebuilds int
+	// transcriptLines is the full rendered height of the conversation, tracked
+	// for the scrollbar indicator.
+	sched           frameScheduler
+	rebuilds        int
+	transcriptLines int
 
 	input   InputModel
 	spinner spinner
 	paste   *pasteStash
 	history *inputHistory
+
+	// lastKeyAt and burstChars back paste-burst detection: Windows coninput
+	// delivers pasted text as a stream of per-key events with no
+	// bracketed-paste marker, so an Enter inside a fast key burst is a literal
+	// newline, not a submit (see paste.go burstEnter/noteKey).
+	lastKeyAt  time.Time
+	burstChars int
 
 	// turnStartFrame is the spinner frame at which the current turn began, so the
 	// processing status line can show the elapsed seconds.
@@ -133,12 +153,12 @@ type Model struct {
 
 	// contextPct caches context budget usage (0-100) for the status line,
 	// with the raw token counts behind it (used/limit).
-	// Stats() walks blocks and estimates tokens, so it must not run per-frame;
-	// refreshed at turn/compaction boundaries via updateContextStats. -1 when
-	// unknown (no budget limit reported yet).
-	contextPct       int
-	contextUsedTok   int
-	contextLimitTok  int
+	// ContextStats() walks blocks and estimates tokens, so it must not run
+	// per-frame; refreshed at turn/compaction boundaries via
+	// updateContextStats. -1 when unknown (no budget limit reported yet).
+	contextPct      int
+	contextUsedTok  int
+	contextLimitTok int
 
 	// compacting is set between CompactionStarted and the next terminal event
 	// (commit/error/message/agent-end); the status line shows an indicator.
@@ -147,8 +167,13 @@ type Model struct {
 	// capabilities of the active model, shown in /status (from the catalog).
 	capabilities []string
 
-	skills      *skills.Catalog
-	modeManager *agent.ModeManager
+	skills *skills.Catalog
+	// modes is the startup snapshot of the mode catalog for the /modes panel.
+	modes []agentapi.ModeInfo
+
+	// goal is the local copy of the goal record: seeded from CoreAPI.Goal() at
+	// startup and kept current by GoalUpdatedEvent (no polling).
+	goal *agentapi.GoalState
 
 	// Provider-config wizard dependencies and state.
 	llmClient          *llm.Client
@@ -166,24 +191,22 @@ type Model struct {
 	completedTurns int
 	suggestion     string
 
-	// skillsBlockUpdater refreshes the agent's skills context block after a
-	// runtime skill toggle (wired from app.go, which owns the agent).
-	skillsBlockUpdater func(content string)
-
-	// onSessionChange is notified whenever the active session is swapped, so the
-	// compaction sink records folds to the session actually in use rather than the
-	// one that happened to be open at startup.
-	onSessionChange func(*session.Session)
+	// copyFn writes text to the system clipboard (OSC 52 on Unix, Win32 API on
+	// Windows); injectable for tests. notice is a transient dim line above the
+	// composer (copy feedback), cleared on the next keystroke or submit.
+	copyFn func(string) error
+	notice string
 
 	// inputHook intercepts plain user input before skill parsing/submission.
 	// Returns (newText, proceed, reason). Nil means no interception.
 	inputHook func(text string) (string, bool, string)
 }
 
-// NewModel keeps the exact signature the call sites and tests rely on.
-func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store SessionStore, cwd, sessionID, model, themeStyle string, mcpRegistry *mcp.Registry, modeManager *agent.ModeManager, llmClient *llm.Client, cfg config.Config, checkpointStore checkpoint.Store, needsProviderSetup bool, skillCatalog *skills.Catalog) *Model {
+// NewModel builds the TUI model around the protocol handle and the local
+// workbench services (see host.Services).
+func NewModel(core AgentCore, services host.Services, display DisplayConfig) *Model {
 	// Theme override: honor explicit "light"/"dark", else auto-detect.
-	switch themeStyle {
+	switch display.ThemeStyle {
 	case "light":
 		darkBgOnce.Do(func() { darkBg = false })
 	case "dark":
@@ -193,12 +216,9 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 
 	vp := viewport.New(80, 15)
 	m := &Model{
-		agent:              ag,
-		session:            session,
-		store:              store,
-		checkpointStore:    checkpointStore,
-		cwd:                cwd,
-		bus:                bus,
+		agent:              core,
+		cwd:                display.CWD,
+		bus:                services.Bus,
 		eventCh:            make(chan events.Event, 64),
 		state:              stateStartup,
 		viewport:           vp,
@@ -206,18 +226,20 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 		spinner:            newSpinner(),
 		paste:              newPasteStash(),
 		history:            newInputHistory(),
-		extPanel:           ExtensionsPanelModel{MCPServers: mcpServers(mcpRegistry)},
-		model:              model,
-		themeStyle:         themeStyle,
-		skills:             skillCatalog,
-		modeManager:        modeManager,
-		llmClient:          llmClient,
-		cfg:                cfg,
-		needsProviderSetup: needsProviderSetup,
-		mcpRegistry:        mcpRegistry,
-		header:             headerInfo{model: model, cwd: cwd, version: "0.1"},
+		extPanel:           ExtensionsPanelModel{MCPServers: mcpServers(services.MCPRegistry)},
+		model:              display.ModelRef,
+		themeStyle:         display.ThemeStyle,
+		capabilities:       display.Capabilities,
+		skills:             services.SkillCatalog,
+		modes:              services.Modes,
+		llmClient:          services.LLMClient,
+		cfg:                services.Config,
+		needsProviderSetup: display.NeedsProviderSetup,
+		mcpRegistry:        services.MCPRegistry,
+		header:             headerInfo{model: display.ModelRef, cwd: display.CWD, version: "0.1"},
 		topBar:             true,
 		focusedBlockIndex:  -1,
+		copyFn:             copyTextToClipboard,
 		contextPct:         -1,
 		contextUsedTok:     0,
 		contextLimitTok:    0,
@@ -225,48 +247,27 @@ func NewModel(bus *events.Bus, ag AgentRunner, session SessionWriter, store Sess
 	}
 	// Restore the display from the agent's already-loaded context window so a
 	// session reloaded at startup shows its prior conversation (and task
-	// sidebar), matching what /sessions does via loadSession.
-	if msgs := ag.AllMessages(); len(msgs) > 0 {
+	// sidebar), matching what /sessions does via openSessionByID.
+	if msgs := core.AllMessages(); len(msgs) > 0 {
 		m.blocks = blocksFromMessages(msgs)
 		m.components = componentsFromBlocks(m.blocks)
 	}
-	m.fileSuggester = newFileSuggester(cwd)
+	m.fileSuggester = newFileSuggester(display.CWD)
 	m.fileSuggester.EnsureStarted() // prewarm: first @ usually hits a warm index
-	if ag.TaskManager() != nil {
-		m.tasks = ag.TaskManager().List()
-	}
-	m.unsubscribe = bus.Subscribe(m.onEvent)
-	m.persistUnsubscribe = bus.Subscribe(m.persistFromEvent)
+	// Subscribe before seeding from the core so no snapshot event (goal, task
+	// list) can slip into the window between the seed reads and the
+	// subscription; snapshot events are idempotent, so a replay is harmless.
+	m.unsubscribe = services.Bus.Subscribe(m.onEvent)
+	m.tasks = core.Tasks()
+	m.goal = core.Goal()
 	runnerCtx, cancel := context.WithCancel(context.Background())
 	m.runnerCancel = cancel
-	m.runner = newRunnerQueue(ag, session)
+	m.runner = newRunnerQueue(core)
 	m.runner.Start(runnerCtx)
-	if needsProviderSetup {
+	if display.NeedsProviderSetup {
 		m.openProviderPanel()
 	}
 	return m
-}
-
-// SetCapabilities records the active model's catalog capabilities for /status.
-func (m *Model) SetCapabilities(caps []string) {
-	m.capabilities = caps
-}
-
-// SetOnSessionChange registers a callback fired when the active session changes.
-// It is invoked immediately with the current session so the caller starts in sync.
-// SetSkillsBlockUpdater wires the skills-block refresh used by the skills
-// management panel.
-func (m *Model) SetSkillsBlockUpdater(fn func(content string)) {
-	m.skillsBlockUpdater = fn
-}
-
-func (m *Model) SetOnSessionChange(fn func(*session.Session)) {
-	m.onSessionChange = fn
-	if fn != nil {
-		if sess, ok := m.session.(*session.Session); ok {
-			fn(sess)
-		}
-	}
 }
 
 // SetInputHook installs the extension input hook.
@@ -292,31 +293,6 @@ func (m *Model) onEvent(ctx context.Context, ev events.Event) error {
 	return nil
 }
 
-// persistFromEvent mirrors the agent's context window into the active session
-// after each turn and records compaction entries. It lives on the model so that
-// /sessions and /new switches use the current session, not the startup session.
-func (m *Model) persistFromEvent(ctx context.Context, ev events.Event) error {
-	sess, ok := m.session.(*session.Session)
-	if !ok {
-		return nil
-	}
-	switch ev.(type) {
-	// Compactions are persisted by the context manager's CompactionSink
-	// (agentsetup.SessionCompactionSink), inside the same call that folds the
-	// context — not from here, where a missed event would silently leave the
-	// session claiming the folded messages are still active.
-	case events.TurnEndEvent, events.AgentEndEvent:
-		// Mirror the completed turn's assistant/tool messages into the session
-		// now. This handler runs synchronously inside the agent's TurnEnd
-		// emission, which precedes the automatic checkpoint written at the
-		// turn boundary — so the session on disk is always at least as new as
-		// any checkpoint, and a crash cannot resurrect a checkpoint whose
-		// messages were never saved.
-		_ = sess.AppendMissing(m.agent.AllMessages())
-	}
-	return nil
-}
-
 // Close cleans up the event subscription and runner queue.
 func (m *Model) Close() {
 	if m.runnerCancel != nil {
@@ -324,9 +300,6 @@ func (m *Model) Close() {
 	}
 	if m.fileSuggester != nil {
 		m.fileSuggester.Stop()
-	}
-	if m.persistUnsubscribe != nil {
-		m.persistUnsubscribe()
 	}
 	if m.unsubscribe != nil {
 		m.unsubscribe()
@@ -374,7 +347,7 @@ func (m *Model) updateSizes() {
 	if vh < 3 {
 		vh = 3
 	}
-	m.viewport.Width = mw
+	m.viewport.Width = max(mw-1, 1) // rightmost column is the scrollbar indicator
 	m.viewport.Height = vh
 	m.rebuildViewport()
 }

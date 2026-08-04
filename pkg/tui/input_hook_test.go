@@ -4,15 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
 // newHookModel builds a minimal model for submit-path input hook tests.
 func newHookModel(t *testing.T) *Model {
 	t.Helper()
-	m := NewModel(events.New(), &fakeAgent{}, &fakeSession{ID: "abc123"}, &fakeSessionStore{}, ".", "abc123", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	m.width = 80
 	m.height = 24
 	m.state = stateInput

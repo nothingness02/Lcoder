@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/lcoder/lcoder/pkg/config"
-	"github.com/lcoder/lcoder/pkg/events"
 	"github.com/lcoder/lcoder/pkg/tui/components"
 )
 
@@ -15,11 +13,7 @@ import (
 // After the zero-alloc virtual content build (2026-07-30, i9-14900HX):
 // ~2.2 ms/op, ~1.1 MB/op, ~26.4k allocs/op.
 func BenchmarkRebuildViewportManyMessages(b *testing.B) {
-	bus := events.New()
-	ag := &fakeAgent{}
-	store := &fakeSessionStore{}
-	sess := &fakeSession{ID: "bench"}
-	m := NewModel(bus, ag, sess, store, ".", "bench", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	defer m.Close()
 
 	for i := 0; i < 1000; i++ {
@@ -43,11 +37,7 @@ func BenchmarkRebuildViewportManyMessages(b *testing.B) {
 // Baseline (2026-07-30, i9-14900HX): ~10.9 ms/op — under the 33ms frame
 // budget the scheduler enforces.
 func BenchmarkRebuildViewport10k(b *testing.B) {
-	bus := events.New()
-	ag := &fakeAgent{}
-	store := &fakeSessionStore{}
-	sess := &fakeSession{ID: "bench"}
-	m := NewModel(bus, ag, sess, store, ".", "bench", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	defer m.Close()
 
 	for i := 0; i < 5000; i++ {
@@ -73,11 +63,7 @@ func BenchmarkRebuildViewport10k(b *testing.B) {
 // during a delta burst), over a 2000-block history.
 // Baseline (2026-07-30, i9-14900HX): ~129 ns/op.
 func BenchmarkStreamPatch(b *testing.B) {
-	bus := events.New()
-	ag := &fakeAgent{}
-	store := &fakeSessionStore{}
-	sess := &fakeSession{ID: "bench"}
-	m := NewModel(bus, ag, sess, store, ".", "bench", "openai/gpt-4o-mini", "dark", nil, nil, nil, config.Config{}, nil, false, nil)
+	m := newTestCoreModel(&fakeAgent{})
 	defer m.Close()
 
 	for i := 0; i < 1000; i++ {

@@ -116,4 +116,3 @@ func TestBaseToolDefinitions_IncludesSwitchMode(t *testing.T) {
 		t.Fatal("expected baseToolDefinitions to include switch_mode")
 	}
 }
-

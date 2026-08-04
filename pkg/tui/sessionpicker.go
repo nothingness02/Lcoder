@@ -7,51 +7,44 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lcoder/lcoder/pkg/session"
+	"github.com/lcoder/lcoder/pkg/agentapi"
 )
 
 // SessionItem is a list item for the session picker.
 type SessionItem struct {
-	session *session.Session
+	info agentapi.SessionInfo
 }
 
-func (s SessionItem) FilterValue() string { return s.session.DisplayTitle() + " " + s.session.ID }
+func (s SessionItem) FilterValue() string { return s.info.Title + " " + s.info.ID }
 
-func (s SessionItem) Title() string { return s.session.DisplayTitle() }
+func (s SessionItem) Title() string { return s.info.Title }
 func (s SessionItem) Description() string {
-	return fmt.Sprintf("%d messages · %s · %s", len(s.session.Messages), s.session.ID, s.session.CWD)
+	return fmt.Sprintf("%d messages · %s · %s", s.info.MessageCount, s.info.ID, s.info.CWD)
 }
 
-// SessionStore abstracts session operations needed by the TUI.
-type SessionStore interface {
-	List(cwd string) ([]*session.Session, error)
-	LoadByID(cwd, id string) (*session.Session, error)
-	Create(cwd string) (*session.Session, error)
-}
-
-// SessionPickerModel is an overlay for selecting sessions.
+// SessionPickerModel is an overlay for selecting sessions. It works purely off
+// the protocol handle: the list comes from CoreAPI.ListSessions and the inline
+// rename goes through CoreAPI.RenameSession, so the TUI never touches the
+// session store.
 type SessionPickerModel struct {
 	list    list.Model
 	visible bool
-	cwd     string
-	store   SessionStore
-	mode    string // select
-	sess    *session.Session
+	core    AgentCore
 
 	// renaming 内联重命名状态:r 进入,Enter 写回,Esc 取消。
 	renaming bool
 	input    textinput.Model
 }
 
-// NewSessionPicker creates a session picker.
-func NewSessionPicker(store SessionStore, cwd, mode string, sess *session.Session) SessionPickerModel {
+// NewSessionPicker creates a session picker; the list comes from the core.
+func NewSessionPicker(core AgentCore) SessionPickerModel {
 	items := []list.Item{}
-	if sessions, err := store.List(cwd); err == nil {
+	if sessions, err := core.ListSessions(); err == nil {
 		for _, s := range sessions {
-			if s.IsSubagentJournal() {
+			if s.Subagent {
 				continue
 			}
-			items = append(items, SessionItem{session: s})
+			items = append(items, SessionItem{info: s})
 		}
 	}
 
@@ -68,10 +61,7 @@ func NewSessionPicker(store SessionStore, cwd, mode string, sess *session.Sessio
 	return SessionPickerModel{
 		list:    l,
 		visible: true,
-		cwd:     cwd,
-		store:   store,
-		mode:    mode,
-		sess:    sess,
+		core:    core,
 	}
 }
 
@@ -101,7 +91,7 @@ func (m SessionPickerModel) Update(msg tea.Msg) (SessionPickerModel, tea.Cmd) {
 		if item, ok := m.list.SelectedItem().(SessionItem); ok {
 			m.renaming = true
 			m.input = textinput.New()
-			m.input.SetValue(item.session.DisplayTitle())
+			m.input.SetValue(item.info.Title)
 			m.input.CursorEnd()
 			m.input.Focus()
 			m.input.Width = max(20, m.list.Width()-8)
@@ -122,8 +112,11 @@ func (m SessionPickerModel) updateRename(msg tea.Msg) (SessionPickerModel, tea.C
 			return m, nil
 		case tea.KeyEnter:
 			if item, ok := m.list.SelectedItem().(SessionItem); ok {
-				_ = item.session.SetTitle(m.input.Value())
-				m.list.SetItem(m.list.Index(), SessionItem{session: item.session})
+				title := m.input.Value()
+				if err := m.core.RenameSession(item.info.ID, title); err == nil {
+					item.info.Title = title
+					m.list.SetItem(m.list.Index(), item)
+				}
 			}
 			m.renaming = false
 			return m, nil
@@ -151,18 +144,14 @@ func (m SessionPickerModel) View() string {
 	return m.list.View()
 }
 
-// Selected returns the currently selected session, if any.
-func (m SessionPickerModel) Selected() *session.Session {
+// Selected returns the id of the currently selected session, if any.
+func (m SessionPickerModel) Selected() string {
 	if !m.visible {
-		return nil
+		return ""
 	}
 	item, ok := m.list.SelectedItem().(SessionItem)
 	if !ok {
-		return nil
+		return ""
 	}
-	sess, err := m.store.LoadByID(m.cwd, item.session.ID)
-	if err != nil {
-		return nil
-	}
-	return sess
+	return item.info.ID
 }

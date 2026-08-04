@@ -20,11 +20,11 @@ const (
 // interleaved message/tool streams from two agents.
 type SubagentActivityEvent struct {
 	Base
-	AgentID          string
-	ParentToolCallID string // the subagent tool call this activity belongs to
-	Profile          string
-	Kind             SubagentActivityKind
-	Text             string // delta, tool name, turn number, or error text
+	AgentID          string               `json:"agent_id"`
+	ParentToolCallID string               `json:"parent_tool_call_id"` // the subagent tool call this activity belongs to
+	Profile          string               `json:"profile"`
+	Kind             SubagentActivityKind `json:"kind"`
+	Text             string               `json:"text"` // delta, tool name, turn number, or error text
 }
 
 // BackgroundNoticeEvent is emitted when a background subagent finishes, so
@@ -32,5 +32,5 @@ type SubagentActivityEvent struct {
 // turn's reminder pull.
 type BackgroundNoticeEvent struct {
 	Base
-	Text string
+	Text string `json:"text"`
 }

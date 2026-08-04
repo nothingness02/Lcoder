@@ -1,8 +1,8 @@
 package hooks
 
 import (
-	"path/filepath"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 

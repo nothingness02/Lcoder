@@ -88,6 +88,34 @@ Subscribers handle session persistence, observability recording, and TUI updates
 
 `BuildTurnRequest` selects blocks within `TokenBudget`, computes cache breakpoints, injects ephemeral reminders, and resolves `max_tokens`. `MaybeCompactLeveled` folds older recent messages into a summary when pressure rises.
 
+### 1.5 UI/Agent Protocol Boundary
+
+A formal protocol boundary sits between the UI and agent layers so the UI is **freely replaceable** (another framework now, another language later):
+
+```
+cmd/lcoder          assembly: prepareAgent outputs → host.NewCore(...)
+pkg/tui             the only UI consumer; imports only pkg/agentapi (+ host.Services)
+pkg/host            Core: the agentapi.CoreAPI implementation — session persistence
+                    mirror, session switching (OpenSession/NewSession/TruncateAfter),
+                    SetMode swap-in, goal driver goroutine, checkpoint operations
+pkg/agentapi        pure protocol package: CoreAPI interface + DTOs + approval types.
+                    Imports only leaf packages (models/events/task/checkpoint);
+                    must NOT import pkg/agent
+pkg/agent           the engine. *Agent implements most of CoreAPI (core.go adapters)
+```
+
+Dependency direction is strictly one-way: `pkg/tui → pkg/agentapi ← pkg/agent ← pkg/host`. `pkg/tui/deps_test.go` asserts in CI that tui never imports `pkg/agent`/`pkg/session`/`pkg/contextmgr`/`pkg/checkpoint`.
+
+Key points:
+
+- **Events are the only agent→UI state channel** (`pkg/events`; every event carries json tags, `events.UnmarshalJSON` deserializes by type, and `roundtrip_test.go` proves every event survives a JSON round trip — the discipline that keeps a future wire transport possible).
+- **Approval is a reverse request-response** (`agentapi.UserConfirmation`); in-process it is a direct call, and the signature will not change when a transport is added.
+- **Session persistence lives in host** (a synchronous sessionMirror subscribed to TurnEnd/AgentEnd), not in the UI; invariant: session on disk ≥ checkpoint.
+- **The goal driver lives in host** (a goroutine); the UI only consumes `GoalUpdatedEvent`.
+- Minimal surface for a new UI: hold an `agentapi.CoreAPI` handle + subscribe to the event bus + provide a `UserConfirmation`. Headless modes (`--goal`/`--json`/`-p`) bypass host and use `*agent.Agent` directly.
+- **A cross-language transport already exists**: `pkg/rpcserver` exposes CoreAPI + the event bus + the approval bridge as stdio JSONL RPC (the `lcoder rpc` subcommand), so UIs in any language can drive the agent — the protocol boundary's first cross-language transport. See `docs/rpc-protocol.md` for the wire protocol.
+- Deliberately out of scope: the provider/mcp/skills panels remain TUI-local services (injected via `host.Services`); multi-session routing fields and HTTP/SSE transport are deferred to later phases.
+
 ---
 
 ## 2. Development Environment Setup
@@ -534,7 +562,7 @@ From lowest to highest precedence; a later mode with the same name overrides the
 | `name` | Mode name; used with `--mode`. |
 | `description` | Mode description shown by `./lcoder modes`. |
 | `system_prompt` | Full mode instructions, injected as an ephemeral reminder at the message tail rather than into the system prompt. |
-| `sparse_prompt` | Abbreviated reminder (optional), sent on turns between full refreshes. It should restate only the mode's hard invariant and point back to the full text already in context. Empty means always send the full text. |
+| `sparse_prompt` | Abbreviated reminder (optional), sent when at least 2 turns have passed since the last mode injection; the full text is re-sent every 5 turns, and all other turns stay completely silent. It should restate only the mode's hard invariant and point back to the full text already in context. When empty the sparse tier stays silent too (no fallback to the full text) until the 5-turn full refresh. |
 | `allowed_tools` | Allowed tools; if set, tools outside the list are refused at execution time. |
 | `denied_tools` | Denied tools; matching tools are refused at execution time. |
 

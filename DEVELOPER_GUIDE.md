@@ -88,6 +88,34 @@ cmd/lcoder/main.go
 
 `BuildTurnRequest` 在 `TokenBudget` 内选择 block、计算 cache 断点、注入临时提醒、解析 `max_tokens`。`MaybeCompactLeveled` 在压力升高时将较旧的 recent 消息折叠为 summary。
 
+### 1.5 UI/Agent 协议边界
+
+UI 层与 agent 层之间有一层正式的协议边界，目标是 **UI 可自由替换**（换框架，乃至将来换语言）：
+
+```
+cmd/lcoder          组装层：prepareAgent 产物 → host.NewCore(...)
+pkg/tui             唯一的 UI 消费者，只 import pkg/agentapi（+ host.Services）
+pkg/host            Core：agentapi.CoreAPI 的实现——session 持久化镜像、
+                    会话切换（OpenSession/NewSession/TruncateAfter）、
+                    SetMode 换入、goal driver goroutine、checkpoint 操作
+pkg/agentapi        纯协议包：CoreAPI 接口 + DTO + 审批类型。
+                    只 import 叶子包（models/events/task/checkpoint），
+                    禁止 import pkg/agent
+pkg/agent           引擎。*Agent 实现 CoreAPI 大部分方法（core.go 适配片段）
+```
+
+依赖方向严格单向：`pkg/tui → pkg/agentapi ← pkg/agent ← pkg/host`。`pkg/tui/deps_test.go` 在 CI 中断言 tui 不 import `pkg/agent`/`pkg/session`/`pkg/contextmgr`/`pkg/checkpoint`。
+
+要点：
+
+- **事件是 agent→UI 的唯一状态通道**（`pkg/events`，全部带 json tag，`events.UnmarshalJSON` 可按 type 判别反序列化，`roundtrip_test.go` 保证每种事件可 JSON 往返——这是"将来一定能跨进程"的纪律）。
+- **审批是反向请求-响应**（`agentapi.UserConfirmation`），同进程是直接调用，将来跨进程时接口签名不变。
+- **会话持久化在 host 侧**（sessionMirror 同步订阅 TurnEnd/AgentEnd），不在 UI；不变量：session 落盘 ≥ checkpoint。
+- **goal 驱动在 host 侧**（driver goroutine），UI 只消费 `GoalUpdatedEvent`。
+- 新 UI 的最小接入面：实现/持有一个 `agentapi.CoreAPI` 句柄 + 订阅事件总线 + 提供 `UserConfirmation`。headless 模式（`--goal`/`--json`/`-p`）绕过 host 直接用 `*agent.Agent`。
+- **跨语言传输已落地**：`pkg/rpcserver` 把 CoreAPI + 事件总线 + 审批桥暴露为 stdio JSONL RPC（`lcoder rpc` 子命令），任何语言的 UI 都能驱动 agent——这是协议边界的第一个跨语言传输，协议细节见 `docs/rpc-protocol.md`。
+- 有意不做：provider/mcp/skills 面板仍是 TUI 本地服务（经 `host.Services` 注入）；多 session 路由字段、HTTP/SSE 传输留待后续阶段。
+
 ---
 
 ## 2. 开发环境搭建
@@ -534,7 +562,7 @@ denied_tools:
 | `name` | 模式名称，命令行 `--mode` 使用。 |
 | `description` | 模式描述，`./lcoder modes` 显示。 |
 | `system_prompt` | 模式指令全文。作为 ephemeral reminder 注入到消息尾部，不写入 system prompt。 |
-| `sparse_prompt` | 精简提醒（可选）。两次全文之间的轮次发送此文本，应只重申硬约束并指回前文，不重复全文。留空则始终发全文。 |
+| `sparse_prompt` | 精简提醒（可选）。全文注入后，间隔 ≥2 轮发送此文本；距上次全文满 5 轮时重新发全文；其余轮次完全静默。应只重申硬约束并指回前文，不重复全文。留空则稀疏档同样静默（不再回退全文），直到 5 轮全文刷新。 |
 | `allowed_tools` | 允许使用的工具列表；设置后列表外的工具在执行时被拒绝。 |
 | `denied_tools` | 禁止使用的工具列表；命中的工具在执行时被拒绝。 |
 
