@@ -50,6 +50,33 @@ type AgentSnapshot struct {
 	DeferredTools  bool            `json:"deferred_tools,omitempty"`
 	CoreTools      []string        `json:"core_tools,omitempty"`
 	Goal           *GoalSnapshot   `json:"goal,omitempty"`
+	// Reminders persists each injector's dedup bookkeeping, keyed by injector
+	// variant. Optional: checkpoints written before injectors existed simply
+	// omit it, and restore then starts with a clean cadence.
+	Reminders map[string]InjectorState `json:"reminders,omitempty"`
+}
+
+// InjectorState is the serializable dedup bookkeeping of a single reminder
+// injector. The struct is a union of the fields the built-in injectors use;
+// each injector reads and writes only its own subset. All fields are optional
+// so the JSON form stays stable as injectors evolve.
+type InjectorState struct {
+	// LastMode is the mode the previous injection described (mode injector).
+	LastMode string `json:"last_mode,omitempty"`
+	// HasFull / LastFullTurn track the last full-strength injection.
+	HasFull      bool `json:"has_full,omitempty"`
+	LastFullTurn int  `json:"last_full_turn,omitempty"`
+	// HasInject / LastInjectTurn track the last injection of any strength.
+	HasInject      bool `json:"has_inject,omitempty"`
+	LastInjectTurn int  `json:"last_inject_turn,omitempty"`
+	// HasWrite / LastWriteTurn / LastFingerprint track the last observed task
+	// list change (todo injector).
+	HasWrite        bool   `json:"has_write,omitempty"`
+	LastWriteTurn   int    `json:"last_write_turn,omitempty"`
+	LastFingerprint string  `json:"last_fingerprint,omitempty"`
+	// ForceNext forces one re-injection on the next turn (set after
+	// compaction so freshly folded context does not lose the constraint).
+	ForceNext bool `json:"force_next,omitempty"`
 }
 
 // GoalSnapshot persists the goal record across crashes.

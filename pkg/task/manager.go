@@ -33,8 +33,11 @@ func (m *Manager) Counts() (done, inProgress, pending int) {
 	return Counts(m.tasks)
 }
 
-// FormatReminder returns a reminder string when there are unfinished tasks.
-// It returns an empty string when there is no task or all are done.
+// FormatReminder returns a gentle reminder string when there are unfinished
+// tasks. It returns an empty string when there is no task or all are done.
+// The caller decides how often to surface it (see the todo injector); the
+// wording deliberately nudges rather than commands so a repeated reminder
+// does not push the model into defensive behavior.
 func (m *Manager) FormatReminder() string {
 	m.mu.RLock()
 	tasks := make([]Task, len(m.tasks))
@@ -49,7 +52,7 @@ func (m *Manager) FormatReminder() string {
 	if remaining == 0 {
 		return ""
 	}
-	return fmt.Sprintf("You have %d unfinished todo item(s) (%d done). Continue working toward them; do not stop until they are complete or you report a blocker.", remaining, done)
+	return fmt.Sprintf("This is a gentle reminder that you have %d unfinished todo item(s) (%d done). Keep them in mind as you work and update the list if it no longer matches what you are doing; ignore this if it is not applicable.", remaining, done)
 }
 
 // Subscribe registers a callback that receives a snapshot of tasks after each change.

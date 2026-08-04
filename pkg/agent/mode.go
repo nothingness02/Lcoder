@@ -19,11 +19,13 @@ type ModeConfig struct {
 	Name         string `yaml:"name"`
 	Description  string `yaml:"description"`
 	SystemPrompt string `yaml:"system_prompt"`
-	// SparsePrompt is the abbreviated reminder sent on steps between full
-	// refreshes. It should restate only the mode's hard invariant and point
-	// back to the full text already in context rather than repeating it —
-	// that is what keeps the per-step cost of an uncached tail reminder
-	// negligible. Empty means always send SystemPrompt.
+	// SparsePrompt is the abbreviated reminder sent when at least 2 turns have
+	// passed since the last mode injection (the full text is re-sent every 5
+	// turns; all other turns stay silent). It should restate only the mode's
+	// hard invariant and point back to the full text already in context rather
+	// than repeating it — that is what keeps the per-step cost of an uncached
+	// tail reminder negligible. Empty means the sparse tier stays silent too,
+	// until the next full refresh.
 	SparsePrompt string   `yaml:"sparse_prompt,omitempty"`
 	AllowedTools []string `yaml:"allowed_tools,omitempty"`
 	DeniedTools  []string `yaml:"denied_tools,omitempty"`
