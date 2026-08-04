@@ -192,3 +192,38 @@ func TestRecordRealUsage_DrivesAccounting(t *testing.T) {
 		t.Fatalf("expected preflight level from real tokens, got %d", stats["compaction_level"])
 	}
 }
+
+// A committed compaction fold invalidates the recorded real usage: the count
+// described the pre-fold prompt, so keeping it would make currentTotalTokens
+// (and the pressure levels driven by it) report a stale over-inflated figure
+// long after the fold — the UI would never show the relief the fold achieved.
+func TestFoldInvalidatesRealUsage(t *testing.T) {
+	m := NewManager(TokenBudget{MaxTotal: 400, ReserveOutput: 0}, WithSummarizer(stubSummarizer), WithMinRecent(8))
+	m.SetSystemPrompt("sys")
+	m.ReplaceRecent(convoMsgs(20)) // ≈1000 estimated tokens → reactive pressure
+
+	m.RecordRealUsage(models.LLMUsage{PromptTokens: 12000, CacheReadTokens: 0, CacheWriteTokens: 0})
+	if m.currentTotalTokens() != 12000 {
+		t.Fatalf("expected real usage to drive the total before the fold, got %d", m.currentTotalTokens())
+	}
+
+	level, res, err := m.MaybeCompactLeveled(context.Background())
+	if err != nil {
+		t.Fatalf("MaybeCompactLeveled: %v", err)
+	}
+	if level == CompactionNone || !res.Committed {
+		t.Fatalf("expected a committed fold, got level=%v committed=%v", level, res.Committed)
+	}
+
+	// The stale pre-fold usage must be gone; accounting falls back to the
+	// heuristic estimate of the folded context, which is far smaller.
+	if _, ok := m.RealPromptTokens(); ok {
+		t.Fatal("real usage must be invalidated after a committed fold")
+	}
+	if got := m.currentTotalTokens(); got != m.totalTokens() {
+		t.Fatalf("expected heuristic fallback after invalidation, got %d", got)
+	}
+	if got := m.currentTotalTokens(); got >= 12000 {
+		t.Fatalf("fold should relieve pressure: currentTotalTokens = %d, want < 12000", got)
+	}
+}

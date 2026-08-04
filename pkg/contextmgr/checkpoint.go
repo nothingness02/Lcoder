@@ -134,6 +134,12 @@ func (m *Manager) Restore(state *ManagerState) error {
 		m.hasUsage = false
 	}
 
+	// A restore replaces the block contents wholesale; the micro-compact cutoff
+	// no longer refers to the same messages.
+	if m.microCompact != nil {
+		m.microCompact.Reset(0)
+	}
+
 	type blockKey struct {
 		kind BlockKind
 		name string

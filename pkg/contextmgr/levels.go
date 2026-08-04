@@ -66,6 +66,8 @@ const minLeveledMessages = 4
 // is capped at 30% of the effective input window so the kept tail cannot
 // immediately re-trigger compaction next turn.
 func (m *Manager) keepTokensForLevel(level CompactionLevel) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	base := m.keepRecentTokens
 	if base <= 0 {
 		base = defaultKeepRecentTokens
@@ -104,7 +106,7 @@ func (m *Manager) PendingCompaction() CompactionLevel {
 	if !ok || len(recent.Messages) < minLeveledMessages {
 		return CompactionNone
 	}
-	return m.budget.PressureLevel(m.currentTotalTokens())
+	return m.Budget().PressureLevel(m.currentTotalTokens())
 }
 
 // MaybeCompactLeveled commits a multi-level compaction at a turn boundary.
@@ -116,7 +118,7 @@ func (m *Manager) MaybeCompactLeveled(ctx context.Context) (CompactionLevel, Fol
 	if !ok || len(recent.Messages) < minLeveledMessages {
 		return CompactionNone, FoldResult{}, nil
 	}
-	level := m.budget.PressureLevel(m.currentTotalTokens())
+	level := m.Budget().PressureLevel(m.currentTotalTokens())
 	if level == CompactionNone {
 		return CompactionNone, FoldResult{}, nil
 	}

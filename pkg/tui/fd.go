@@ -100,7 +100,7 @@ func probeFdVersion(path string) error {
 }
 
 // fdArgs builds the fd invocation for one completion query (kimi-code's
-// argument set, minus directory matches: Lcoder mentions resolve to files).
+// argument set: files and directories, since mentions can target either).
 func fdArgs(cwd, partial string) []string {
 	pattern := fdQueryRegex(partial)
 	if pattern == "" {
@@ -109,7 +109,7 @@ func fdArgs(cwd, partial string) []string {
 	return []string{
 		"--base-directory", cwd,
 		"--max-results", "100",
-		"--type", "f",
+		"--type", "f", "--type", "d",
 		"--follow",
 		"--ignore-case",
 		"--exclude", ".git", "--exclude", ".git/**",

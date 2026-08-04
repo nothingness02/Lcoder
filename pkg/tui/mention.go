@@ -32,15 +32,15 @@ func parseMentions(text string) []string {
 func isMentionSpace(b byte) bool { return b == ' ' || b == '\t' || b == '\n' }
 
 // resolveMention resolves raw (cwd-relative, absolute, or ~-prefixed) to an
-// absolute path and reports whether it exists as a regular file.
+// absolute path and reports whether it exists. Directories count as valid
+// mentions: the agent's ls tool can enumerate them.
 func resolveMention(cwd, raw string) (string, bool) {
 	p := expandHome(raw)
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(cwd, p)
 	}
 	p = filepath.Clean(p)
-	info, err := os.Stat(p)
-	if err != nil || info.IsDir() {
+	if _, err := os.Stat(p); err != nil {
 		return p, false
 	}
 	return p, true
@@ -58,7 +58,8 @@ func expandHome(raw string) string {
 	return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(raw, "~"), "/"))
 }
 
-// validateMentions returns the raw mentions that do not resolve to a file.
+// validateMentions returns the raw mentions that do not resolve to an
+// existing file or directory.
 func validateMentions(cwd, text string) []string {
 	var missing []string
 	for _, raw := range parseMentions(text) {

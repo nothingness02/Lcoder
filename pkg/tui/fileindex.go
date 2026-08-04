@@ -47,8 +47,8 @@ func newFileSuggester(cwd string) fileSuggester {
 	return NewFileIndex(cwd)
 }
 
-// FileIndex caches the cwd-relative file list, walking once in the background
-// so the per-keystroke path does zero filesystem IO.
+// FileIndex caches the cwd-relative file and directory list, walking once in
+// the background so the per-keystroke path does zero filesystem IO.
 type FileIndex struct {
 	cwd string
 	now func() time.Time // injectable clock for TTL tests
@@ -143,9 +143,10 @@ func fuzzyMatchPaths(files []string, partial string, limit int) []string {
 // errScanCapped stops the walk early once maxScan entries are collected.
 var errScanCapped = errors.New("fileindex: scan cap reached")
 
-// scanFiles walks cwd collecting slash-separated relative paths, skipping
-// .git, node_modules, and hidden directories. It honours ctx cancellation and
-// stops early after maxScan entries.
+// scanFiles walks cwd collecting slash-separated relative paths of files and
+// directories (mentions can target either), skipping .git, node_modules, and
+// hidden directories. It honours ctx cancellation and stops early after
+// maxScan entries.
 func scanFiles(ctx context.Context, cwd string, maxScan int) ([]string, error) {
 	files := make([]string, 0, 1024)
 	err := filepath.WalkDir(cwd, func(path string, d os.DirEntry, err error) error {
@@ -163,7 +164,6 @@ func scanFiles(ctx context.Context, cwd string, maxScan int) ([]string, error) {
 			if name == ".git" || name == "node_modules" || strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
 			}
-			return nil
 		}
 		rel, err := filepath.Rel(cwd, path)
 		if err != nil {

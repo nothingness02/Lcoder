@@ -29,7 +29,7 @@ func TestFdQueryRegex(t *testing.T) {
 
 func TestFdArgs(t *testing.T) {
 	args := fdArgs("/repo", "loop")
-	for _, want := range []string{"--base-directory", "/repo", "--max-results", "100", "--type", "f", "--follow", "--ignore-case", "--exclude", ".git", "--full-path"} {
+	for _, want := range []string{"--base-directory", "/repo", "--max-results", "100", "--type", "f", "--type", "d", "--follow", "--ignore-case", "--exclude", ".git", "--full-path"} {
 		if !contains(args, want) {
 			t.Errorf("fdArgs missing %q in %v", want, args)
 		}

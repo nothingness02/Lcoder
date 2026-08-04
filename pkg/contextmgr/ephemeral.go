@@ -18,11 +18,15 @@ func (m *Manager) AddEphemeralReminder(text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ephemeralReminders = append(m.ephemeralReminders, text)
 }
 
 // SetEphemeralReminders replaces the pending reminders.
 func (m *Manager) SetEphemeralReminders(reminders []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ephemeralReminders = append([]string(nil), reminders...)
 }
 
@@ -30,11 +34,15 @@ func (m *Manager) SetEphemeralReminders(reminders []string) {
 // at each turn boundary so a reminder set for one turn never bleeds into the
 // next.
 func (m *Manager) ClearEphemeralReminders() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ephemeralReminders = nil
 }
 
 // EphemeralReminders returns a copy of the pending reminders.
 func (m *Manager) EphemeralReminders() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return append([]string(nil), m.ephemeralReminders...)
 }
 

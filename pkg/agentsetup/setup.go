@@ -167,6 +167,15 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking st
 	if sink != nil {
 		opts = append(opts, contextmgr.WithCompactionSink(sink))
 	}
+	if cfg.Context.MicroCompact {
+		opts = append(opts, contextmgr.WithMicroCompact(contextmgr.MicroCompactConfig{
+			Enabled:        cfg.Context.MicroCompact,
+			KeepRecent:     cfg.Context.MicroCompactKeepRecent,
+			MinChars:       cfg.Context.MicroCompactMinChars,
+			CacheMissedMs:  cfg.Context.MicroCompactCacheMissedMs,
+			MinUsageRatio:  cfg.Context.MicroCompactMinUsageRatio,
+		}))
+	}
 
 	mgr := contextmgr.NewManager(contextmgr.TokenBudget{
 		MaxTotal:         budget.MaxTotal,

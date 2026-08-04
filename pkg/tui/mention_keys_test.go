@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -66,5 +67,39 @@ func TestValidMentionSubmitsWithAttachment(t *testing.T) {
 	}
 	if len(found.attachments) != 1 || found.attachments[0] != "main.go" {
 		t.Fatalf("expected attachment [main.go], got %v", found.attachments)
+	}
+}
+
+// A valid @dir mention submits too: directories are valid mention targets.
+func TestValidDirMentionSubmits(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.state = stateInput
+	dir := t.TempDir()
+	m.cwd = dir
+	if err := os.MkdirAll(filepath.Join(dir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m.input.textarea.SetValue("look at @pkg")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m2 := updated.(*Model)
+
+	if cmd == nil {
+		t.Fatal("expected a command after submit")
+	}
+	if m2.state != stateProcessing {
+		t.Fatalf("expected stateProcessing, got %v", m2.state)
+	}
+	var found *block
+	for i := range m2.blocks {
+		if m2.blocks[i].kind == components.BlockUser {
+			found = &m2.blocks[i]
+		}
+	}
+	if found == nil {
+		t.Fatal("expected a user block")
+	}
+	if len(found.attachments) != 1 || found.attachments[0] != "pkg" {
+		t.Fatalf("expected attachment [pkg], got %v", found.attachments)
 	}
 }

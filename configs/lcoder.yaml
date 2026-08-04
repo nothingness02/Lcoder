@@ -17,6 +17,7 @@ model: "gpt-4o-mini"
 
 tui:
   theme: dark  # or light
+  exit_transcript: true  # print the conversation to native scrollback on exit; false to disable
 
 # Provider connection layer (optional). Lets Lcoder reach custom
 # OpenAI-compatible endpoints (region-specific bases, relays, self-hosted)
@@ -71,6 +72,15 @@ context:
   min_recent: 10           # minimum recent messages to keep
   keep_recent_tokens: 20000  # 压缩时保留尾部的 token 预算(proactive 档);preflight 减半、reactive 取 1/5
   cache_hint_policy: default  # default | aggressive | none
+
+  # 机械式 micro-compaction(详见 docs/micro-compact-spec.md)。默认关闭;
+  # 开启后仅在 cache 陈旧且上下文占用过半时,把旧的大 tool_result 在出站
+  # 请求副本中替换为占位符(不改真实历史,无损可回滚)。
+  # micro_compact: false                # 总开关(默认关闭)
+  # micro_compact_keep_recent: 20       # 最近 N 条消息永不压缩
+  # micro_compact_min_chars: 400        # 单条 tool_result 文本长度阈值
+  # micro_compact_cache_missed_ms: 3600000  # cache 陈旧阈值(1h)
+  # micro_compact_min_usage: 0.5        # 上下文占用比阈值
 
 # Repository-level code intelligence is provided via MCP, not built in. Point
 # lcoder at a codegraph server (https://github.com/colbymchenry/codegraph) to

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lcoder/lcoder/pkg/models"
 )
@@ -130,6 +131,11 @@ type Manager struct {
 
 	// sink durably records committed folds; nil means folds are not persisted.
 	sink CompactionSink
+
+	// microCompact implements the mechanical tool-result trimming applied to
+	// the outgoing request copy (see microcompact.go). A nil or disabled
+	// compactor makes the whole path a no-op.
+	microCompact *MicroCompactor
 }
 
 // Option configures a Manager.
@@ -203,6 +209,36 @@ func WithCompactionSink(s CompactionSink) Option {
 	return func(m *Manager) { m.sink = s }
 }
 
+// WithMicroCompact sets the mechanical tool-result trimming policy. A
+// zero-value config or a nil compactor disables the feature entirely.
+func WithMicroCompact(cfg MicroCompactConfig) Option {
+	return func(m *Manager) {
+		if !cfg.Enabled {
+			m.microCompact = nil
+			return
+		}
+		m.microCompact = NewMicroCompactor(cfg)
+	}
+}
+
+// SetMicroCompact replaces the compactor at runtime; nil disables it.
+func (m *Manager) SetMicroCompact(c *MicroCompactor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.microCompact = c
+}
+
+// MicroCompactStatus returns the micro-compactor status for /status echo
+// ("" when disabled).
+func (m *Manager) MicroCompactStatus() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.microCompact == nil {
+		return ""
+	}
+	return m.microCompact.Status()
+}
+
 // NewManager creates a context manager with the given budget.
 func NewManager(budget TokenBudget, opts ...Option) *Manager {
 	m := &Manager{
@@ -223,11 +259,15 @@ func NewManager(budget TokenBudget, opts ...Option) *Manager {
 // untouched, so a live model switch can re-size the budget without losing the
 // conversation.
 func (m *Manager) SetBudget(b TokenBudget) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.budget = b
 }
 
 // Budget returns the manager's current token budget.
 func (m *Manager) Budget() TokenBudget {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.budget
 }
 
@@ -254,6 +294,13 @@ func (m *Manager) WindowPolicy() WindowPolicy {
 
 // SetBlock replaces an existing block of the same kind and name, or appends it.
 func (m *Manager) SetBlock(block *Block) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setBlockLocked(block)
+}
+
+// setBlockLocked is SetBlock without the lock; callers must hold m.mu.
+func (m *Manager) setBlockLocked(block *Block) {
 	for i, b := range m.blocks {
 		if b.Kind == block.Kind && b.Name == block.Name {
 			m.blocks[i] = block
@@ -263,8 +310,16 @@ func (m *Manager) SetBlock(block *Block) {
 	m.blocks = append(m.blocks, block)
 }
 
-// GetBlock returns the first block matching kind and name.
+// GetBlock returns the first block matching kind and name. The returned block
+// is borrowed: read it while single-threaded or under m.mu.
 func (m *Manager) GetBlock(kind BlockKind, name string) (*Block, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.getBlockLocked(kind, name)
+}
+
+// getBlockLocked is GetBlock without the lock; callers must hold m.mu.
+func (m *Manager) getBlockLocked(kind BlockKind, name string) (*Block, bool) {
 	for _, b := range m.blocks {
 		if b.Kind == kind && b.Name == name {
 			return b, true
@@ -275,22 +330,28 @@ func (m *Manager) GetBlock(kind BlockKind, name string) (*Block, bool) {
 
 // AppendRecent appends a message to the recent messages block.
 func (m *Manager) AppendRecent(msg models.AgentMessage) {
-	b, ok := m.GetBlock(BlockRecent, "recent")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	b, ok := m.getBlockLocked(BlockRecent, "recent")
 	if !ok {
 		b = NewBlock(BlockRecent, "recent", StabilityDynamic, 100)
-		m.SetBlock(b)
+		m.setBlockLocked(b)
 	}
 	b.Messages = append(b.Messages, msg)
 }
 
 // SetBlockWithTurn replaces a block and records the current turn for cache decisions.
 func (m *Manager) SetBlockWithTurn(block *Block, turn int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	block.LastModifiedTurn = turn
-	m.SetBlock(block)
+	m.setBlockLocked(block)
 }
 
 // RemoveBlock removes the first block matching kind and name.
 func (m *Manager) RemoveBlock(kind BlockKind, name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, b := range m.blocks {
 		if b.Kind == kind && b.Name == name {
 			m.blocks = append(m.blocks[:i], m.blocks[i+1:]...)
@@ -299,8 +360,16 @@ func (m *Manager) RemoveBlock(kind BlockKind, name string) {
 	}
 }
 
-// Blocks returns blocks in canonical order.
+// Blocks returns blocks in canonical order. The slice is a copy but the blocks
+// are shared; cross-goroutine readers should use AllMessages/Stats instead.
 func (m *Manager) Blocks() []*Block {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.blocksLocked()
+}
+
+// blocksLocked is Blocks without the lock; callers must hold m.mu.
+func (m *Manager) blocksLocked() []*Block {
 	order := DefaultBlockOrder()
 	orderIndex := make(map[BlockKind]int, len(order))
 	for i, k := range order {
@@ -329,8 +398,12 @@ func (m *Manager) EstimateTokens(messages []models.AgentMessage) int {
 
 // BuildTurnRequest selects blocks within budget and builds a TurnRequest.
 // It also computes cache breakpoints based on block boundaries and stability.
+// The lock is held for the whole build: no LLM calls happen inside, and a
+// concurrent UI write (skill toggle, budget switch) must not tear the request.
 func (m *Manager) BuildTurnRequest(model models.ModelRef, tools []models.ToolDefinition) (models.TurnRequest, error) {
-	blocks, err := m.policy.Apply(m.Blocks(), m.budget, m)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	blocks, err := m.policy.Apply(m.blocksLocked(), m.budget, m)
 	if err != nil {
 		return models.TurnRequest{}, fmt.Errorf("apply window policy: %w", err)
 	}
@@ -405,6 +478,19 @@ func (m *Manager) BuildTurnRequest(model models.ModelRef, tools []models.ToolDef
 		messages = append(messages, em)
 	}
 
+	// Mechanical micro-compaction (projection layer, see microcompact.go):
+	// Detect advances the rolling cutoff when the cache is cold and the context
+	// is at least MinUsageRatio full; Apply then replaces oversized tool
+	// results below the cutoff with a short marker in this outgoing copy only.
+	// Blocks keep the full content, so the operation is lossless. The replace
+	// happens before token accounting so inputTokens and the output cap reflect
+	// the trimmed request.
+	if m.microCompact != nil {
+		eff := m.budget.EffectiveInput()
+		m.microCompact.Detect(time.Now(), messages, eff, m.currentTotalTokensLocked())
+		m.microCompact.Apply(messages)
+	}
+
 	// Cap output at min(model ceiling, remaining window). Input is the assembled
 	// system prompt plus all messages actually sent this turn, so the estimate
 	// reflects exactly what the provider will bill as input.
@@ -434,8 +520,10 @@ func (m *Manager) BuildTurnRequest(model models.ModelRef, tools []models.ToolDef
 
 // AllMessages returns all messages across all blocks in canonical order.
 func (m *Manager) AllMessages() []models.AgentMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var messages []models.AgentMessage
-	for _, b := range m.Blocks() {
+	for _, b := range m.blocksLocked() {
 		if !IsSystemBlock(b) {
 			messages = append(messages, b.Messages...)
 		}
@@ -462,8 +550,10 @@ func (m *Manager) ClearRecent() {
 
 // SystemPrompt returns the merged system prompt from all system blocks.
 func (m *Manager) SystemPrompt() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var parts []string
-	for _, b := range m.Blocks() {
+	for _, b := range m.blocksLocked() {
 		if IsSystemBlock(b) {
 			if text := b.Text(); text != "" {
 				parts = append(parts, text)
@@ -506,6 +596,8 @@ func isCompactedSummary(msg models.AgentMessage) bool {
 
 // Clone returns a deep copy of the manager with independent blocks.
 func (m *Manager) Clone() *Manager {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// Every configured field must be carried over, not just the wired services:
 	// the only caller is Agent.WithMode, so anything omitted here is silently
 	// reset by a mode switch — a clone that drops cachePolicy would turn caching
@@ -520,6 +612,9 @@ func (m *Manager) Clone() *Manager {
 		WithKeepRecentTokens(m.keepRecentTokens),
 		WithThinking(m.thinking),
 	)
+	if m.microCompact != nil {
+		other.microCompact = NewMicroCompactor(m.microCompact.cfg)
+	}
 	other.ephemeralReminders = append([]string(nil), m.ephemeralReminders...)
 	other.lastUsage, other.hasUsage = m.lastUsage, m.hasUsage
 	for _, b := range m.blocks {
@@ -538,9 +633,11 @@ func (m *Manager) Clone() *Manager {
 
 // Stats returns token usage per block and total.
 func (m *Manager) Stats() map[string]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	stats := make(map[string]int)
 	total := 0
-	for _, b := range m.Blocks() {
+	for _, b := range m.blocksLocked() {
 		tokens := m.EstimateTokens(b.Messages)
 		stats[string(b.Kind)+":"+b.Name] = tokens
 		total += tokens
@@ -551,7 +648,7 @@ func (m *Manager) Stats() map[string]int {
 	stats["budget_output_reserve"] = m.budget.ReserveOutput
 	stats["drop_limit"] = m.budget.DropLimit()
 	// Real provider-reported prompt-token accounting, when a turn has run.
-	if rt, ok := m.RealPromptTokens(); ok {
+	if rt, ok := m.realPromptTokensLocked(); ok {
 		stats["real_input"] = m.lastUsage.InputTokens
 		stats["real_cache_read"] = m.lastUsage.CacheReadTokens
 		stats["real_cache_creation"] = m.lastUsage.CacheCreationTokens
@@ -559,7 +656,7 @@ func (m *Manager) Stats() map[string]int {
 	}
 	// Current multi-level compaction pressure tier (0=none..3=reactive), keyed
 	// off real tokens when available, else the heuristic estimate.
-	stats["compaction_level"] = int(m.budget.PressureLevel(m.currentTotalTokens()))
+	stats["compaction_level"] = int(m.budget.PressureLevel(m.currentTotalTokensLocked()))
 	return stats
 }
 

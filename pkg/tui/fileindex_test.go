@@ -39,14 +39,19 @@ func TestFileIndexScanAndMatch(t *testing.T) {
 		t.Fatalf("Matches(loop) = %v", got)
 	}
 
+	// Directories are indexed too: a mention can target a directory.
+	if got := ix.Matches("pkg", 10); len(got) == 0 || got[0] != "pkg" {
+		t.Fatalf("Matches(pkg) = %v, want leading directory entry", got)
+	}
+
 	all := ix.Matches("", 10)
 	for _, f := range all {
 		if f == ".git/config" || f == "node_modules/dep.js" || f == ".hidden/x.txt" {
 			t.Fatalf("Matches included skipped dir entry: %q (all=%v)", f, all)
 		}
 	}
-	if len(all) != 2 {
-		t.Fatalf("Matches(\"\") = %v, want 2 entries", all)
+	if len(all) != 3 {
+		t.Fatalf("Matches(\"\") = %v, want 3 entries", all)
 	}
 }
 

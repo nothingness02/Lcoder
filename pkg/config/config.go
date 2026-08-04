@@ -34,6 +34,9 @@ type PermissionConfig struct {
 // TUIConfig holds TUI-specific settings.
 type TUIConfig struct {
 	Theme string `yaml:"theme"`
+	// ExitTranscript prints the conversation as plain text when the TUI exits,
+	// so it lands in the terminal's native scrollback (default true).
+	ExitTranscript bool `yaml:"exit_transcript"`
 }
 
 // ContextConfig controls structured context manager behavior.
@@ -49,6 +52,15 @@ type ContextConfig struct {
 	DeferredTools    bool     `yaml:"deferred_tools"`     // ship only core tools + tool_search
 	CoreTools        []string `yaml:"core_tools"`         // tools kept full under deferral
 	DropThreshold    float64  `yaml:"drop_threshold"`     // ratio of effective input at which old msgs drop
+
+	// MicroCompact controls the mechanical tool-result trimming (see
+	// docs/micro-compact-spec.md). Disabled by default; when disabled the
+	// whole micro-compaction path is a no-op.
+	MicroCompact               bool    `yaml:"micro_compact"`                    // master switch (default false)
+	MicroCompactKeepRecent     int     `yaml:"micro_compact_keep_recent"`        // newest messages never trimmed
+	MicroCompactMinChars       int     `yaml:"micro_compact_min_chars"`          // min tool-result text length to trim
+	MicroCompactCacheMissedMs  int64   `yaml:"micro_compact_cache_missed_ms"`    // cache-cold threshold (ms)
+	MicroCompactMinUsageRatio  float64 `yaml:"micro_compact_min_usage"`          // min context usage fraction to trigger
 }
 
 // SubagentConfig controls the built-in subagent tool.
@@ -93,7 +105,7 @@ func DefaultConfig() Config {
 	return Config{
 		Provider: "openai",
 		Model:    "gpt-4o-mini",
-		TUI:      TUIConfig{Theme: "dark"},
+		TUI:      TUIConfig{Theme: "dark", ExitTranscript: true},
 		Context: ContextConfig{
 			MaxTokens:        0, // 0 = unset; resolved from catalog/engine at runtime
 			TargetTokens:     0, // 0 = unset; derived from MaxTotal when missing
@@ -106,6 +118,11 @@ func DefaultConfig() Config {
 			DeferredTools:    false,
 			CoreTools:        nil,
 			DropThreshold:    1.0,
+			MicroCompact:               false,
+			MicroCompactKeepRecent:     20,
+			MicroCompactMinChars:       400,
+			MicroCompactCacheMissedMs:  3_600_000,
+			MicroCompactMinUsageRatio:  0.5,
 		},
 		Subagent: SubagentConfig{
 			Enabled: true,

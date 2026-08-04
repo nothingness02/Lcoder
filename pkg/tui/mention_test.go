@@ -42,8 +42,8 @@ func TestResolveAndValidateMentions(t *testing.T) {
 	if _, ok := resolveMention(dir, "missing.go"); ok {
 		t.Fatal("expected missing.go unresolved")
 	}
-	if _, ok := resolveMention(dir, "sub"); ok {
-		t.Fatal("expected directory to be rejected")
+	if abs, ok := resolveMention(dir, "sub"); !ok || abs != filepath.Join(dir, "sub") {
+		t.Fatalf("resolveMention directory = %q, %v", abs, ok)
 	}
 	abs := filepath.Join(dir, "main.go")
 	if got, ok := resolveMention(dir, abs); !ok || got != abs {
@@ -54,9 +54,12 @@ func TestResolveAndValidateMentions(t *testing.T) {
 	if !reflect.DeepEqual(missing, []string{"missing.go"}) {
 		t.Fatalf("validateMentions = %v", missing)
 	}
+	if missing := validateMentions(dir, "check @sub"); len(missing) != 0 {
+		t.Fatalf("directory mention should validate, got %v", missing)
+	}
 
-	labels := mentionLabels(dir, "see @main.go and @missing.go")
-	if !reflect.DeepEqual(labels, []string{"main.go"}) {
+	labels := mentionLabels(dir, "see @main.go and @sub and @missing.go")
+	if !reflect.DeepEqual(labels, []string{"main.go", "sub"}) {
 		t.Fatalf("mentionLabels = %v", labels)
 	}
 }

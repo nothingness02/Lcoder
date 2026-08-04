@@ -167,6 +167,11 @@ func (m *Manager) foldOlder(ctx context.Context, level CompactionLevel) (FoldRes
 			notice := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: res.Summary}).
 				WithMetadata("compacted", true)
 			m.ReplaceRecent(append([]models.AgentMessage{notice}, keptTail...))
+			// The recorded usage describes the pre-fold prompt; it is stale now.
+			m.InvalidateRealUsage()
+			// The fold rewrote the message indexes; a stale micro-compact cutoff
+			// would point at the wrong content.
+			m.resetMicroCompact()
 			return res, m.recordFold(res)
 		}
 		return FoldResult{}, err
@@ -176,7 +181,22 @@ func (m *Manager) foldOlder(ctx context.Context, level CompactionLevel) (FoldRes
 	summary := models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: res.Summary}).
 		WithMetadata("compacted", true)
 	m.ReplaceRecent(append([]models.AgentMessage{summary}, keptTail...))
+	// The recorded usage describes the pre-fold prompt; it is stale now.
+	m.InvalidateRealUsage()
+	// The fold rewrote the message indexes; a stale micro-compact cutoff
+	// would point at the wrong content.
+	m.resetMicroCompact()
 	return res, m.recordFold(res)
+}
+
+// resetMicroCompact clears the micro-compact cutoff under the manager lock so
+// it serializes with Detect/Apply in BuildTurnRequest and with status reads.
+func (m *Manager) resetMicroCompact() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.microCompact != nil {
+		m.microCompact.Reset(0)
+	}
 }
 
 // recordFold hands a committed fold to the sink. It runs in the same call as the
