@@ -89,7 +89,7 @@ func LoadModelCatalogFrom(path string) (ModelCatalog, error) {
 }
 
 // resolveModelsConfigPath returns the first existing catalog path among the
-// LCODER_MODELS_CONFIG env var, ./configs/models.yaml, and ~/.lcoder/models.yaml.
+// LCODER_MODELS_CONFIG env var, ./configs/runtime/models.yaml, and ~/.lcoder/models.yaml.
 // The returned path is absolute so it remains valid regardless of the process's
 // working directory.
 func resolveModelsConfigPath() (string, bool) {
@@ -104,7 +104,7 @@ func resolveModelsConfigPath() (string, bool) {
 			return abs(p), true
 		}
 	}
-	candidates := []string{filepath.Join("configs", "models.yaml"), paths.LCoderHome("models.yaml")}
+	candidates := []string{filepath.Join("configs", "runtime", "models.yaml"), paths.LCoderHome("models.yaml")}
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {
 			return abs(p), true

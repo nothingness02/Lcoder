@@ -56,6 +56,81 @@ func testHost(client *llm.Client) *Host {
 	})
 }
 
+// The child agent's system block is replaced with the profile's own system
+// prompt (role prefix + profile instructions), not the parent's base system.md
+// — the fix for the dead BaseSystemPrompt config field.
+func TestBuildChildSystemPromptBlock(t *testing.T) {
+	profiles := map[string]subagent.Agent{
+		"coder": {Name: "coder", Prompt: "You are a coding agent. Be minimal.", Mode: "code"},
+	}
+	h := testHost(&llm.Client{})
+	h.cfg.Profiles = profiles
+
+	child := h.buildChild(profiles["coder"], "/tmp")
+	if child == nil {
+		t.Fatal("buildChild returned nil")
+	}
+	block, ok := child.Mgr().GetBlock(contextmgr.BlockSystem, "system")
+	if !ok {
+		t.Fatal("child manager should have a system block")
+	}
+	text := block.Text()
+	if !strings.Contains(text, "You are a coding agent. Be minimal.") {
+		t.Fatalf("system block should carry the profile prompt, got:\n%s", text)
+	}
+	if !strings.Contains(text, subagent.RolePrefixText()) {
+		t.Fatalf("system block should carry the role prefix, got:\n%s", text)
+	}
+}
+
+// A swarm item label is persisted in the journal and survives reload, so a
+// later resume can relabel the unit (SwarmItemOf reads it back).
+func TestSpawnPersistsSwarmItem(t *testing.T) {
+	client, _ := llmtest.NewScript(
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("item answer"), nil)),
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("resumed"), nil)),
+	)
+	storeDir := t.TempDir()
+	host := testHost(client)
+	host.cfg.SessionStore = session.NewStore(storeDir)
+	host.SetParentSession("parent-1")
+	host.cfg.Profiles = map[string]subagent.Agent{
+		"coder": {Name: "coder", Mode: "code"},
+	}
+
+	out := host.Spawn(context.Background(), subagent.SpawnRequest{
+		Profile:   subagent.Agent{Name: "coder", Mode: "code"},
+		Task:      "review src/a.ts",
+		SwarmItem: "src/a.ts",
+	})
+	if out.Err != nil {
+		t.Fatalf("spawn: %v", out.Err)
+	}
+
+	// The label survives a fresh host (journal reload) — a new Host instance
+	// simulates a process restart reading the same session store.
+	freshClient, _ := llmtest.NewScript(
+		llmtest.Turn(llmtest.Done(models.AssistantMessage("resumed"), nil)),
+	)
+	fresh := testHost(freshClient)
+	fresh.cfg.SessionStore = host.cfg.SessionStore
+	fresh.SetParentSession("parent-1")
+	fresh.cfg.Profiles = host.cfg.Profiles
+
+	if got := fresh.SwarmItemOf(out.AgentID); got != "src/a.ts" {
+		t.Fatalf("SwarmItemOf = %q, want %q", got, "src/a.ts")
+	}
+
+	// A non-swarm subagent has no label.
+	plain := fresh.Spawn(context.Background(), subagent.SpawnRequest{
+		Profile: subagent.Agent{Name: "coder", Mode: "code"},
+		Task:    "plain task",
+	})
+	if got := fresh.SwarmItemOf(plain.AgentID); got != "" {
+		t.Fatalf("non-swarm subagent SwarmItemOf = %q, want empty", got)
+	}
+}
+
 func TestSpawnCleanRun(t *testing.T) {
 	client, adapter := llmtest.NewScript(llmtest.Turn(
 		llmtest.Start(),

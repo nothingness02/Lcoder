@@ -47,7 +47,7 @@ type Source struct {
 	Scope Scope
 	Dir   string // filesystem directory (missing dirs are skipped silently)
 	// FSRoot, when non-empty, is an embedded root instead of Dir (e.g.
-	// "configs/skills" inside lcoder.AgentSkills).
+	// "configs/prompts/skills" inside lcoder.AgentSkills).
 	FSRoot string
 }
 

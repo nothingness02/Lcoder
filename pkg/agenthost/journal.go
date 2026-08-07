@@ -21,6 +21,9 @@ type journalMeta struct {
 	// Cwd is the child's working directory; empty (legacy journals) means
 	// the host's working directory.
 	Cwd string `json:"cwd,omitempty"`
+	// SwarmItem is the swarm item label this agent was spawned for; it lets
+	// a resumed swarm unit be relabeled (empty for non-swarm subagents).
+	SwarmItem string `json:"swarm_item,omitempty"`
 }
 
 // journalStore persists subagent journals as regular sessions and tracks

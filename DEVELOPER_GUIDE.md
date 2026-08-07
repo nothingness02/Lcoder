@@ -10,13 +10,12 @@
 4. [如何编写自定义 Go 工具扩展](#4-如何编写自定义-go-工具扩展)
 5. [如何编写 before-tool-call Hook](#5-如何编写-before-tool-call-hook)
 6. [如何编写自定义 Observability Exporter](#6-如何编写自定义-observability-exporter)
-7. [如何添加 HTTP 工具](#7-如何添加-http-工具)
-8. [如何添加 Agent Mode](#8-如何添加-agent-mode)
-9. [如何接入 MCP 服务器](#9-如何接入-mcp-服务器)
-10. [子代理扩展](#10-子代理扩展)
-11. [测试与调试](#11-测试与调试)
-12. [贡献指南与代码约定](#12-贡献指南与代码约定)
-13. [扩展 API 速查](#13-扩展-api-速查)
+7. [如何添加 Agent Mode](#7-如何添加-agent-mode)
+8. [如何接入 MCP 服务器](#8-如何接入-mcp-服务器)
+9. [子代理扩展](#9-子代理扩展)
+10. [测试与调试](#10-测试与调试)
+11. [贡献指南与代码约定](#11-贡献指南与代码约定)
+12. [扩展 API 速查](#12-扩展-api-速查)
 
 ---
 
@@ -165,7 +164,7 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/agent` | Agent 主循环、流式生成、工具执行、状态管理、checkpoint。 |
 | `pkg/contextmgr` | 对话 block 管理、token 预算、压缩、cache 断点。 |
 | `pkg/llm` | LLM 客户端门面；子包 `engine`（路由重试）、`catalog`（模型目录）、`provider`（HTTP+SSE 适配器）。 |
-| `pkg/tools` | 工具注册表、内置工具、HTTP 工具、MCP 工具、deferred 加载。 |
+| `pkg/tools` | 工具注册表、内置工具、MCP 工具、deferred 加载。 |
 | `pkg/events` | 事件总线与事件类型定义。 |
 | `pkg/session` | JSONL 会话存储、`parent_id` 分支重建。 |
 | `pkg/checkpoint` | 轻量级运行时状态快照。 |
@@ -288,7 +287,7 @@ func (w *weatherTool) Execute(ctx context.Context, callID string, args map[strin
 ./lcoder install ./examples/extension-tool --name weather --local
 ```
 
-> `./lcoder install` 仅将扩展源码或包复制到 `~/.lcoder/extensions/` 或 `~/.lcoder/packages/`，不会自动注册。`tool_extensions` 目前支持 `type: json`（HTTP 工具描述符）；Go 扩展请通过进程外扩展运行时接入（`docs/superpowers/specs/2026-07-24-extension-runtime-design.md`）。
+> `./lcoder install` 仅将扩展源码或包复制到 `~/.lcoder/extensions/` 或 `~/.lcoder/packages/`，不会自动注册。外部工具统一通过 MCP 接入（`http_tools` 与 `tool_extensions` 已退役）；Go 扩展请通过进程外扩展运行时接入（`docs/superpowers/specs/2026-07-24-extension-runtime-design.md`）。
 
 ### 4.4 带状态的扩展
 
@@ -448,7 +447,7 @@ exporter:
   name: stdout
 ```
 
-> 注意：exporter 的加载和配置方式可能随版本演进，具体请参考 `pkg/observability/setup.go` 和 `configs/observability.yaml`。
+> 注意：exporter 的加载和配置方式可能随版本演进，具体请参考 `pkg/observability/setup.go` 和 `configs/runtime/observability.yaml`。
 
 ### 6.4 常见 Exporter 模式
 
@@ -459,69 +458,13 @@ exporter:
 
 ---
 
-## 7. 如何添加 HTTP 工具
-
-HTTP 工具不需要写 Go 代码，直接在 `~/.lcoder/config.yaml` 中声明即可。
-
-### 7.1 最小示例
-
-```yaml
-http_tools:
-  - name: deploy
-    endpoint: http://localhost:9001/deploy
-    description: Deploy service to staging
-    parameters:
-      type: object
-      properties:
-        service:
-          type: string
-      required: [service]
-    execution_mode: parallel
-    headers:
-      Authorization: Bearer ${DEPLOY_TOKEN}
-```
-
-### 7.2 字段说明
-
-| 字段 | 说明 |
-|---|---|
-| `name` | 工具名称，在 agent 工具列表中显示。 |
-| `endpoint` | 接收 POST 请求的端点。 |
-| `description` | 工具描述，帮助 LLM 决定何时调用。 |
-| `parameters` | 符合 JSON Schema 的参数定义。 |
-| `execution_mode` | `parallel` 或 `serial`。 |
-| `headers` | 自定义请求头，支持 `${VAR}` 环境变量。 |
-
-### 7.3 实现 HTTP 工具端点
-
-你的服务端需要接收 POST 请求，请求体为 JSON：
-
-```json
-{
-  "tool_call_id": "call_xxx",
-  "name": "deploy",
-  "arguments": {"service": "api"},
-  "context": {"cwd": "/path/to/project"}
-}
-```
-
-响应体应为 tool 结果格式。最简单的方式是返回一段文本：
-
-```json
-{
-  "content": [{"type": "text", "text": "Deployment started"}]
-}
-```
-
----
-
-## 8. 如何添加 Agent Mode
+## 7. 如何添加 Agent Mode
 
 Agent mode 是一组 system prompt 与工具白名单/黑名单配置。无需打包，把一个 YAML 文件放进 mode 搜索目录即可。
 
 ### 8.1 Mode 定义文件
 
-新建 `review.yaml`（参考 `configs/modes/plan.yaml` 或 `examples/extension-mode/review.yaml`）：
+新建 `review.yaml`（参考 `configs/prompts/modes/plan.yaml` 或 `examples/extension-mode/review.yaml`）：
 
 ```yaml
 name: review
@@ -544,7 +487,7 @@ denied_tools:
 
 按优先级从低到高，同名 mode 后者覆盖前者：
 
-1. 内嵌默认 modes（`configs/modes/*.yaml`，随二进制分发）
+1. 内嵌默认 modes（`configs/prompts/modes/*.yaml`，随二进制分发）
 2. `~/.lcoder/modes/*.yaml`（用户级）
 3. `<项目>/.lcoder/modes/*.yaml`（项目级）
 
@@ -570,7 +513,7 @@ denied_tools:
 
 ---
 
-## 9. 如何接入 MCP 服务器
+## 8. 如何接入 MCP 服务器
 
 MCP 服务器是外部工具服务，Lcoder 作为客户端连接。本节面向**配置和调试**，不涉及 MCP 服务端的开发。
 
@@ -622,7 +565,7 @@ MCP 工具在 agent 工具列表中显示为 `{serverName}_{toolName}`。例如 
 
 ---
 
-## 10. 子代理扩展
+## 9. 子代理扩展
 
 Lcoder 内置了子代理机制，只需在配置中启用即可使用：
 
@@ -675,7 +618,7 @@ Parameters: map[string]any{
 请使用 subagent 工具，让 worker agent 帮我分析 pkg/llm 目录的代码结构
 ```
 
-## 11. 测试与调试
+## 10. 测试与调试
 
 ### 11.1 单元测试
 
@@ -722,7 +665,7 @@ go test ./... -count=1 -race
 
 ---
 
-## 12. 贡献指南与代码约定
+## 11. 贡献指南与代码约定
 
 ### 12.1 提交前检查
 
@@ -742,7 +685,7 @@ go test $(go list ./... | grep -v 'reference/Shannon') -count=1 -race
 
 ### 12.3 文档
 
-- 新增配置字段需在 `configs/lcoder.yaml` 中添加示例和注释。
+- 新增配置字段需在 `configs/runtime/lcoder.yaml` 中添加示例和注释。
 - 新增 CLI 命令需在 `README.md` / `README_EN.md` 和本指南中同步更新。
 - 复杂逻辑需添加注释说明设计意图。
 
@@ -764,7 +707,7 @@ docs(user-guide): add MCP server examples
 
 ---
 
-## 13. 扩展 API 速查
+## 12. 扩展 API 速查
 
 ### 13.1 `tools.Executable`
 

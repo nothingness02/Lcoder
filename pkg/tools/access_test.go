@@ -27,6 +27,11 @@ func TestAccessConflict(t *testing.T) {
 		{"all vs read", all, read("/w/a.go"), true},
 		{"all vs all", all, all, true},
 		{"non-recursive dir vs child", ToolAccess{Op: OpWrite, Path: "/w"}, read("/w/a.go"), false},
+		{"none vs none", ToolAccess{Op: OpNone}, ToolAccess{Op: OpNone}, false},
+		{"none vs read", ToolAccess{Op: OpNone}, read("/w/a.go"), false},
+		{"none vs write", ToolAccess{Op: OpNone}, write("/w/a.go"), false},
+		{"none vs all", ToolAccess{Op: OpNone}, all, true},
+		{"all vs none", all, ToolAccess{Op: OpNone}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

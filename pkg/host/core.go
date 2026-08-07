@@ -411,11 +411,17 @@ func (c *Core) NewSession() error {
 }
 
 // applySession is the shared session-swap path: load/create produced sess;
-// here the agent state, mirror, and sink wiring follow.
+// here the agent state, mirror, and sink wiring follow. Session-scope
+// approvals are scoped to one conversation, so a swap clears the previous
+// session's in-memory approvals (ClearSessionRules keeps the file-backed
+// config/project/global rule sources untouched).
 func (c *Core) applySession(sess *session.Session) {
 	r := c.currentRunner()
 	r.SetSessionID(sess.ID)
 	r.SetMessages(sess.EffectiveMessages())
+	if pe := r.Permissions(); pe != nil {
+		pe.ClearSessionRules()
+	}
 	// Rebuild the task list from the latest todo_write call in the loaded
 	// history (nil when none, which also clears a stale list).
 	if tm := r.TaskManager(); tm != nil {

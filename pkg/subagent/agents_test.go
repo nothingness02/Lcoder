@@ -225,3 +225,23 @@ func TestFragmentsAreNotProfiles(t *testing.T) {
 		}
 	}
 }
+
+// SystemPrompt merges the shared role prefix with the profile's own
+// instructions; it is what buildChild writes into the child's system block.
+func TestAgentSystemPrompt(t *testing.T) {
+	p := Agent{Name: "coder", Prompt: "You are a coding agent. Be minimal."}
+	got := p.SystemPrompt()
+	prefix := RolePrefixText()
+	if prefix == "" {
+		t.Fatal("role prefix should load from the embedded _role_prefix.md")
+	}
+	if !strings.HasPrefix(got, prefix) {
+		t.Fatalf("system prompt should lead with the role prefix, got:\n%s", got)
+	}
+	if !strings.Contains(got, "You are a coding agent. Be minimal.") {
+		t.Fatalf("system prompt should contain the profile prompt, got:\n%s", got)
+	}
+	if !strings.Contains(got, prefix+"\n\n") {
+		t.Fatalf("role prefix and profile prompt should be separated by a blank line")
+	}
+}

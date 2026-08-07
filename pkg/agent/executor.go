@@ -23,9 +23,21 @@ import (
 
 const switchModeToolName = "switch_mode"
 
-// swarmExclusivityMessage is the corrective feedback for a mixed batch.
-const swarmExclusivityMessage = "subagent swarm mode (prompt_template + items) must be the ONLY tool call in your response. " +
-	"This call was not executed. Call it alone, wait for its result, then continue with other tools."
+// Swarm-exclusivity veto messages (kimi-code's AgentSwarmExclusiveDeny): a
+// subagent_swarm call is itself the concurrency unit and must be the only
+// tool call in its response. The two variants distinguish a batch with
+// several swarm calls from a batch mixing a swarm with other tools.
+const (
+	// swarmMixedDeniedMessage: one swarm call alongside other tools.
+	swarmMixedDeniedMessage = "subagent_swarm must be the ONLY tool call in a model response. " +
+		"This call was not executed. Retry with a single subagent_swarm call by itself, " +
+		"then call any other tools after it returns."
+	// swarmMultipleDeniedMessage: several swarm calls in one batch.
+	swarmMultipleDeniedMessage = "subagent_swarm must be called one swarm at a time. " +
+		"Multiple subagent_swarm calls are not forbidden, but issue them sequentially: " +
+		"call one subagent_swarm, wait for its result, then call the next; " +
+		"or merge the work into a single swarm when one swarm can cover it."
+)
 
 func switchModeDefinition() models.ToolDefinition {
 	return models.ToolDefinition{
@@ -73,9 +85,14 @@ type executor struct {
 	learnMu sync.Mutex
 
 	// batchLen is the size of the tool-call batch currently being executed;
-	// it backs the swarm-exclusivity veto (parallel/chain subagent calls
-	// must be the only call in a response).
+	// it backs the swarm-exclusivity veto (a subagent_swarm call must be the
+	// only call in a response).
 	batchLen int
+
+	// swarmBatchCount is how many subagent_swarm calls the current batch
+	// holds; it distinguishes "multiple swarms" from "swarm mixed with other
+	// tools" in the veto feedback.
+	swarmBatchCount int
 
 	// modeMu guards cfg.Mode: handleSwitchMode writes it while the mode
 	// guard and the TUI read it from other goroutines.
@@ -123,7 +140,7 @@ type preparedToolCall struct {
 	accesses []tools.ToolAccess
 	// alsoWaitFor, when >= 0, adds a non-resource ordering edge: this call is
 	// a same-batch duplicate of that runnable index and must await it so its
-	// dedup lookup is a guaranteed hit (kimi-code v2's toolDedupe).
+	// dedup lookup is a guaranteed hit.
 	alsoWaitFor int
 	resolved    models.AgentMessage
 	run         func(ctx context.Context) models.AgentMessage
@@ -134,6 +151,12 @@ func (e *executor) execute(ctx context.Context, turn int, assistantMsg models.Ag
 	e.dedup = make(map[string]models.AgentMessage)
 	e.dedupMu.Unlock()
 	e.batchLen = len(calls)
+	e.swarmBatchCount = 0
+	for _, c := range calls {
+		if c.Name == builtin.SwarmToolName {
+			e.swarmBatchCount++
+		}
+	}
 
 	// Phase 1: serial preparation in provider order. Validation, the path
 	// guard, interactive permission prompts, and before-hooks all run here so
@@ -254,16 +277,16 @@ func (e *executor) prepareToolCall(ctx context.Context, turn int, assistantMsg m
 		return preparedToolCall{call: call, alsoWaitFor: -1, resolved: e.handleSwitchMode(ctx, turn, assistantMsg, call)}
 	}
 
-	// Swarm exclusivity: a swarm subagent call (prompt_template + items) is
-	// itself the concurrency unit and must be the only tool call in the
-	// response (kimi-code's AgentSwarmExclusiveDeny). Mixed batches break
-	// ordering assumptions, shared concurrency budgets, and result
-	// attribution, so the call is refused with a corrective message; other
-	// calls proceed.
-	if e.batchLen > 1 && call.Name == "subagent" {
-		if _, swarm := args["items"]; swarm {
-			return shortCircuit(models.NewToolExecutionResultError(swarmExclusivityMessage), true)
+	// Swarm exclusivity: a subagent_swarm call is itself the concurrency unit
+	// and must be the only tool call in the response (kimi-code's
+	// AgentSwarmExclusiveDeny). Mixed batches break ordering assumptions,
+	// shared concurrency budgets, and result attribution, so the call is
+	// refused with a corrective message; other calls proceed.
+	if e.batchLen > 1 && call.Name == builtin.SwarmToolName {
+		if e.swarmBatchCount > 1 {
+			return shortCircuit(models.NewToolExecutionResultError(swarmMultipleDeniedMessage), true)
 		}
+		return shortCircuit(models.NewToolExecutionResultError(swarmMixedDeniedMessage), true)
 	}
 
 	// Mode/skill tool-surface restrictions are enforced inside the permission

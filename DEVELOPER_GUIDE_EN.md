@@ -10,13 +10,12 @@
 4. [How to Write a Custom Go Tool Extension](#4-how-to-write-a-custom-go-tool-extension)
 5. [How to Write a before-tool-call Hook](#5-how-to-write-a-before-tool-call-hook)
 6. [How to Write a Custom Observability Exporter](#6-how-to-write-a-custom-observability-exporter)
-7. [How to Add an HTTP Tool](#7-how-to-add-an-http-tool)
-8. [How to Add an Agent Mode](#8-how-to-add-an-agent-mode)
-9. [How to Connect an MCP Server](#9-how-to-connect-an-mcp-server)
-10. [Subagent Extension](#10-subagent-extension)
-11. [Testing and Debugging](#11-testing-and-debugging)
-12. [Contribution Guidelines and Code Conventions](#12-contribution-guidelines-and-code-conventions)
-13. [Extension API Quick Reference](#13-extension-api-quick-reference)
+7. [How to Add an Agent Mode](#7-how-to-add-an-agent-mode)
+8. [How to Connect an MCP Server](#8-how-to-connect-an-mcp-server)
+9. [Subagent Extension](#9-subagent-extension)
+10. [Testing and Debugging](#10-testing-and-debugging)
+11. [Contribution Guidelines and Code Conventions](#11-contribution-guidelines-and-code-conventions)
+12. [Extension API Quick Reference](#12-extension-api-quick-reference)
 
 ---
 
@@ -165,7 +164,7 @@ go test -tags integration ./test/integration -run TestAgentCrashCheckpointResume
 | `pkg/agent` | Agent main loop, streaming, tool execution, state management, checkpoints. |
 | `pkg/contextmgr` | Conversation block management, token budget, compaction, cache breakpoints. |
 | `pkg/llm` | LLM client facade; subpackages `engine` (routing/retry), `catalog` (model catalog), `provider` (HTTP+SSE adapters). |
-| `pkg/tools` | Tool registry, built-in tools, HTTP tools, MCP tools, deferred loading. |
+| `pkg/tools` | Tool registry, built-in tools, MCP tools, deferred loading. |
 | `pkg/events` | Event bus and event type definitions. |
 | `pkg/session` | JSONL session storage and `parent_id` branch reconstruction. |
 | `pkg/checkpoint` | Lightweight runtime state snapshots. |
@@ -288,7 +287,7 @@ func (w *weatherTool) Execute(ctx context.Context, callID string, args map[strin
 ./lcoder install ./examples/extension-tool --name weather --local
 ```
 
-`./lcoder install` only copies the extension files into `~/.lcoder/extensions/`; it does not register the tool automatically. `tool_extensions` currently supports `type: json` (HTTP tool descriptors); Go extensions should integrate through the process-external extension runtime (`docs/superpowers/specs/2026-07-24-extension-runtime-design.md`).
+`./lcoder install` only copies the extension files into `~/.lcoder/extensions/`; it does not register the tool automatically. External tools are connected uniformly over MCP (`http_tools` and `tool_extensions` are retired); Go extensions should integrate through the process-external extension runtime (`docs/superpowers/specs/2026-07-24-extension-runtime-design.md`).
 
 ### 4.4 Stateful Extensions
 
@@ -448,7 +447,7 @@ exporter:
   name: stdout
 ```
 
-> Note: exporter loading and configuration may evolve; refer to `pkg/observability/setup.go` and `configs/observability.yaml` for the latest details.
+> Note: exporter loading and configuration may evolve; refer to `pkg/observability/setup.go` and `configs/runtime/observability.yaml` for the latest details.
 
 ### 6.4 Common Exporter Patterns
 
@@ -459,69 +458,13 @@ exporter:
 
 ---
 
-## 7. How to Add an HTTP Tool
-
-HTTP tools require no Go code; declare them directly in `~/.lcoder/config.yaml`.
-
-### 7.1 Minimal Example
-
-```yaml
-http_tools:
-  - name: deploy
-    endpoint: http://localhost:9001/deploy
-    description: Deploy service to staging
-    parameters:
-      type: object
-      properties:
-        service:
-          type: string
-      required: [service]
-    execution_mode: parallel
-    headers:
-      Authorization: Bearer ${DEPLOY_TOKEN}
-```
-
-### 7.2 Field Reference
-
-| Field | Description |
-|---|---|
-| `name` | Tool name shown in the agent's tool list. |
-| `endpoint` | POST endpoint that receives the request. |
-| `description` | Tool description; helps the LLM decide when to call it. |
-| `parameters` | JSON Schema parameter definition. |
-| `execution_mode` | `parallel` or `serial`. |
-| `headers` | Custom request headers; supports `${VAR}` environment variables. |
-
-### 7.3 Implementing an HTTP Tool Endpoint
-
-Your server receives a POST request with this JSON body:
-
-```json
-{
-  "tool_call_id": "call_xxx",
-  "name": "deploy",
-  "arguments": {"service": "api"},
-  "context": {"cwd": "/path/to/project"}
-}
-```
-
-The response should be a tool result. The simplest form is a text content block:
-
-```json
-{
-  "content": [{"type": "text", "text": "Deployment started"}]
-}
-```
-
----
-
-## 8. How to Add an Agent Mode
+## 7. How to Add an Agent Mode
 
 An agent mode is a system prompt plus optional tool allow/deny lists. No packaging is needed — drop a YAML file into one of the mode search directories.
 
 ### 8.1 Mode Definition File
 
-Create `review.yaml` (see `configs/modes/plan.yaml` or `examples/extension-mode/review.yaml`):
+Create `review.yaml` (see `configs/prompts/modes/plan.yaml` or `examples/extension-mode/review.yaml`):
 
 ```yaml
 name: review
@@ -544,7 +487,7 @@ denied_tools:
 
 From lowest to highest precedence; a later mode with the same name overrides the earlier one:
 
-1. Embedded default modes (`configs/modes/*.yaml`, shipped in the binary)
+1. Embedded default modes (`configs/prompts/modes/*.yaml`, shipped in the binary)
 2. `~/.lcoder/modes/*.yaml` (user level)
 3. `<project>/.lcoder/modes/*.yaml` (project level)
 
@@ -570,7 +513,7 @@ Mode tool restrictions are enforced by **refusing at execution time**, not by fi
 
 ---
 
-## 9. How to Connect an MCP Server
+## 8. How to Connect an MCP Server
 
 MCP servers are external tool services; Lcoder acts as the client. This section covers configuration and debugging, not MCP server development.
 
@@ -622,7 +565,7 @@ MCP tools appear in the agent tool list as `{serverName}_{toolName}`, e.g. `file
 
 ---
 
-## 10. Subagent Extension
+## 9. Subagent Extension
 
 Lcoder has a built-in subagent mechanism. To use it, simply enable it in your config:
 
@@ -675,7 +618,7 @@ In conversation:
 Please use the subagent tool to have the worker agent analyze the structure of pkg/llm
 ```
 
-## 11. Testing and Debugging
+## 10. Testing and Debugging
 
 ### 11.1 Unit Tests
 
@@ -722,7 +665,7 @@ Locally, use the same commands but exclude `reference/Shannon`.
 
 ---
 
-## 12. Contribution Guidelines and Code Conventions
+## 11. Contribution Guidelines and Code Conventions
 
 ### 12.1 Pre-Submit Checks
 
@@ -742,7 +685,7 @@ go test $(go list ./... | grep -v 'reference/Shannon') -count=1 -race
 
 ### 12.3 Documentation
 
-- New config fields must include examples and comments in `configs/lcoder.yaml`.
+- New config fields must include examples and comments in `configs/runtime/lcoder.yaml`.
 - New CLI commands must be documented in `README.md` / `README_EN.md` and these guides.
 - Complex logic should include comments explaining design intent.
 
@@ -764,7 +707,7 @@ docs(user-guide): add MCP server examples
 
 ---
 
-## 13. Extension API Quick Reference
+## 12. Extension API Quick Reference
 
 ### 13.1 `tools.Executable`
 

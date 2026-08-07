@@ -154,6 +154,45 @@ func TestMirrorPersistsTurnSynchronouslyBeforeCheckpoint(t *testing.T) {
 	}
 }
 
+// A session swap clears in-memory session-scope approvals (the previous
+// conversation's trust decisions must not leak into the new one), while the
+// file-backed rule sources stay untouched.
+func TestSessionSwapClearsSessionApprovals(t *testing.T) {
+	store := newStore(t)
+	sess0 := mustCreate(t, store)
+	sess1 := mustCreate(t, store)
+	if err := sess1.Append(models.UserMessage("new conversation")); err != nil {
+		t.Fatal(err)
+	}
+
+	pe := permissions.NewEngine(permissions.DefaultConfig())
+	client := llmtest.Client(llmtest.Turn(llmtest.Done(textMsg(models.RoleAssistant, "x"), nil)))
+	core, _ := newTestCore(t, client, pe, sess0, store, nil, nil)
+	defer core.Close()
+
+	decide := func() permissions.Decision {
+		return pe.Decide("bash", map[string]any{"command": "go test"})
+	}
+	// Baseline: bash with no rule is denied by the dangerous default.
+	if d := decide(); d != permissions.Deny {
+		t.Fatalf("baseline = %v, want deny", d)
+	}
+
+	// Grant a session-scope approval; the chain now allows it.
+	pe.AddSessionRule("bash", map[string]any{"command": "go test"})
+	if d := decide(); d != permissions.Allow {
+		t.Fatalf("after session approval = %v, want allow", d)
+	}
+
+	// Switching sessions must drop the in-memory approval (file rules kept).
+	if err := core.OpenSession(sess1.ID); err != nil {
+		t.Fatalf("open session: %v", err)
+	}
+	if d := decide(); d != permissions.Deny {
+		t.Fatalf("after session swap = %v, want deny (approval cleared)", d)
+	}
+}
+
 // OpenSession swaps messages, session id, task list, mirror target, and fires
 // the session-change notification (the compaction-sink wiring).
 func TestOpenSessionSwapsHistoryTasksAndMirror(t *testing.T) {

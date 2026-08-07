@@ -41,6 +41,31 @@ func IsRetryable(err error) bool {
 	return errors.As(err, &netErr)
 }
 
+// IsRateLimited reports whether err is a provider rate-limit rejection
+// (normalized engine code "rate_limit", e.g. HTTP 429 or an SSE
+// overloaded_error / rate_limit_error event). It is the trigger for the
+// subagent batch scheduler's coordinated recovery: by the time a rate-limit
+// error escapes the per-turn gateway retries (StreamTurnRetry + the
+// streamer's whole-turn retry), it represents a persistent or aggregate limit
+// that needs capacity management, not another immediate retry.
+func IsRateLimited(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pe *provider.EventError
+	return errors.As(err, &pe) && pe.Code == "rate_limit"
+}
+
+// RateLimitRetryAfter returns the provider-requested wait carried by a
+// rate-limit error, or 0 when absent/none.
+func RateLimitRetryAfter(err error) time.Duration {
+	var pe *provider.EventError
+	if errors.As(err, &pe) && pe.Code == "rate_limit" {
+		return pe.RetryAfter
+	}
+	return 0
+}
+
 // maxRetryAfterHonor caps how long a provider-requested Retry-After wait is
 // honored; computed backoff is capped at RetryConfig.MaxBackoff instead.
 const maxRetryAfterHonor = 2 * time.Minute

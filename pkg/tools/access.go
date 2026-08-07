@@ -15,6 +15,11 @@ const (
 	// OpAll marks arbitrary side effects that cannot be expressed as a file
 	// access; it conflicts with everything, including itself.
 	OpAll AccessOperation = "all"
+	// OpNone marks a call that touches no parent-side resource (e.g. a
+	// subagent spawn, which runs in its own process/cwd context). It never
+	// conflicts except with OpAll, so independent calls of this kind run in
+	// parallel.
+	OpNone AccessOperation = "none"
 )
 
 // ToolAccess declares one resource a tool call will touch. The agent's batch
@@ -46,10 +51,14 @@ func AccessesConflict(left, right []ToolAccess) bool {
 }
 
 // AccessConflict reports whether two accesses conflict: at least one writes
-// (or is OpAll) and their paths overlap.
+// (or is OpAll) and their paths overlap. OpNone touches nothing, so it only
+// conflicts with OpAll (a fully serial tool must stay serial relative to it).
 func AccessConflict(a, b ToolAccess) bool {
 	if a.Op == OpAll || b.Op == OpAll {
 		return true
+	}
+	if a.Op == OpNone || b.Op == OpNone {
+		return false
 	}
 	if !accessWrites(a.Op) && !accessWrites(b.Op) {
 		return false

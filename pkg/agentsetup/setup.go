@@ -35,13 +35,13 @@ type TemplateContext struct {
 // context-manager blocks (project_docs / skills) so they are not duplicated.
 func BuildSystemPrompt(ctx TemplateContext) string {
 	// Prompts live in markdown files, not code. Precedence: user override
-	// (~/.lcoder/modes/system.md) -> dev checkout (configs/modes/system.md,
+	// (~/.lcoder/modes/system.md) -> dev checkout (configs/prompts/system.md,
 	// so prompt edits take effect without a rebuild) -> embedded default
 	// (always present, even for single-file installs).
 	candidates := []string{
 		paths.LCoderHome("modes", "system.md"),
-		"configs/modes/system.md",
-		"../../configs/modes/system.md", // from pkg/agentsetup tests
+		"configs/prompts/system.md",
+		"../../configs/prompts/system.md", // from pkg/agentsetup tests
 	}
 	var tmpl string
 	for _, path := range candidates {
@@ -159,6 +159,7 @@ func NewContextManager(cfg config.Config, budget config.TokenBudget, thinking st
 		contextmgr.WithMinRecent(cfg.Context.MinRecent),
 		contextmgr.WithKeepRecentTokens(cfg.Context.KeepRecentTokens),
 		contextmgr.WithCacheHintPolicy(contextmgr.ParseCacheHintPolicy(cfg.Context.CacheHintPolicy)),
+		contextmgr.WithEstimator(contextmgr.TiktokenEstimator(cfg.Model)),
 		contextmgr.WithSummarizer(contextmgr.SummarizeFunc(compaction.NewCircuitBreaker(0).Wrap(compaction.NewLLMSummarizer(llmClient, models.ModelRef{Provider: cfg.Provider, ID: cfg.Model})))),
 	}
 	if thinking != "" {

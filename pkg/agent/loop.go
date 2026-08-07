@@ -359,6 +359,23 @@ func (a *Agent) SetMessages(msgs []models.AgentMessage) {
 	a.mgr.SetMessages(msgs)
 }
 
+// Mgr returns the agent's context manager. It exposes the system block so
+// hosts (e.g. agenthost.buildChild) can replace it with a profile-specific
+// system prompt before the first turn runs.
+func (a *Agent) Mgr() *contextmgr.Manager {
+	return a.mgr
+}
+
+// Permissions returns the agent's permission engine (process-wide singleton).
+// The host clears session-scope approvals at session boundaries; the engine
+// itself is shared and never swapped.
+func (a *Agent) Permissions() *permissions.Engine {
+	if a.executor == nil {
+		return nil
+	}
+	return a.executor.permissions
+}
+
 // SessionID returns the session this agent is currently associated with.
 func (a *Agent) SessionID() string {
 	return a.cfg.SessionID

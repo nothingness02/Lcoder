@@ -117,6 +117,11 @@ func roundTripSamples() []Event {
 			WaitMs:  1500,
 			Err:     "connection reset",
 		},
+		SubagentSuspendedEvent{
+			Base:    Base{Type: SubagentSuspended, Turn: 17},
+			AgentID: "sub-1",
+			Reason:  "Provider rate limit; subagent requeued for retry.",
+		},
 		GoalUpdatedEvent{
 			Base:        Base{Type: GoalUpdated, Turn: 17},
 			Objective:   "fix the bug",

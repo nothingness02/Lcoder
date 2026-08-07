@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/lcoder/lcoder"
 	"github.com/lcoder/lcoder/pkg/agent"
 	"github.com/lcoder/lcoder/pkg/contextmgr"
 	"github.com/lcoder/lcoder/pkg/events"
@@ -26,18 +25,6 @@ import (
 	"github.com/lcoder/lcoder/pkg/tools"
 	builtinTools "github.com/lcoder/lcoder/pkg/tools/builtin"
 )
-
-// rolePrefixText loads the shared subagent role prefix embedded from
-// configs/agents/_role_prefix.md. Every
-// subagent's system prompt leads with it so the model knows its user messages
-// come from the parent agent and that only its last message travels back.
-func rolePrefixText() string {
-	data, err := lcoder.AgentProfiles.ReadFile("configs/agents/_role_prefix.md")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
 
 const defaultSpawnTimeout = 30 * time.Minute
 
@@ -137,8 +124,19 @@ func (h *Host) Spawn(ctx context.Context, req subagent.SpawnRequest) *subagent.O
 			agentID = created.ID
 		}
 	}
-	meta := journalMeta{ParentSessionID: h.parentSessionID, Profile: req.Profile.Name, Task: req.Task, Cwd: cwd}
+	meta := journalMeta{ParentSessionID: h.parentSessionID, Profile: req.Profile.Name, Task: req.Task, Cwd: cwd, SwarmItem: req.SwarmItem}
 	return h.run(ctx, req.Profile, agentID, sess, meta, nil, req.Task, req.ParentToolCallID)
+}
+
+// SwarmItemOf returns the swarm item label recorded in a subagent's journal,
+// or "" for non-swarm subagents and unknown/invalid agent ids. The swarm tool
+// uses it to relabel resumed units in its aggregated result.
+func (h *Host) SwarmItemOf(agentID string) string {
+	_, meta, _, err := h.validateResume(agentID)
+	if err != nil {
+		return ""
+	}
+	return meta.SwarmItem
 }
 
 // Resume continues a subagent from its journal with a new instruction.
@@ -216,15 +214,16 @@ func (h *Host) buildChild(profile subagent.Agent, cwd string) *agent.Agent {
 	}
 	registry := h.cfg.Registry.WithCWD(cwd)
 	if len(profile.Subagents) == 0 {
-		registry = registry.Without("subagent")
+		registry = registry.Without("subagent").Without(builtinTools.SwarmToolName)
 	} else {
-		// A delegating profile gets a subagent tool bound to the same host and
+		// A delegating profile gets subagent tools bound to the same host and
 		// this child's cwd, so nested grandchildren default to the same
 		// working directory.
 		registry.Register("subagent", builtinTools.NewSubagent(cwd, h, h.cfg.Profiles))
+		registry.Register(builtinTools.SwarmToolName, builtinTools.NewSwarm(cwd, h, h.cfg.Profiles))
 	}
 	childCfg := agent.Config{
-		BaseSystemPrompt: rolePrefixText() + "\n\n" + profile.Prompt,
+		BaseSystemPrompt: profile.SystemPrompt(),
 		Model:            h.resolveModel(profile),
 		ContextManager:   h.cfg.NewContextManager(),
 		Mode:             profile.Mode,
@@ -235,7 +234,16 @@ func (h *Host) buildChild(profile subagent.Agent, cwd string) *agent.Agent {
 	}
 	perms := h.cfg.Permissions.Fork()
 	perms.SetPathContext(cwd, h.cfg.HomeDir)
-	return agent.New(childCfg, h.cfg.LLMClient, registry, perms, events.New())
+	child := agent.New(childCfg, h.cfg.LLMClient, registry, perms, events.New())
+	// The context-manager factory builds a default system block (the base
+	// system.md); replace it with the profile's own system prompt so the child
+	// behaves per its profile instead of the parent's base prompt (kimi-code's
+	// profile.systemPrompt(context)). The BaseSystemPrompt config field is
+	// legacy and is not consulted by the run loop.
+	child.Mgr().SetBlock(contextmgr.NewBlock(contextmgr.BlockSystem, "system",
+		contextmgr.StabilityStatic, 100,
+		models.NewAgentMessage(models.RoleSystem, models.TextContent{Text: profile.SystemPrompt()})))
+	return child
 }
 
 // resolveModel honors the profile's model preference, defaulting to the

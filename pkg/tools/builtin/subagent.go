@@ -6,32 +6,19 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/lcoder/lcoder/pkg/models"
 	"github.com/lcoder/lcoder/pkg/subagent"
 	"github.com/lcoder/lcoder/pkg/tools"
 )
 
-const (
-	// swarmConcurrency caps how many subagents one swarm call runs at once
-	// (provider-rate-limit adaptation is a later iteration once the llm
-	// layer exposes structured errors).
-	swarmConcurrency = 4
-	// retryBackoff is the delay before a failed swarm item is retried by
-	// resuming its own journal (partial progress is preserved).
-	retryBackoff = 3 * time.Second
-	// maxSwarmItems bounds a single swarm call (MAX_AGENT_SWARM_SUBAGENTS).
-	maxSwarmItems = 128
-)
-
 // Subagent delegates self-contained tasks to in-process subagents: full
 // agent instances with clean contexts, their own permission surface (from
 // their profile's mode), and their own budgets. Only the subagents' final
-// messages come back.
+// messages come back. For many similar sub-tasks use the separate
+// subagent_swarm tool instead.
 type Subagent struct {
 	cwd      string
 	spawner  subagent.Spawner
@@ -89,17 +76,6 @@ func (s *Subagent) Definition() models.ToolDefinition {
 					"type":        "string",
 					"description": "agent_id of a previous subagent run to continue with full context; when set, agent is ignored",
 				},
-				"prompt_template": map[string]any{
-					"type": "string",
-					"description": "Swarm form: one shared briefing containing {{item}} as the placeholder. Each item expands " +
-						"into a separate subagent run. IMPORTANT: a swarm call must be the ONLY tool call in your response.",
-				},
-				"items": map[string]any{
-					"type": "array",
-					"description": "Swarm form: the values substituted into {{item}} (e.g. file paths, symbol names). " +
-						"At least 2, at most 128; every expanded prompt must be distinct.",
-					"items": map[string]any{"type": "string"},
-				},
 				"run_in_background": map[string]any{
 					"type": "boolean",
 					"description": "Start the subagent in the background and return immediately. The result arrives " +
@@ -113,16 +89,18 @@ func (s *Subagent) Definition() models.ToolDefinition {
 
 // description builds the tool description with the discovered profiles
 // inlined, so the parent model can make an informed choice (kimi-code's
-// dynamic profile listing).
+// dynamic profile listing). Batch delegation points to the separate
+// subagent_swarm tool.
 func (s *Subagent) description() string {
 	var b strings.Builder
-	b.WriteString("Delegate self-contained tasks to subagents. A subagent starts with zero context — " +
+	b.WriteString("Delegate one self-contained task to a subagent. A subagent starts with zero context — " +
 		"it has NOT seen this conversation, so the task must brief it like a colleague who just walked in: " +
 		"goal, relevant file paths, constraints, and exactly what to return. The subagent works autonomously " +
 		"(it cannot ask you questions) and only its final message comes back. " +
-		"For several similar sub-tasks, use the swarm form: one prompt_template with {{item}} plus an items list.\n\n" +
+		"For many similar sub-tasks run over different inputs, use the " + SwarmToolName + " tool instead." +
+		" For a few differently-shaped tasks, make several subagent calls in one message.\n\n" +
 		"Available agent types:\n")
-	for _, name := range s.profileNames() {
+	for _, name := range sortedProfileNames(s.profiles) {
 		p := s.profiles[name]
 		desc := p.Description
 		if desc == "" {
@@ -134,12 +112,15 @@ func (s *Subagent) description() string {
 }
 
 func (s *Subagent) Execute(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	// Swarm form: prompt_template + items.
+	// The swarm form moved to the separate subagent_swarm tool; redirect the
+	// model instead of silently ignoring the arguments.
 	if _, hasTemplate := args["prompt_template"]; hasTemplate {
-		return s.executeSwarm(ctx, callID, args)
+		return models.ToolExecutionResult{}, fmt.Errorf(
+			"subagent: swarm form moved to the " + SwarmToolName + " tool (prompt_template + items + optional resume_agent_ids)")
 	}
 	if _, hasItems := args["items"]; hasItems {
-		return models.ToolExecutionResult{}, fmt.Errorf("subagent: items requires prompt_template containing {{item}}")
+		return models.ToolExecutionResult{}, fmt.Errorf(
+			"subagent: items requires the " + SwarmToolName + " tool with a prompt_template containing {{item}}")
 	}
 
 	task, err := tools.RequiredString(args, "task")
@@ -159,7 +140,7 @@ func (s *Subagent) Execute(ctx context.Context, callID string, args map[string]a
 	profile, ok := s.profiles[agentName]
 	if !ok {
 		return models.ToolExecutionResult{}, fmt.Errorf(
-			"unknown subagent %q; available: %s", agentName, strings.Join(s.profileNames(), ", "))
+			"unknown subagent %q; available: %s", agentName, strings.Join(sortedProfileNames(s.profiles), ", "))
 	}
 
 	cwd := s.cwd
@@ -174,137 +155,6 @@ func (s *Subagent) Execute(ctx context.Context, callID string, args map[string]a
 
 	out := s.spawner.Spawn(ctx, req)
 	return models.NewToolExecutionResultText(formatSpawnOutcome(out)), nil
-}
-
-// --- swarm form (AgentSwarm: prompt_template + {{item}} + items) ---
-
-const itemPlaceholder = "{{item}}"
-
-// executeSwarm validates the swarm arguments and runs the expanded prompts
-// with a bounded-concurrency scheduler.
-func (s *Subagent) executeSwarm(ctx context.Context, callID string, args map[string]any) (models.ToolExecutionResult, error) {
-	agentName, err := tools.RequiredString(args, "agent")
-	if err != nil {
-		return models.ToolExecutionResult{}, err
-	}
-	profile, ok := s.profiles[agentName]
-	if !ok {
-		return models.ToolExecutionResult{}, fmt.Errorf(
-			"unknown subagent %q; available: %s", agentName, strings.Join(s.profileNames(), ", "))
-	}
-	template, err := tools.RequiredString(args, "prompt_template")
-	if err != nil {
-		return models.ToolExecutionResult{}, err
-	}
-	if !strings.Contains(template, itemPlaceholder) {
-		return models.ToolExecutionResult{}, fmt.Errorf(
-			"subagent: prompt_template must contain %s as the item placeholder", itemPlaceholder)
-	}
-
-	raw, ok := args["items"].([]any)
-	if !ok || len(raw) == 0 {
-		return models.ToolExecutionResult{}, fmt.Errorf("subagent: items is required and must be a non-empty array of strings")
-	}
-	items := make([]string, 0, len(raw))
-	for i, entry := range raw {
-		item, ok := entry.(string)
-		if !ok || strings.TrimSpace(item) == "" {
-			return models.ToolExecutionResult{}, fmt.Errorf("subagent: items[%d] must be a non-empty string", i)
-		}
-		items = append(items, item)
-	}
-	if len(items) < 2 {
-		return models.ToolExecutionResult{}, fmt.Errorf("subagent: swarm needs at least 2 items; use the single form for one task")
-	}
-	if len(items) > maxSwarmItems {
-		return models.ToolExecutionResult{}, fmt.Errorf("subagent: too many items (%d > %d)", len(items), maxSwarmItems)
-	}
-
-	// Expand and reject duplicated prompts (kimi's distinctness check).
-	prompts := make([]string, len(items))
-	seen := make(map[string]string, len(items))
-	for i, item := range items {
-		prompts[i] = strings.ReplaceAll(template, itemPlaceholder, item)
-		if prev, dup := seen[prompts[i]]; dup {
-			return models.ToolExecutionResult{}, fmt.Errorf(
-				"subagent: items %q and %q expand to the same prompt; make each item distinct", prev, item)
-		}
-		seen[prompts[i]] = item
-	}
-
-	return models.NewToolExecutionResultText(s.runSwarm(ctx, callID, profile, items, prompts)), nil
-}
-
-// runSwarm executes the expanded prompts with bounded concurrency. Failures
-// are isolated per item; a failed item is retried once by resuming its own
-// journal so partial progress is not thrown away.
-func (s *Subagent) runSwarm(ctx context.Context, parentCallID string, profile subagent.Agent, items, prompts []string) string {
-	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(swarmConcurrency)
-	outs := make([]*subagent.Outcome, len(items))
-	for i := range items {
-		g.Go(func() error {
-			outs[i] = s.runSwarmItem(ctx, parentCallID, profile, prompts[i])
-			return nil
-		})
-	}
-	_ = g.Wait()
-	return formatSwarmResults(profile.Name, items, outs)
-}
-
-func (s *Subagent) runSwarmItem(ctx context.Context, parentCallID string, profile subagent.Agent, prompt string) *subagent.Outcome {
-	out := s.spawner.Spawn(ctx, subagent.SpawnRequest{
-		Profile:          profile,
-		Task:             prompt,
-		CWD:              s.cwd,
-		ParentToolCallID: parentCallID,
-	})
-	if out.Err == nil && !out.TimedOut {
-		return out
-	}
-	select {
-	case <-ctx.Done():
-		return out
-	case <-time.After(retryBackoff):
-	}
-	retry := s.spawner.Resume(ctx, subagent.ResumeRequest{
-		AgentID:          out.AgentID,
-		Task:             "Continue and finish the original task: " + prompt,
-		ParentToolCallID: parentCallID,
-	})
-	if retry.Err == nil && !retry.TimedOut {
-		return retry
-	}
-	return out
-}
-
-func formatSwarmResults(profile string, items []string, outs []*subagent.Outcome) string {
-	completed, failed := 0, 0
-	for _, out := range outs {
-		if out.Err == nil && !out.TimedOut && !out.Canceled {
-			completed++
-		} else {
-			failed++
-		}
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "<subagent_results profile=%q completed=\"%d\" failed=\"%d\">\n", profile, completed, failed)
-	for i, out := range outs {
-		fmt.Fprintf(&b, "<subagent agent_id=\"%s\" item=\"%s\" outcome=\"%s\">\n",
-			out.AgentID, items[i], outcomeStatus(out))
-		if out.Err == nil && !out.TimedOut {
-			fmt.Fprintf(&b, "<summary>\n%s\n</summary>\n", out.Summary)
-		} else {
-			errText := "timeout"
-			if out.Err != nil {
-				errText = out.Err.Error()
-			}
-			fmt.Fprintf(&b, "<error>%s; resume with {\"task\": \"...\", \"resume\": \"%s\"}</error>\n", errText, out.AgentID)
-		}
-		b.WriteString("</subagent>\n")
-	}
-	b.WriteString("</subagent_results>")
-	return b.String()
 }
 
 // --- background ---
@@ -336,9 +186,10 @@ func (s *Subagent) startBackground(req subagent.SpawnRequest) string {
 
 // --- shared formatting ---
 
-func (s *Subagent) profileNames() []string {
-	names := make([]string, 0, len(s.profiles))
-	for name := range s.profiles {
+// sortedProfileNames returns the profile names sorted alphabetically.
+func sortedProfileNames(profiles map[string]subagent.Agent) []string {
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -382,4 +233,15 @@ func formatSpawnOutcome(out *subagent.Outcome) string {
 	return b.String()
 }
 
+// DeclareAccesses implements tools.AccessDeclarer: a subagent spawn runs in
+// its own process/cwd context, so the parent-side batch scheduler treats it
+// as touching no resource. Independent subagent calls therefore run in
+// parallel (alignment with kimi's Promise.allSettled); avoiding conflicting
+// file writes across subagents is the parent model's responsibility, per the
+// swarm guidance.
+func (s *Subagent) DeclareAccesses(args map[string]any) []tools.ToolAccess {
+	return []tools.ToolAccess{{Op: tools.OpNone}}
+}
+
 var _ tools.Executable = (*Subagent)(nil)
+var _ tools.AccessDeclarer = (*Subagent)(nil)

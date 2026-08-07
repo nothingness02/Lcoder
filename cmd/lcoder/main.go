@@ -53,6 +53,7 @@ var (
 	trustProjectExtensions bool
 	goalText               string
 	goalTurns              int
+	worktreeFlag           string
 	goalTokens             int
 )
 
@@ -89,6 +90,11 @@ func main() {
 	root.PersistentFlags().StringVar(&modeName, "mode", "", "Agent mode: plan, code, explore, review, test")
 	root.Flags().StringVarP(&promptText, "prompt", "p", "", "Single prompt to run and exit")
 	root.Flags().BoolVar(&jsonMode, "json", false, "Output events as JSONL instead of TUI/text")
+	// NoOptDefVal="auto" makes a bare `--worktree` resolve to the current git
+	// branch; a value selects the branch explicitly.
+	worktreeFlag = ""
+	root.PersistentFlags().StringVar(&worktreeFlag, "worktree", "", "Work in a git worktree under .lcoder/worktrees/<branch> (value = branch; bare = current branch)")
+	root.PersistentFlags().Lookup("worktree").NoOptDefVal = "auto"
 	root.Flags().StringVar(&goalText, "goal", "", "Pursue an objective to completion (headless GoalDriver; mutually exclusive with -p)")
 	root.Flags().IntVar(&goalTurns, "goal-turns", 0, "Goal turn budget (0 = unlimited)")
 	root.Flags().IntVar(&goalTokens, "goal-tokens", 0, "Goal token budget (0 = unlimited)")
@@ -174,6 +180,20 @@ type agentConfig struct {
 }
 
 func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
+	// --worktree switches the whole agent — session store included — to a git
+	// worktree: the agent starts fresh in the new folder, and the conversation
+	// list (session picker, -c, --session) is keyed by the worktree's cwd.
+	// Carrying the previous conversation into a worktree is a separate,
+	// in-session worktree command, not this CLI flag.
+	if worktreeFlag != "" {
+		wt, err := ensureWorktree(cwd, worktreeFlag)
+		if err != nil {
+			return nil, err
+		}
+		cwd = wt
+		fmt.Fprintf(os.Stderr, "[lcoder] worktree: %s\n", wt)
+	}
+
 	ctxLoader := contextloader.NewLoader(cwd)
 	contextText, err := ctxLoader.Load()
 	if err != nil {
@@ -230,6 +250,8 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 	_ = permEngine.LoadGlobalLearnedRules(paths.LCoderHome("permissions", "global.yaml"))
 	_ = permEngine.LoadProjectRules(filepath.Join(cwd, ".lcoder", "permissions.yaml"))
 
+	// The session store keeps the MAIN tree's identity so the conversation
+	// continues across worktrees of the same repository.
 	sessStore := session.NewStore("")
 	var sess *session.Session
 	if sessionID != "" {
@@ -361,6 +383,15 @@ func prepareAgent(cfg config.Config, cwd string) (*agentSetup, error) {
 			})
 		})
 		registry.Register("subagent", subagentTool)
+		swarmTool := builtinTools.NewSwarm(cwd, subagentHost, profiles)
+		swarmTool.SetSuspendNotifier(func(agentID, reason string) {
+			_ = bus.Emit(context.Background(), events.SubagentSuspendedEvent{
+				Base:    events.Base{Type: events.SubagentSuspended},
+				AgentID: agentID,
+				Reason:  reason,
+			})
+		})
+		registry.Register(builtinTools.SwarmToolName, swarmTool)
 		// Background subagent completions surface as per-turn reminders.
 		reminderProducers = append(reminderProducers, func([]models.AgentMessage) []string {
 			return subagentTool.DrainNotifications()

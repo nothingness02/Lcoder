@@ -230,6 +230,23 @@ Lcoder 会自动保存会话。退出后可以通过以下方式恢复：
 ./lcoder tui --session <id>              # 在 TUI 中恢复指定会话
 ```
 
+### 4.5 在 git worktree 中工作
+
+在 git 仓库中，`--worktree` 让 agent 在一个**全新的文件夹（git worktree）**里工作，会话命名空间、对话列表检索/加载全部基于**新的 cwd（worktree 目录）**：
+
+```bash
+./lcoder --worktree feat/login           # 在 .lcoder/worktrees/feat/login/ 中工作（无则自动创建）
+./lcoder --worktree                      # 以当前分支名作为 worktree 目录名（detached HEAD 副本）
+./lcoder --worktree feat/login -c        # 继续该 worktree 自己的最近会话（初始为空 → 全新对话）
+```
+
+- worktree 固定在 `<git 主树>/.lcoder/worktrees/<branch>/`（`.lcoder/` 已被 gitignore，不会污染主树状态）；
+- 分支已存在 → 直接附加；不存在 → 以当前 HEAD 创建；与主树当前分支冲突 → 报错提示；
+- **这是一个全新的 agent/会话**：`/sessions`、`-c`、`--session` 都检索 worktree 目录自己的会话（首次为空）；
+- 工具、上下文加载（AGENTS.md）、技能、项目权限规则等全部绑定到 worktree 目录。
+
+> 在会话内切换到 worktree 并**延续当前对话**（新 agent 完美集成当前会话）属于独立的 worktree 命令，尚未实现。
+
 ### 4.4 使用模式
 
 模式会影响 system prompt，从而改变 agent 的行为风格：

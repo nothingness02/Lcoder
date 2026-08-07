@@ -16,6 +16,27 @@ const (
 	defaultAgentTimeoutSec = 120
 )
 
+// RolePrefixText loads the shared subagent role prefix embedded from
+// configs/prompts/agents/_role_prefix.md. Every subagent's system prompt
+// leads with it so the model knows its user messages come from the parent
+// agent and that only its last message travels back.
+func RolePrefixText() string {
+	data, err := lcoder.AgentProfiles.ReadFile("configs/prompts/agents/_role_prefix.md")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// SystemPrompt renders the subagent's complete system prompt: the shared
+// role prefix followed by the profile's own instructions. It is rendered at
+// spawn time and written into the child agent's system context block
+// (agenthost.buildChild), mirroring kimi-code's profile.systemPrompt(context)
+// — the base and role are merged here, not re-assembled by the caller.
+func (p Agent) SystemPrompt() string {
+	return RolePrefixText() + "\n\n" + p.Prompt
+}
+
 // Agent is a loaded subagent profile: a self-contained definition of what a
 // spawned subagent is (prompt + mode/tool surface + budget + summary policy).
 type Agent struct {
@@ -50,12 +71,12 @@ type agentFrontmatter struct {
 }
 
 // DefaultProfiles loads the built-in subagent profiles embedded from
-// configs/agents/*.md. User and project agent files override these by name
+// configs/prompts/agents/*.md. User and project agent files override these by name
 // (same convention as mode loading). Files prefixed with "_" are shared
 // fragments (e.g. the role prefix), not profiles.
 func DefaultProfiles() map[string]Agent {
 	agents := make(map[string]Agent)
-	entries, err := lcoder.AgentProfiles.ReadDir("configs/agents")
+	entries, err := lcoder.AgentProfiles.ReadDir("configs/prompts/agents")
 	if err != nil {
 		return agents
 	}
@@ -64,11 +85,11 @@ func DefaultProfiles() map[string]Agent {
 		if entry.IsDir() || !strings.HasSuffix(name, ".md") || strings.HasPrefix(name, "_") {
 			continue
 		}
-		data, err := lcoder.AgentProfiles.ReadFile("configs/agents/" + name)
+		data, err := lcoder.AgentProfiles.ReadFile("configs/prompts/agents/" + name)
 		if err != nil {
 			continue
 		}
-		profile, err := parseAgentMarkdown("configs/agents/"+name, data)
+		profile, err := parseAgentMarkdown("configs/prompts/agents/"+name, data)
 		if err != nil {
 			continue
 		}

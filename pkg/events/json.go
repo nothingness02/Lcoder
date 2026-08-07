@@ -24,6 +24,7 @@ var eventFactories = map[EventType]func() Event{
 	CompactionCommitted: func() Event { return &CompactionCommittedEvent{} },
 	CompactionStarted:   func() Event { return &CompactionStartedEvent{} },
 	SubagentActivity:    func() Event { return &SubagentActivityEvent{} },
+	SubagentSuspended:   func() Event { return &SubagentSuspendedEvent{} },
 	BackgroundNotice:    func() Event { return &BackgroundNoticeEvent{} },
 	LLMRetry:            func() Event { return &LLMRetryEvent{} },
 	GoalUpdated:         func() Event { return &GoalUpdatedEvent{} },

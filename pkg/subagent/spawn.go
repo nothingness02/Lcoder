@@ -15,6 +15,10 @@ type SpawnRequest struct {
 	// ParentToolCallID links the run to the parent's subagent tool call so
 	// mirrored activity can be rendered nested under it in the TUI.
 	ParentToolCallID string
+	// SwarmItem is the original item value from a swarm call that produced
+	// this agent (empty for single-task subagents). It is persisted in the
+	// journal so a later resume can relabel the unit.
+	SwarmItem string
 }
 
 // ResumeRequest continues a previously spawned subagent from its journal.

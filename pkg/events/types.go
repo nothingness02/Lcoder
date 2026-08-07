@@ -24,6 +24,7 @@ const (
 	CompactionCommitted EventType = "compaction_committed"
 	CompactionStarted   EventType = "compaction_started"
 	SubagentActivity    EventType = "subagent_activity"
+	SubagentSuspended   EventType = "subagent_suspended"
 	BackgroundNotice    EventType = "background_notice"
 	LLMRetry            EventType = "llm_retry"
 )
@@ -178,4 +179,13 @@ type LLMRetryEvent struct {
 	Attempt int    `json:"attempt"`
 	WaitMs  int64  `json:"wait_ms"`
 	Err     string `json:"err"`
+}
+
+// SubagentSuspendedEvent signals that a subagent batch attempt hit a provider
+// rate limit and was requeued for a coordinated retry (see subagent/batch).
+// The UI can surface it as a pending state on the nested subagent display.
+type SubagentSuspendedEvent struct {
+	Base
+	AgentID string `json:"agent_id"`
+	Reason  string `json:"reason"`
 }

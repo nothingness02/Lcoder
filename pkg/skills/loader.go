@@ -16,7 +16,7 @@ import (
 // extra directories appended at user scope.
 func DefaultSources(cwd string, extraDirs []string) []Source {
 	sources := []Source{
-		{Scope: ScopeBuiltin, FSRoot: "configs/skills"},
+		{Scope: ScopeBuiltin, FSRoot: "configs/prompts/skills"},
 		{Scope: ScopeUser, Dir: paths.LCoderHome("skills")},
 		{Scope: ScopeUserShared, Dir: filepath.Join(paths.HomeDir(), ".agents", "skills")},
 		{Scope: ScopeProject, Dir: filepath.Join(cwd, ".lcoder", "skills")},
@@ -80,11 +80,11 @@ func LoadCatalog(paths []string) ([]SkillMeta, error) {
 
 // LoadSkill reads a full SKILL.md and returns the complete skill including
 // its free-form Markdown body. Embedded builtin skills (Source paths under
-// configs/skills) are read from the embedded FS when the file is absent.
+// configs/prompts/skills) are read from the embedded FS when the file is absent.
 func LoadSkill(source string) (Skill, error) {
 	data, err := os.ReadFile(source)
 	if err != nil {
-		if strings.HasPrefix(source, "configs/skills/") {
+		if strings.HasPrefix(source, "configs/prompts/skills/") {
 			data, err = lcoder.AgentSkills.ReadFile(source)
 		}
 		if err != nil {

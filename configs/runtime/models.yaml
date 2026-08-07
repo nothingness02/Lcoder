@@ -1,5 +1,5 @@
 # Static model catalog for Lcoder.
-# This file is loaded automatically from configs/models.yaml (or
+# This file is loaded automatically from configs/runtime/models.yaml (or
 # ~/.lcoder/models.yaml) and provides context windows, capabilities, and budget
 # hints without requiring an online lookup.
 models:

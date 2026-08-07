@@ -65,7 +65,7 @@ func NewModeManager() *ModeManager {
 // they are always available, even for a single-file install run from any
 // directory. User/project dirs loaded later shadow these by name.
 func loadEmbeddedModes(mm *ModeManager) error {
-	entries, err := lcoder.AgentModes.ReadDir("configs/modes")
+	entries, err := lcoder.AgentModes.ReadDir("configs/prompts/modes")
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func loadEmbeddedModes(mm *ModeManager) error {
 		if !(strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
 			continue
 		}
-		data, err := lcoder.AgentModes.ReadFile(path.Join("configs/modes", name))
+		data, err := lcoder.AgentModes.ReadFile(path.Join("configs/prompts/modes", name))
 		if err != nil {
 			return err
 		}
