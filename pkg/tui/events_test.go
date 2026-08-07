@@ -249,7 +249,7 @@ func TestBlocksFromMessagesMergesToolResults(t *testing.T) {
 		}),
 	}
 
-	blocks := blocksFromMessages(prior)
+	blocks := blocksFromMessages(prior, nil)
 	if len(blocks) != 3 {
 		t.Fatalf("expected 3 blocks (user, assistant, merged tool), got %d", len(blocks))
 	}
@@ -425,7 +425,7 @@ func TestBlocksFromMessagesWithoutDetailsDegrades(t *testing.T) {
 			Content:    []models.ContentPart{models.TextContent{Text: "Wrote 11 characters to a.go"}},
 		}),
 	}
-	blocks := blocksFromMessages(msgs)
+	blocks := blocksFromMessages(msgs, nil)
 	var tb *block
 	for i := range blocks {
 		if blocks[i].kind == components.BlockTool {

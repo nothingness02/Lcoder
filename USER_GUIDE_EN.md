@@ -15,7 +15,7 @@
 9. [Sessions and Branching](#9-sessions-and-branching)
 10. [Security and Permissions](#10-security-and-permissions)
 11. [Extension Tools](#11-extension-tools)
-12. [Code Index](#12-code-index)
+12. [Code Intelligence (MCP / codegraph)](#12-code-intelligence-mcp--codegraph)
 13. [Observability](#13-observability)
 14. [Troubleshooting](#14-troubleshooting)
 15. [Configuration Field Reference](#15-configuration-field-reference)
@@ -32,21 +32,20 @@ Lcoder is a **minimal, extensible SWE (Software Engineering) agent runtime frame
 - **In-process LLM engine**: Communicates directly with OpenAI-compatible and Anthropic endpoints through hand-written HTTP+SSE adapters, with no external SDK dependency.
 - **Multi-mode agent**: Built-in modes such as `code`, `plan`, `explore`, `review`, and `test` optimize the system prompt for different scenarios.
 - **Rich tool ecosystem**:
-  - Built-in tools: file read/write, edit, `bash`, code-index search, memory, subagent, etc.
-  - HTTP tools: send POST requests to arbitrary endpoints.
+  - Built-in tools: file read/write, edit, `bash`, `grep`/`find` search, subagent, etc.
   - MCP servers: connect to Model Context Protocol servers over stdio, SSE, or Streamable HTTP.
 - **Terminal UI (TUI)**: Based on `charmbracelet/bubbletea`, supporting message history, tool result folding/expansion, session picker, and extensions panel.
 - **Sessions and branching**: Sessions are saved as JSONL; each message records a `parent_id`, enabling branching from any message.
 - **Secure by default**: Destructive tools require confirmation by default, with `allow/ask/deny` permission rules.
 - **Observability**: Automatically records LLM calls, token usage, tool execution, latency, etc., with export to HTML / SQLite / Prometheus.
-- **Code index**: Optional SQLite-backed code graph index supporting Go / TypeScript / JavaScript / Python, with automatic context injection.
+- **Code search**: Built-in `grep`/`find` text search (uses ripgrep automatically when available, falling back to a pure-Go implementation). Symbol/call-graph code intelligence is not bundled — connect external tools such as codegraph over MCP instead, see Chapter 12.
 
 ### 1.2 When to Use Lcoder
 
 - Daily coding: explain, refactor, complete, and debug code.
 - Code review: ask the agent to review specified files.
 - Design: use `plan` mode for high-level architecture discussions.
-- Automated workflows: integrate Lcoder into CI/CD, deployment, documentation generation, etc. via HTTP tools or MCP servers.
+- Automated workflows: integrate Lcoder into CI/CD, deployment, documentation generation, etc. via MCP servers.
 - Custom agents: build your own tools, modes, hooks, and exporters on top of Lcoder.
 
 ### 1.3 Differences from Similar Tools
@@ -54,7 +53,7 @@ Lcoder is a **minimal, extensible SWE (Software Engineering) agent runtime frame
 | Dimension | Lcoder | Claude Code / Cursor / etc. |
 |---|---|---|
 | Deployment | Self-hosted from source | Usually closed-source client or IDE plugin |
-| Extension mechanism | Process-external extensions, HTTP tools, MCP servers | Mostly vendor-provided |
+| Extension mechanism | Process-external extensions, MCP servers | Mostly vendor-provided |
 | Model routing | In-process engine, any OpenAI-compatible endpoint | Usually official models only |
 | Session storage | JSONL, inspectable, forkable, backup-friendly | Usually proprietary storage |
 | Permission control | Fine-grained glob rules, local audit log | Determined by the product |
@@ -413,7 +412,6 @@ Type `/sessions` to open the session picker. You can:
 
 Type `/extensions` or `/mcp` to open the extensions panel, which shows:
 
-- Configured HTTP tools.
 - Connected MCP servers and their tool lists.
 - Server connection status.
 
@@ -705,13 +703,12 @@ The global permission file `~/.lcoder/permissions/global.yaml` uses the same for
 
 ## 11. Extension Tools
 
-Lcoder supports three ways to extend the tools available to the agent:
+Lcoder supports two ways to extend the tools available to the agent:
 
-1. **Built-in tools**: Provided by Lcoder, such as `read`, `write`, `edit`, `bash`, `memory`, etc. `subagent` is registered only when explicitly enabled in the configuration.
-2. **HTTP tools**: Expose arbitrary HTTP endpoints as tools through configuration.
-3. **Process-external extensions**: Standalone processes that talk to the host over stdio JSON-RPC; they are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `extension.yaml` manifest.
+1. **Built-in tools**: Provided by Lcoder, such as `read`, `write`, `edit`, `bash`, `grep`, `find`, etc. `subagent` is registered only when explicitly enabled in the configuration.
+2. **Process-external extensions**: Standalone processes that talk to the host over stdio JSON-RPC; they are discovered automatically from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level), each with an `extension.yaml` manifest.
 
-> **Note**: `./lcoder install` only copies an extension to `~/.lcoder/extensions/`; it does **not** auto-register extensions. Process-external extensions are discovered from the directories above and need no declaration in `tool_extensions`; HTTP tools take effect simply by adding them under `http_tools`.
+> **Note**: `./lcoder install` only copies an extension to `~/.lcoder/extensions/`; it does **not** auto-register extensions. Process-external extensions are discovered from the directories above.
 
 ### Enabling Subagent
 
@@ -735,92 +732,7 @@ Use a subagent of type explore to map the call chains in pkg/agent
 - Swarm: `{agent, prompt_template, items}` — the template uses `{{item}}` as placeholder; each item expands into its own subagent (at least 2, at most 128; expanded prompts must be distinct; bounded concurrency; must be the only tool call in the response)
 - Background: `run_in_background: true` — the result arrives automatically as a reminder, no polling needed
 
-### Registering Extensions
-
-`tool_extensions` currently supports only `type: json`: `path` points to a JSON descriptor file that defines an HTTP tool (`name`/`endpoint`/`parameters`, etc., equivalent to `http_tools`):
-
-```yaml
-tool_extensions:
-  - name: weather
-    type: json
-    path: ~/.lcoder/tools/weather.json
-```
-
-Process-external extensions are not configured via `tool_extensions`; they are auto-discovered from `~/.lcoder/extensions/` (global) or `.lcoder/extensions/` (project level). See `docs/superpowers/specs/2026-07-24-extension-runtime-design.md` for the design.
-
-### 11.1 HTTP Tools
-
-HTTP tools send a POST request to the configured endpoint when the agent needs them and return the response as the tool result.
-
-Configure in `~/.lcoder/config.yaml`:
-
-```yaml
-http_tools:
-  - name: deploy
-    endpoint: http://localhost:9001/deploy
-    description: Deploy service to staging
-    parameters:
-      type: object
-      properties:
-        service:
-          type: string
-      required: [service]
-    execution_mode: parallel
-    headers:
-      Authorization: Bearer ${DEPLOY_TOKEN}
-```
-
-Field descriptions:
-
-| Field | Description |
-|---|---|
-| `name` | The tool name shown to the agent. |
-| `endpoint` | POST request target URL. |
-| `description` | Tool description; influences when the LLM invokes it. |
-| `parameters` | JSON Schema parameter definition. |
-| `execution_mode` | `parallel` or `serial`; determines whether the tool can run in parallel. |
-| `headers` | Custom request headers; supports `${VAR}` environment variable interpolation. |
-
-Environment variable interpolation:
-
-```yaml
-headers:
-  Authorization: "Bearer ${DEPLOY_TOKEN}"
-```
-
-Lcoder reads the `DEPLOY_TOKEN` environment variable at startup and substitutes it.
-
-### 11.2 HTTP Tool Endpoint Contract
-
-Your endpoint receives a POST request with a JSON body containing the following fields:
-
-```json
-{
-  "tool_call_id": "call_xxx",
-  "name": "deploy",
-  "arguments": {"service": "api"},
-  "context": {"cwd": "/path/to/project"}
-}
-```
-
-| Field | Description |
-|---|---|
-| `tool_call_id` | Unique ID for this tool call. |
-| `name` | Name of the invoked tool. |
-| `arguments` | Object containing the arguments provided by the agent. |
-| `context.cwd` | Current working directory of the Lcoder process. |
-
-The response should be a tool result. The simplest form is a text response:
-
-```json
-{
-  "content": [{"type": "text", "text": "Deployment started"}]
-}
-```
-
-Responses may also include `details` and `terminate` fields.
-
-### 11.3 MCP Servers
+### 11.1 MCP Servers
 
 MCP (Model Context Protocol) is a standard protocol that lets Lcoder connect to external tool servers. Lcoder supports three transports:
 
@@ -865,7 +777,7 @@ Field descriptions:
 | `env` | Environment variables passed to the stdio subprocess. |
 | `timeout` | Connection timeout in seconds. |
 
-### 11.4 Managing MCP in the TUI
+### 11.2 Managing MCP in the TUI
 
 Type `/mcp` to open the MCP management panel, where you can:
 
@@ -873,7 +785,7 @@ Type `/mcp` to open the MCP management panel, where you can:
 - See the list of tools provided by each server.
 - Reconnect or close individual servers.
 
-### 11.5 Tool Timeouts
+### 11.3 Tool Timeouts
 
 For long-running operations, Lcoder lets the LLM control the timeout:
 
@@ -1144,36 +1056,19 @@ context:
 | `compact_threshold` | float | Trigger compaction when usage reaches this ratio of `target_tokens`. |
 | `cache_hint_policy` | string | Cache breakpoint policy: `default`, `aggressive`, or `none`. |
 
-### 15.5 Memory
-
-```yaml
-memory:
-  enabled: true
-  dynamic_recall: true
-  recall_max_tokens: 1024
-  recall_min_score: 0.1
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `enabled` | bool | Enable persistent memory. |
-| `dynamic_recall` | bool | Recall memory each turn based on relevance. |
-| `recall_max_tokens` | int | Token budget for recalled memory per turn. |
-| `recall_min_score` | float | Minimum relevance score (0..1) for a memory entry to be recalled. |
-
-### 15.6 Code Index
+### 15.5 Code Intelligence
 
 See Chapter 12.
 
-### 15.7 Permissions
+### 15.6 Permissions
 
 See Chapter 10.
 
-### 15.8 HTTP Tools and MCP Servers
+### 15.7 MCP Servers
 
 See Chapter 11.
 
-### 15.9 Hooks
+### 15.8 Hooks
 
 All hooks are shell commands receiving JSON context on stdin. Exit 0 = allow, exit 2 = block (stderr is the reason), timeout defaults to 30s.
 
@@ -1195,7 +1090,7 @@ hooks:
 | `before_compact` | map | Execute before context compaction. |
 | `on_stop` | map | Execute when agent would stop. |
 
-### 15.10 Extensions
+### 15.9 Extensions
 
 ```yaml
 extensions:
@@ -1234,14 +1129,12 @@ extensions:
 | `~/.lcoder/observability/sessions/<session-id>.jsonl` | Observability data. |
 | `~/.lcoder/skills/<name>/SKILL.md` | Global skills. |
 | `~/.lcoder/modes/` | Global modes. |
-| `~/.lcoder/memory/{MEMORY,USER}.md` | Global memory files. |
 | `~/.lcoder/extensions/` | Installed process-external extensions. |
 | `<repo>/AGENTS.md` | Project-level agent instructions (searched upward to the git root). |
 | `<repo>/CLAUDE.md` | Project-level Claude Code principles (searched upward to the git root). |
 | `<repo>/LCODER.md` | Project-level Lcoder notes (searched upward to the git root). |
 | `<repo>/.lcoder/skills/<name>/SKILL.md` | Project-level skills. |
 | `<repo>/.lcoder/modes/` | Project-level modes. |
-| `<repo>/.lcoder/memory/{MEMORY,USER}.md` | Project-level memory files. |
 | `<repo>/.lcoder/permissions.yaml` | Project-level permission rules. |
 
 ### 16.3 Common Commands Quick Reference

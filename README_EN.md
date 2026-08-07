@@ -130,7 +130,7 @@ Type these in the input box:
 | **Permission engine** | ✅ 4-tier chain + audit log | Inconsistent |
 | **Observability** | ✅ Prometheus / HTML / SQLite | Rare |
 | **Sub-agents** | ✅ Parallel + swarm mode | Few |
-| **Extensions** | ✅ MCP + HTTP tools + bridges | Mixed MCP support |
+| **Extensions** | ✅ MCP + bridges | Mixed MCP support |
 
 ## Core Capabilities
 
@@ -201,15 +201,6 @@ mcp_servers:
   - name: codegraph
     transport: stdio
     command: ["codegraph", "serve", "--mcp", "--path", "."]
-
-# HTTP tools
-http_tools:
-  - name: deploy
-    endpoint: http://localhost:9001/deploy
-    parameters:
-      type: object
-      properties:
-        service: { type: string }
 ```
 
 ### 🐝 Sub-Agent Swarm

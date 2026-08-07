@@ -224,8 +224,8 @@ func (m *sessionMirror) activeSession() *session.Session {
 // context — not from here, where a missed event would silently leave the
 // session claiming the folded messages are still active.
 func (c *Core) persistFromEvent(_ context.Context, ev events.Event) error {
-	switch ev.(type) {
-	case events.TurnEndEvent, events.AgentEndEvent:
+	switch ev := ev.(type) {
+	case events.TurnEndEvent:
 		sess := c.mirror.activeSession()
 		if sess == nil {
 			return nil
@@ -236,6 +236,16 @@ func (c *Core) persistFromEvent(_ context.Context, ev events.Event) error {
 		// turn boundary — so the session on disk is always at least as new as
 		// any checkpoint, and a crash cannot resurrect a checkpoint whose
 		// messages were never saved.
+		_ = sess.AppendMissing(c.currentRunner().AllMessages())
+		// The usage ledger lands in the same synchronous subscription, right
+		// after the messages it refers to: the ledger is never newer than the
+		// message mirror.
+		c.recordUsageEntry(sess, ev)
+	case events.AgentEndEvent:
+		sess := c.mirror.activeSession()
+		if sess == nil {
+			return nil
+		}
 		_ = sess.AppendMissing(c.currentRunner().AllMessages())
 	}
 	return nil

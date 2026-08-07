@@ -106,4 +106,14 @@ type CoreAPI interface {
 	RestoreCheckpoint(id string) error
 	// ListCheckpoints lists the stored checkpoint entries.
 	ListCheckpoints() ([]CheckpointInfo, error)
+
+	// UsageSummary aggregates the active session's per-turn usage ledger
+	// (implemented by the host from "lcoder/usage" custom entries). It is the
+	// bootstrap query for total-cost display; live increments afterwards come
+	// from events.TurnEndEvent.Usage.
+	UsageSummary() UsageSummary
+	// UsageLedger returns the active session's recorded per-turn usage keyed
+	// by assistant message id, so a UI rebuilding history can attach usage to
+	// each block with one snapshot call instead of per-message queries.
+	UsageLedger() map[string]models.LLMUsage
 }

@@ -15,7 +15,7 @@
 9. [会话与分支](#9-会话与分支)
 10. [安全与权限](#10-安全与权限)
 11. [扩展工具](#11-扩展工具)
-12. [代码索引](#12-代码索引)
+12. [代码智能（MCP / codegraph）](#12-代码智能mcp--codegraph)
 13. [可观测性](#13-可观测性)
 14. [故障排查](#14-故障排查)
 15. [配置字段完整参考](#15-配置字段完整参考)
@@ -32,21 +32,20 @@ Lcoder 是一个用 Go 编写的**极简、可扩展的 SWE（Software Engineeri
 - **进程内 LLM 引擎**：不依赖外部 SDK，直接通过手写 HTTP+SSE 适配器与 OpenAI 兼容端点、Anthropic 端点通信。
 - **多模式 agent**：内置 `code`、`plan`、`explore`、`review`、`test` 等模式，针对编码、设计、探索、评审、测试等场景优化 system prompt。
 - **丰富的工具生态**：
-  - 内置工具：文件读写、编辑、`bash`、代码索引搜索、记忆、子代理等。
-  - HTTP 工具：向任意 POST 端点发送请求。
+  - 内置工具：文件读写、编辑、`bash`、`grep`/`find` 检索、子代理等。
   - MCP 服务器：通过 stdio、SSE、Streamable HTTP 接入 Model Context Protocol 服务器。
 - **终端交互界面（TUI）**：基于 `charmbracelet/bubbletea`，支持消息历史、工具结果折叠/展开、会话选择、扩展面板等。
 - **会话与分支**：会话以 JSONL 形式保存，每条消息记录 `parent_id`，支持从任意消息分叉。
 - **安全默认**：具有破坏性的工具默认需要确认，支持 `allow/ask/deny` 三级权限规则。
 - **可观测性**：自动记录 LLM 调用、token 消耗、工具执行、耗时等指标，支持导出 HTML / SQLite / Prometheus。
-- **代码索引**：可选的 SQLite 持久化代码图索引，支持 Go / TypeScript / JavaScript / Python，可自动注入相关上下文。
+- **代码检索**：内置 `grep`/`find` 文本检索（rg 可用时自动使用 ripgrep，否则纯 Go 回退）。符号/调用图级代码智能不内置，可通过 MCP 接入外部工具（如 codegraph），详见第 12 章。
 
 ### 1.2 适合什么场景
 
 - 日常编码：解释、重构、补全、调试代码。
 - 代码评审：让 agent 针对指定文件给出评审意见。
 - 方案设计：在 `plan` 模式下进行高层架构设计。
-- 自动化工作流：通过 HTTP 工具或 MCP 服务器把 Lcoder 接入 CI/CD、部署、文档生成等流程。
+- 自动化工作流：通过 MCP 服务器把 Lcoder 接入 CI/CD、部署、文档生成等流程。
 - 自定义 agent：基于 Lcoder 的扩展机制编写自己的工具、模式、hook、exporter。
 
 ### 1.3 与类似工具的差异
@@ -54,7 +53,7 @@ Lcoder 是一个用 Go 编写的**极简、可扩展的 SWE（Software Engineeri
 | 维度 | Lcoder | Claude Code / Cursor 等商业工具 |
 |---|---|---|
 | 部署方式 | 本地源码构建，完全自托管 | 通常是闭源客户端或 IDE 插件 |
-| 扩展机制 | 进程外扩展、HTTP 工具、MCP 服务器 | 多由官方提供，扩展受限 |
+| 扩展机制 | 进程外扩展、MCP 服务器 | 多由官方提供，扩展受限 |
 | 模型路由 | 进程内引擎，支持任意 OpenAI 兼容端点 | 通常只支持官方模型 |
 | 会话存储 | JSONL，可手动检查、分叉、备份 | 通常私有存储 |
 | 权限控制 | 细粒度 glob 规则，本地审计日志 | 由产品决定 |
@@ -116,7 +115,7 @@ Lcoder 启动时会按以下顺序加载配置：
 
 ```bash
 mkdir -p ~/.lcoder
-cp configs/lcoder.yaml ~/.lcoder/config.yaml
+cp configs/runtime/lcoder.yaml ~/.lcoder/config.yaml
 ```
 
 ### 3.2 选择模型与 provider
@@ -411,7 +410,6 @@ TUI（Terminal User Interface）是 Lcoder 的默认交互方式，基于 `charm
 
 输入 `/extensions` 或 `/mcp` 打开扩展面板，显示：
 
-- 已配置的 HTTP 工具列表。
 - 已连接的 MCP 服务器及其工具列表。
 - 服务器连接状态。
 
@@ -531,7 +529,7 @@ allowed_tools:
 项目自带一个示例技能：
 
 ```
-configs/skills/security-review/
+configs/prompts/skills/security-review/
 ├── SKILL.md
 └── ...
 ```
@@ -608,9 +606,9 @@ Lcoder 默认以最小权限运行。所有可能破坏代码、文件或系统�
 
 ### 10.1 默认权限规则
 
-Lcoder 内置默认规则倾向于最小权限，但 `configs/lcoder.yaml` 示例将 `write` 和 `edit` 设为 `ask`。建议首次使用时复制 `configs/lcoder.yaml` 作为起点，否则内置默认可能允许更多操作。
+Lcoder 内置默认规则倾向于最小权限，但 `configs/runtime/lcoder.yaml` 示例将 `write` 和 `edit` 设为 `ask`。建议首次使用时复制 `configs/runtime/lcoder.yaml` 作为起点，否则内置默认可能允许更多操作。
 
-示例规则（来自 `configs/lcoder.yaml`）：
+示例规则（来自 `configs/runtime/lcoder.yaml`）：
 
 ```yaml
 permissions:
@@ -715,13 +713,12 @@ rules:
 
 ## 11. 扩展工具
 
-Lcoder 支持三种方式扩展 agent 可用工具：
+Lcoder 支持两种方式扩展 agent 可用工具：
 
-1. **内置工具**：由 Lcoder 自带，如 `read`、`write`、`edit`、`bash`、`memory` 等。其中 `subagent` 仅在配置中启用后才注册。
-2. **HTTP 工具**：通过配置向任意 HTTP 端点暴露工具。
-3. **进程外扩展**：以独立进程运行、通过 stdio JSON-RPC 与宿主通信的扩展，从 `~/.lcoder/extensions/`（全局）或 `.lcoder/extensions/`（项目级）自动发现，目录内需有 `extension.yaml` 清单。
+1. **内置工具**：由 Lcoder 自带，如 `read`、`write`、`edit`、`bash`、`grep`、`find` 等。其中 `subagent` 仅在配置中启用后才注册。
+2. **进程外扩展**：以独立进程运行、通过 stdio JSON-RPC 与宿主通信的扩展，从 `~/.lcoder/extensions/`（全局）或 `.lcoder/extensions/`（项目级）自动发现，目录内需有 `extension.yaml` 清单。
 
-> **注意**：`./lcoder install` 只是把扩展源码安装到 `~/.lcoder/extensions/`，不会自动注册。进程外扩展按上述目录自动发现，无需在 `tool_extensions` 中声明；HTTP 工具直接写 `http_tools` 即可生效。
+> **注意**：`./lcoder install` 只是把扩展源码安装到 `~/.lcoder/extensions/`，不会自动注册。进程外扩展按上述目录自动发现。
 
 ### 启用子代理
 
@@ -745,85 +742,7 @@ subagent:
 - 批量（swarm）：`{agent, prompt_template, items}`——模板里用 `{{item}}` 占位，每个 item 展开成一个子代理（至少 2 个、至多 128 个，展开后 prompt 必须互不相同；有界并发；必须是响应中唯一的工具调用）
 - 后台：`run_in_background: true`，结果自动以提醒形式送达，无需轮询
 
-### 注册扩展
-
-`tool_extensions` 目前仅支持 `type: json`：`path` 指向一个 JSON 描述文件（定义 HTTP 工具的 `name`/`endpoint`/`parameters` 等，与 `http_tools` 等价）：
-
-```yaml
-tool_extensions:
-  - name: weather
-    type: json
-    path: ~/.lcoder/tools/weather.json
-```
-
-进程外扩展不通过 `tool_extensions` 配置，而是从 `~/.lcoder/extensions/`（全局）或 `.lcoder/extensions/`（项目级）自动发现，设计详见 `docs/superpowers/specs/2026-07-24-extension-runtime-design.md`。
-
-### 11.1 HTTP 工具
-
-HTTP 工具会在 agent 需要时向指定端点发送 POST 请求，并把响应作为工具结果返回。
-
-在 `~/.lcoder/config.yaml` 中配置：
-
-```yaml
-http_tools:
-  - name: deploy
-    endpoint: http://localhost:9001/deploy
-    description: Deploy service to staging
-    parameters:
-      type: object
-      properties:
-        service:
-          type: string
-      required: [service]
-    execution_mode: parallel
-    headers:
-      Authorization: Bearer ${DEPLOY_TOKEN}
-```
-
-字段说明：
-
-| 字段 | 说明 |
-|---|---|
-| `name` | 工具在 agent 中的显示名称。 |
-| `endpoint` | POST 请求目标地址。 |
-| `description` | 工具描述，影响 LLM 何时调用它。 |
-| `parameters` | JSON Schema 参数定义。 |
-| `execution_mode` | `parallel` 或 `serial`，决定工具是否可以并行执行。 |
-| `headers` | 自定义请求头，支持 `${VAR}` 环境变量插值。 |
-
-环境变量插值：
-
-```yaml
-headers:
-  Authorization: "Bearer ${DEPLOY_TOKEN}"
-```
-
-启动时，Lcoder 会读取 `DEPLOY_TOKEN` 环境变量并替换。
-
-### 11.2 HTTP 工具端点约定
-
-你的服务端需要接收 POST 请求，请求体为 JSON：
-
-```json
-{
-  "tool_call_id": "call_xxx",
-  "name": "deploy",
-  "arguments": {"service": "api"},
-  "context": {"cwd": "/path/to/project"}
-}
-```
-
-响应体应为 tool 结果格式。最简单的方式是返回一段文本：
-
-```json
-{
-  "content": [{"type": "text", "text": "Deployment started"}]
-}
-```
-
-也支持 `details` 和 `terminate` 字段。
-
-### 11.3 MCP 服务器
+### 11.1 MCP 服务器
 
 MCP（Model Context Protocol）是一种标准化协议，允许 Lcoder 接入外部工具服务器。Lcoder 支持三种传输方式：
 
@@ -868,7 +787,7 @@ mcp_servers:
 | `env` | stdio 模式下传递给子进程的环境变量。 |
 | `timeout` | 连接超时秒数。 |
 
-### 11.4 在 TUI 中管理 MCP
+### 11.2 在 TUI 中管理 MCP
 
 输入 `/mcp` 打开 MCP 管理界面，可查看：
 
@@ -876,7 +795,7 @@ mcp_servers:
 - 服务器提供的工具列表。
 - 重连或关闭指定服务器。
 
-### 11.5 工具超时
+### 11.3 工具超时
 
 对于耗时操作，Lcoder 允许 LLM 控制超时：
 
@@ -1002,9 +921,9 @@ total cost: $0.023456
 
 ### 13.6 配置可观测性
 
-可观测性配置位于 `~/.lcoder/observability.yaml`（或 `configs/observability.yaml` 示例）。可以配置采样率、审计日志、上下文快照等。
+可观测性配置位于 `~/.lcoder/observability.yaml`（或 `configs/runtime/observability.yaml` 示例）。可以配置采样率、审计日志、上下文快照等。
 
-示例见 `configs/observability.yaml`。
+示例见 `configs/runtime/observability.yaml`。
 
 ---
 
@@ -1076,7 +995,7 @@ invalid config: ...
 
 ## 15. 配置字段完整参考
 
-以下是对 `configs/lcoder.yaml` 中所有配置字段的详细说明。
+以下是对 `configs/runtime/lcoder.yaml` 中所有配置字段的详细说明。
 
 ### 15.1 顶层字段
 
@@ -1149,36 +1068,19 @@ context:
 | `compact_threshold` | float | 使用量达到 target_tokens 的多少比例时触发压缩。 |
 | `cache_hint_policy` | string | cache 断点策略：`default`、`aggressive`、`none`。 |
 
-### 15.5 记忆
-
-```yaml
-memory:
-  enabled: true
-  dynamic_recall: true
-  recall_max_tokens: 1024
-  recall_min_score: 0.1
-```
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `enabled` | bool | 是否启用持久化记忆。 |
-| `dynamic_recall` | bool | 是否每轮根据相关性召回记忆。 |
-| `recall_max_tokens` | int | 每轮召回记忆的 token 预算。 |
-| `recall_min_score` | float | 召回记忆的最小相关度分数（0..1）。 |
-
-### 15.6 代码索引
+### 15.5 代码智能
 
 见第 12 章。
 
-### 15.7 权限
+### 15.6 权限
 
 见第 10 章。
 
-### 15.8 HTTP 工具与 MCP 服务器
+### 15.7 MCP 服务器
 
 见第 11 章。
 
-### 15.9 Hooks
+### 15.8 Hooks
 
 所有 hook 都是 shell 命令，通过 stdin 接收 JSON 上下文。退出码 0=允许，2=拒绝（stderr 为拒绝原因），超时默认 30 秒。
 
@@ -1200,7 +1102,7 @@ hooks:
 | `before_compact` | map | 上下文压缩前执行。 |
 | `on_stop` | map | agent 停止时执行。 |
 
-### 15.10 扩展
+### 15.9 扩展
 
 ```yaml
 extensions:
@@ -1239,14 +1141,12 @@ extensions:
 | `~/.lcoder/observability/sessions/<session-id>.jsonl` | 可观测数据。 |
 | `~/.lcoder/skills/<name>/SKILL.md` | 全局技能。 |
 | `~/.lcoder/modes/` | 全局模式目录。 |
-| `~/.lcoder/memory/{MEMORY,USER}.md` | 全局记忆文件。 |
 | `~/.lcoder/extensions/` | 已安装的进程外扩展。 |
 | `<repo>/AGENTS.md` | 项目级 agent 说明（从当前目录向上搜索到 git 根）。 |
 | `<repo>/CLAUDE.md` | 项目级 Claude Code 原则（搜索方式同上）。 |
 | `<repo>/LCODER.md` | 项目级 Lcoder 说明（搜索方式同上）。 |
 | `<repo>/.lcoder/modes/` | 项目级模式目录。 |
 | `<repo>/.lcoder/skills/<name>/SKILL.md` | 项目级技能。 |
-| `<repo>/.lcoder/memory/{MEMORY,USER}.md` | 项目级记忆文件。 |
 | `<repo>/.lcoder/permissions.yaml` | 项目级权限规则。 |
 
 ### 16.3 常用命令速查

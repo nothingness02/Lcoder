@@ -548,6 +548,7 @@ func (s *Server) snapshot() stateSnapshot {
 		Goal:         wireGoal(s.core.Goal()),
 		Tasks:        wire,
 		ContextStats: s.core.ContextStats(),
+		UsageSummary: s.core.UsageSummary(),
 		Capabilities: s.opts.Capabilities,
 		Messages:     msgs,
 	}

@@ -288,6 +288,7 @@ func TestGetStateSnapshot(t *testing.T) {
 	core.Messages = []models.AgentMessage{models.UserMessage("hi")}
 	core.TasksVal = []task.Task{{Text: "do x", Status: task.StatusPending}}
 	core.GoalVal = &agentapi.GoalState{Objective: "obj", Status: agentapi.GoalPaused, TurnBudget: 5, TurnsUsed: 2}
+	core.UsageSummaryVal = agentapi.UsageSummary{Turns: 2, TotalCost: 0.0042, PromptTokens: 1530, CompletionTokens: 220}
 	f := newFixture(t, core, events.New(), Options{
 		Model:        models.ModelRef{Provider: "openai", ID: "gpt-4o"},
 		Capabilities: []string{"tools"},
@@ -319,6 +320,11 @@ func TestGetStateSnapshot(t *testing.T) {
 	}
 	if data["context_stats"].(map[string]any)["total"].(float64) != 42 {
 		t.Fatalf("snapshot context_stats = %v", data["context_stats"])
+	}
+	usage := data["usage_summary"].(map[string]any)
+	if usage["turns"].(float64) != 2 || usage["total_cost"].(float64) != 0.0042 ||
+		usage["prompt_tokens"].(float64) != 1530 || usage["completion_tokens"].(float64) != 220 {
+		t.Fatalf("snapshot usage_summary = %v", usage)
 	}
 	msgs := data["messages"].([]any)
 	if len(msgs) != 1 {

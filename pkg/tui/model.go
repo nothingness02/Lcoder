@@ -70,7 +70,11 @@ type Model struct {
 	streamLive         string
 	streamLiveThinking string
 	streamMsgID        string
-	turnTools          []toolResultEntry
+	// turnAssistantID is the block id the current turn's assistant message was
+	// committed under (MessageEnd). TurnEnd uses it to attach the usage when
+	// the provider finalized the message under a different id.
+	turnAssistantID string
+	turnTools       []toolResultEntry
 
 	// sched coalesces stream-driven viewport rebuilds; rebuilds counts actual
 	// rebuildViewport executions (acceptance probe for the frame scheduler).
@@ -247,11 +251,15 @@ func NewModel(core AgentCore, services host.Services, display DisplayConfig) *Mo
 	}
 	// Restore the display from the agent's already-loaded context window so a
 	// session reloaded at startup shows its prior conversation (and task
-	// sidebar), matching what /sessions does via openSessionByID.
+	// sidebar), matching what /sessions does via openSessionByID. Assistant
+	// blocks get their usage footer from the host's ledger snapshot, and the
+	// status-line total cost is seeded from its aggregate; afterwards each
+	// TurnEnd event adds its own increment.
 	if msgs := core.AllMessages(); len(msgs) > 0 {
-		m.blocks = blocksFromMessages(msgs)
+		m.blocks = blocksFromMessages(msgs, core.UsageLedger())
 		m.components = componentsFromBlocks(m.blocks)
 	}
+	m.totalCost = core.UsageSummary().TotalCost
 	m.fileSuggester = newFileSuggester(display.CWD)
 	m.fileSuggester.EnsureStarted() // prewarm: first @ usually hits a warm index
 	// Subscribe before seeding from the core so no snapshot event (goal, task

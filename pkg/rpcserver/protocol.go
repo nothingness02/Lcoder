@@ -157,6 +157,10 @@ type stateSnapshot struct {
 	Goal         *agentapi.GoalState   `json:"goal"`
 	Tasks        []taskWire            `json:"tasks"`
 	ContextStats agentapi.ContextStats `json:"context_stats"`
+	// UsageSummary is the active session's aggregate usage/cost accounting
+	// (CoreAPI.UsageSummary); live increments afterwards arrive as the usage
+	// field of turn_end events.
+	UsageSummary agentapi.UsageSummary `json:"usage_summary"`
 	// Capabilities lists the model's declared capabilities when known.
 	Capabilities []string `json:"capabilities,omitempty"`
 	// Messages is the full conversation (agentapi.CoreAPI.AllMessages).

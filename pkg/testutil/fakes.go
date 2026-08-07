@@ -77,6 +77,15 @@ type FakeAgent struct {
 	RestoredCheckpoint string
 	RestoreMsgs        []models.AgentMessage
 	RestoreErr         error
+
+	// UsageSummaryVal is returned by UsageSummary; UsageLedgerVal by
+	// UsageLedger. SessionUsage/SessionLedger, when non-nil, program the
+	// per-session values OpenSession swaps in (mirroring the host, where the
+	// ledger is a property of the session, not the core).
+	UsageSummaryVal agentapi.UsageSummary
+	UsageLedgerVal  map[string]models.LLMUsage
+	SessionUsage    map[string]agentapi.UsageSummary
+	SessionLedger   map[string]map[string]models.LLMUsage
 }
 
 var _ agentapi.CoreAPI = (*FakeAgent)(nil)
@@ -189,6 +198,12 @@ func (f *FakeAgent) OpenSession(id string) error {
 	f.Messages = msgs
 	f.SessionIDVal = id
 	f.TasksVal = tasksFromMessages(msgs)
+	if f.SessionUsage != nil {
+		f.UsageSummaryVal = f.SessionUsage[id]
+	}
+	if f.SessionLedger != nil {
+		f.UsageLedgerVal = f.SessionLedger[id]
+	}
 	return nil
 }
 
@@ -202,6 +217,8 @@ func (f *FakeAgent) NewSession() error {
 	f.NewSessionCount++
 	f.Messages = nil
 	f.TasksVal = nil
+	f.UsageSummaryVal = agentapi.UsageSummary{}
+	f.UsageLedgerVal = nil
 	f.SessionIDVal = fmt.Sprintf("fake-new-%d", f.NewSessionCount)
 	return nil
 }
@@ -363,6 +380,20 @@ func (f *FakeAgent) ListCheckpoints() ([]agentapi.CheckpointInfo, error) {
 		infos = append(infos, agentapi.CheckpointInfo{ID: id})
 	}
 	return infos, nil
+}
+
+// UsageSummary returns the programmed usage aggregate.
+func (f *FakeAgent) UsageSummary() agentapi.UsageSummary {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.UsageSummaryVal
+}
+
+// UsageLedger returns the programmed per-message usage map.
+func (f *FakeAgent) UsageLedger() map[string]models.LLMUsage {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.UsageLedgerVal
 }
 
 // tasksFromMessages rebuilds the task list from history by finding the most

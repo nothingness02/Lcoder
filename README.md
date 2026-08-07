@@ -142,7 +142,7 @@ Lcoder 的终端界面围绕"对话即编程"设计。输入自然语言描述�
 | **权限引擎** | ✅ 四级决策链 + 审计日志 | 参差不齐 |
 | **可观测性** | ✅ Prometheus / HTML / SQLite | 多数无内建 |
 | **子 Agent** | ✅ 并行 + swarm 集群模式 | 少数支持 |
-| **扩展系统** | ✅ MCP + HTTP 工具 + 扩展桥 | MCP 支持不一 |
+| **扩展系统** | ✅ MCP + 扩展桥 | MCP 支持不一 |
 
 ## 核心能力
 
@@ -213,15 +213,6 @@ mcp_servers:
   - name: codegraph
     transport: stdio
     command: ["codegraph", "serve", "--mcp", "--path", "."]
-
-# HTTP 工具
-http_tools:
-  - name: deploy
-    endpoint: http://localhost:9001/deploy
-    parameters:
-      type: object
-      properties:
-        service: { type: string }
 ```
 
 ### 🐝 子 Agent 集群
@@ -262,7 +253,6 @@ Lcoder 单二进制
 ├── 工具系统
 │   ├── 内置工具             read write edit bash ls grep find
 │   ├── MCP 客户端           stdio / SSE / Streamable HTTP
-│   ├── HTTP 工具            自定义 REST 端点
 │   └── 扩展桥              子进程通信
 └── 可观测性                 JSONL / Prometheus / HTML / SQLite
 ```

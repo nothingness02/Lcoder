@@ -9,7 +9,7 @@
 | 在 agent 说完后自动继续 | shell hook: `on_stop` |
 | 注入领域知识（代码规范、设计模式） | 技能 (Skill) |
 | 限制 agent 只能用只读工具 | 模式 (Mode) |
-| 接入外部 API 作为工具 | HTTP 工具 或 MCP |
+| 接入外部 API 作为工具 | MCP |
 | 接入代码智能（codegraph） | MCP |
 | 实时监控 agent 活动（事件通知） | 扩展 (Extension) |
 | 添加自定义 TUI 斜杠命令 | 扩展 (Extension) |
@@ -24,9 +24,8 @@
 | [Shell Hook](#1-shell-hook) | YAML 命令 | ★ | 工具调用前后执行脚本 |
 | [技能 (Skills)](#2-技能-skills) | Markdown | ★ | 注入领域知识 |
 | [模式 (Modes)](#3-自定模式-modes) | YAML | ★ | 限定工具集 + prompt |
-| [HTTP 工具](#4-http-工具) | YAML | ★★ | REST 端点作为工具 |
-| [MCP 服务器](#5-mcp-服务器) | 外部进程 | ★★ | 任意自定义工具 |
-| [扩展 (Extensions)](#6-扩展-extensions) | JSON-RPC | ★★★ | 高级：状态保持、事件 |
+| [MCP 服务器](#4-mcp-服务器) | 外部进程 | ★★ | 任意自定义工具 |
+| [扩展 (Extensions)](#5-扩展-extensions) | JSON-RPC | ★★★ | 高级：状态保持、事件 |
 
 ---
 
@@ -165,35 +164,7 @@ require_approval_to_exit: true
 
 ---
 
-## 4. HTTP 工具
-
-在 `~/.lcoder/config.yaml` 中声明 REST 端点作为 agent 工具。
-
-```yaml
-http_tools:
-  - name: deploy
-    endpoint: http://localhost:9001/deploy
-    description: 部署到预发布
-    parameters:
-      type: object
-      properties:
-        service: { type: string }
-      required: [service]
-    headers:
-      Authorization: Bearer ${DEPLOY_TOKEN}
-```
-
-| 字段 | 说明 |
-|------|------|
-| `name` | 工具名 |
-| `endpoint` | HTTP POST 地址 |
-| `parameters` | JSON Schema |
-| `execution_mode` | `parallel` / `sequential` |
-| `headers` | 请求头，支持 `${ENV}` |
-
----
-
-## 5. MCP 服务器
+## 4. MCP 服务器
 
 通过 Model Context Protocol 接入外部工具。
 
@@ -221,7 +192,7 @@ mcp_servers:
 
 ---
 
-## 6. 扩展 (Extensions)
+## 5. 扩展 (Extensions)
 
 > Shell hook 覆盖 90% 的拦截/修改场景。扩展用于 shell hook 做不到的事：**事件订阅、自定义命令、会话数据持久化**。
 >

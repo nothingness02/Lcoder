@@ -1074,12 +1074,15 @@ func (m *Model) openSessionByID(id string) {
 // and checkpoint restore.
 func (m *Model) reloadFromCore() {
 	msgs := m.agent.AllMessages()
-	m.blocks = blocksFromMessages(msgs)
+	m.blocks = blocksFromMessages(msgs, m.agent.UsageLedger())
 	m.components = componentsFromBlocks(m.blocks)
 	m.tasks = m.agent.Tasks()
 	// Re-seed the goal copy from the core instead of assuming the host clears
 	// it on session switches; GoalUpdatedEvent keeps it current from here.
 	m.goal = m.agent.Goal()
+	// The cost total is a per-session figure: re-read the new session's
+	// ledger aggregate rather than carrying over the previous session's.
+	m.totalCost = m.agent.UsageSummary().TotalCost
 	m.history = newInputHistory()
 	m.suggestion = ""
 	m.errMsg = ""

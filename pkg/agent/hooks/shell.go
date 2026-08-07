@@ -20,7 +20,6 @@ import (
 const defaultShellHookTimeout = 30 * time.Second
 
 // shellHookInput is the JSON payload sent to a shell hook via stdin.
-// Matches Kimi Code's hook input convention.
 type shellHookInput struct {
 	HookEvent    string         `json:"hook_event"`
 	ToolName     string         `json:"tool_name,omitempty"`

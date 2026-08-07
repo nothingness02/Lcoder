@@ -77,7 +77,10 @@ func (m *Model) handleEvent(ev events.Event) tea.Cmd {
 			if id == "" {
 				id = e.Message.ID
 			}
-			m.commitAssistant(id, final, thinking, usagePtr(e.Message))
+			// Usage is not known yet at MessageEnd — it arrives with the turn's
+			// TurnEndEvent, which patches the committed block (applyTurnUsage).
+			m.commitAssistant(id, final, thinking, nil)
+			m.turnAssistantID = id
 			m.streaming = false
 			m.streamLive = ""
 			m.streamLiveThinking = ""
@@ -110,6 +113,12 @@ func (m *Model) handleEvent(ev events.Event) tea.Cmd {
 		if len(m.turnTools) > 0 {
 			m.addSystem(formatToolSummary(m.turnTools))
 			m.turnTools = m.turnTools[:0]
+		}
+		// The turn's provider usage arrives here (after the assistant block
+		// was committed at MessageEnd): patch the block and accumulate the
+		// status-line total cost.
+		if usage := blockUsageFromLLM(e.Usage); usage != nil {
+			m.applyTurnUsage(e.Message.ID, usage)
 		}
 
 	case events.AgentEndEvent:
@@ -378,6 +387,32 @@ func (m *Model) commitAssistant(id, content, thinking string, usage *blockUsage)
 	}
 }
 
+// applyTurnUsage attaches a turn's usage to its assistant block and
+// accumulates the status-line total cost. The block was committed at
+// MessageEnd, before the usage was known; the TurnEnd message id usually
+// matches, but a provider that finalized under a different id is caught by
+// the turnAssistantID fallback recorded at commit time. When no block matches
+// (should not happen in a normal event stream) the cost is still accumulated
+// so the status line stays consistent with the host's ledger.
+func (m *Model) applyTurnUsage(msgID string, usage *blockUsage) {
+	defer func() { m.turnAssistantID = "" }()
+	for _, id := range []string{msgID, m.turnAssistantID} {
+		if id == "" {
+			continue
+		}
+		for i := len(m.blocks) - 1; i >= 0; i-- {
+			if m.blocks[i].kind == components.BlockAssistant && m.blocks[i].id == id {
+				m.blocks[i].usage = usage
+				m.totalCost += usage.cost
+				m.components[i] = toComponent(m.blocks[i])
+				m.rebuildViewport()
+				return
+			}
+		}
+	}
+	m.totalCost += usage.cost
+}
+
 // finishTool patches the tool block identified by id with its result.
 func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, isError bool) {
 	text := result.Text()
@@ -403,7 +438,10 @@ func (m *Model) finishTool(id, name string, result models.ToolExecutionResult, i
 }
 
 // blocksFromMessages rebuilds the block history from a stored conversation.
-func blocksFromMessages(msgs []models.AgentMessage) []block {
+// ledger maps assistant message ids to their recorded usage (the host's
+// UsageLedger snapshot); messages without a ledger entry render without a
+// usage footer.
+func blocksFromMessages(msgs []models.AgentMessage, ledger map[string]models.LLMUsage) []block {
 	var out []block
 	// Map tool-call ID to the index of its BlockTool so a later RoleToolResult
 	// can be merged into the same visual row.
@@ -425,7 +463,7 @@ func blocksFromMessages(msgs []models.AgentMessage) []block {
 				id:           msg.ID,
 				raw:          msg.Text(),
 				thinking:     msg.Thinking(),
-				usage:        usagePtr(msg),
+				usage:        blockUsageFromLLM(ledger[msg.ID]),
 				thinkingSecs: secs,
 			})
 			for _, tc := range msg.ToolCalls() {
@@ -476,23 +514,11 @@ func extractToolResult(msg models.AgentMessage) (toolCallID, name, resultText st
 
 // --- Relocated helpers (VERIFIED against pkg/models/message.go + old model.go) ---
 
-// extractUsage pulls LLMUsage from the message metadata.
-func extractUsage(msg models.AgentMessage) (models.LLMUsage, bool) {
-	if msg.Metadata == nil {
-		return models.LLMUsage{}, false
-	}
-	v, ok := msg.Metadata["usage"]
-	if !ok {
-		return models.LLMUsage{}, false
-	}
-	u, ok := v.(models.LLMUsage)
-	return u, ok
-}
-
-// usagePtr adapts extractUsage into the *blockUsage the block renderer wants.
-func usagePtr(msg models.AgentMessage) *blockUsage {
-	u, ok := extractUsage(msg)
-	if !ok {
+// blockUsageFromLLM adapts a provider usage report into the *blockUsage the
+// block renderer wants. A report with no tokens and no cost (a provider that
+// did not report usage) renders as no usage footer at all.
+func blockUsageFromLLM(u models.LLMUsage) *blockUsage {
+	if u.PromptTokens == 0 && u.CompletionTokens == 0 && u.TotalTokens == 0 && u.TotalCost == 0 {
 		return nil
 	}
 	return &blockUsage{

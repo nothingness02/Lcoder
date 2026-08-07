@@ -57,3 +57,18 @@ type ContextStats struct {
 type CheckpointInfo struct {
 	ID string `json:"id"`
 }
+
+// UsageSummary is the aggregate of the active session's per-turn usage ledger
+// (the host's "lcoder/usage" custom entries). It backs the status-line total
+// cost and follows branch semantics: turns abandoned by /retry stay on their
+// old branch and are not counted here.
+type UsageSummary struct {
+	// Turns is the number of ledger entries (turn boundaries with a usage
+	// record, including zero-usage ones).
+	Turns            int     `json:"turns"`
+	TotalCost        float64 `json:"total_cost"`
+	PromptTokens     int     `json:"prompt_tokens"`
+	CompletionTokens int     `json:"completion_tokens"`
+	CacheReadTokens  int     `json:"cache_read_tokens"`
+	CacheWriteTokens int     `json:"cache_write_tokens"`
+}
